@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/architecture.mk
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+# provide custom lame.pc
+export PKG_CONFIG_PATH=$(CURDIR)/debian/pkgconfig
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	sed 's/@DEB_HOST_MULTIARCH@/${DEB_HOST_MULTIARCH}/' debian/pkgconfig/lame.pc.in > debian/pkgconfig/lame.pc
+	dh_auto_configure -- \
+		-DCMAKE_INSTALL_LIBDIR=lib \
+		-Daudacity_use_sbsms=off \
+		-Daudacity_use_ffmpeg=linked
+
+# tests fails with system portaudio
+override_dh_auto_test:
+
+execute_after_dh_auto_install:
+	# Move appdata to metainfo
+	mv debian/tmp/usr/share/appdata/ debian/tmp/usr/share/metainfo/
+	# Don't package unnecessary copy of GPL
+	rm debian/tmp/usr/share/doc/audacity/LICENSE.txt
+	# Move indep plugins to usr/share
+	mkdir -p debian/tmp/usr/share/audacity
+	mv debian/tmp/usr/lib/audacity/nyquist debian/tmp/usr/lib/audacity/plug-ins debian/tmp/usr/share/audacity

@@ -1,0 +1,7 @@
+0001-Add-keywords-to-desktop-file.patch
+0002-PATCH-Fix-building-against-the-system-portaudio-libr.patch
+0003-cmake-relax-versions-for-mad-and-libid3tag.patch
+0004-cmake-use-system-portaudio.patch
+0005-Install-plugins-in-usr-lib.patch
+0006-Fix_CVE-2020-11867.patch
+0007-Playback_cursor_workaround.patch

@@ -1,0 +1,18 @@
+Description: The playback cursor doesn't move with wayland.
+ As a workaround we use X11 to start audacity.
+Author: Dennis Braun <d_braun@kabelmail.de>
+Forwarded: not-needed
+
+Index: audacity/src/audacity.desktop.in
+===================================================================
+--- audacity.orig/src/audacity.desktop.in
++++ audacity/src/audacity.desktop.in
+@@ -48,7 +48,7 @@ Icon=@AUDACITY_NAME@
+ Type=Application
+ Categories=AudioVideo;Audio;AudioVideoEditing;
+ 
+-Exec=env UBUNTU_MENUPROXY=0 @AUDACITY_NAME@ %F
++Exec=env UBUNTU_MENUPROXY=0 GDK_BACKEND=x11 @AUDACITY_NAME@ %F
+ StartupNotify=false
+ Terminal=false
+ MimeType=application/x-audacity-project;@MIMETYPES@

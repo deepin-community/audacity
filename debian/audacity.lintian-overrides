@@ -1,0 +1,3 @@
+# false positive
+desktop-command-not-in-package usr/share/applications/audacity.desktop env
+spelling-error-in-binary usr/bin/audacity addd add
