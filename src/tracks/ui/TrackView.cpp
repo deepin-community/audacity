@@ -9,12 +9,12 @@ Paul Licameli split from TrackPanel.cpp
 **********************************************************************/
 
 #include "TrackView.h"
-#include "../../Track.h"
+#include "Track.h"
 
-#include "../../ClientData.h"
-#include "../../Project.h"
-#include "../../xml/XMLTagHandler.h"
-#include "../../xml/XMLWriter.h"
+#include "ClientData.h"
+#include "Project.h"
+#include "XMLTagHandler.h"
+#include "XMLWriter.h"
 
 TrackView::TrackView( const std::shared_ptr<Track> &pTrack )
    : CommonTrackCell{ pTrack }
@@ -41,7 +41,7 @@ int TrackView::GetCumulativeHeight( const Track *pTrack )
    if ( !pTrack )
       return 0;
    auto &view = Get( *pTrack );
-   return view.GetY() + view.GetHeight();
+   return view.GetCumulativeHeightBefore() + view.GetHeight();
 }
 
 int TrackView::GetTotalHeight( const TrackList &list )
@@ -60,18 +60,34 @@ void TrackView::CopyTo( Track &track ) const
    other.mHeight = mHeight;
 }
 
+static const AttachedTrackObjects::RegisteredFactory key{
+   []( Track &track ){
+      return DoGetView::Call( track );
+   }
+};
+
 TrackView &TrackView::Get( Track &track )
 {
-   auto pView = std::static_pointer_cast<TrackView>( track.GetTrackView() );
-   if (!pView)
-      // create on demand
-      track.SetTrackView( pView = DoGetView::Call( track ) );
-   return *pView;
+   return track.AttachedObjects::Get< TrackView >( key );
 }
 
 const TrackView &TrackView::Get( const Track &track )
 {
-   return Get( const_cast< Track& >( track ) );
+   return Get( const_cast< Track & >( track ) );
+}
+
+TrackView *TrackView::Find( Track *pTrack )
+{
+   if (!pTrack)
+      return nullptr;
+   auto &track = *pTrack;
+   // do not create on demand if it is null
+   return track.AttachedObjects::Find< TrackView >( key );
+}
+
+const TrackView *TrackView::Find( const Track *pTrack )
+{
+   return Find( const_cast< Track* >( pTrack ) );
 }
 
 void TrackView::SetMinimized(bool isMinimized)
@@ -87,21 +103,24 @@ void TrackView::SetMinimized(bool isMinimized)
 
 void TrackView::WriteXMLAttributes( XMLWriter &xmlFile ) const
 {
-   xmlFile.WriteAttr(wxT("height"), GetActualHeight());
+   xmlFile.WriteAttr(wxT("height"), GetExpandedHeight());
    xmlFile.WriteAttr(wxT("minimized"), GetMinimized());
 }
 
-bool TrackView::HandleXMLAttribute( const wxChar *attr, const wxChar *value )
+bool TrackView::HandleXMLAttribute(
+   const std::string_view& attr, const XMLAttributeValueView& valueView)
 {
-   wxString strValue( value );
    long nValue;
-   if (!wxStrcmp(attr, wxT("height")) &&
-         XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue)) {
-      SetHeight(nValue);
+
+   if (attr == "height" && valueView.TryGet(nValue)) {
+      // Bug 2803: Extreme values for track height (caused by integer overflow)
+      // will stall Audacity as it tries to create an enormous vertical ruler.
+      // So clamp to reasonable values.
+      nValue = std::max( 40l, std::min( nValue, 1000l ));
+      SetExpandedHeight(nValue);
       return true;
    }
-   else if (!wxStrcmp(attr, wxT("minimized")) &&
-         XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue)) {
+   else if ( attr == "minimized" && valueView.TryGet(nValue)) {
       SetMinimized(nValue != 0);
       return true;
    }
@@ -150,7 +169,7 @@ int TrackView::GetHeight() const
    return mHeight;
 }
 
-void TrackView::SetHeight(int h)
+void TrackView::SetExpandedHeight(int h)
 {
    DoSetHeight(h);
    FindTrack()->AdjustPositions();
@@ -161,33 +180,41 @@ void TrackView::DoSetHeight(int h)
    mHeight = h;
 }
 
+std::shared_ptr<CommonTrackCell> TrackView::GetAffordanceControls()
+{
+   return {};
+}
+
 namespace {
 
-// Attach an object to each project.  It receives track list events and updates
-// track Y coordinates
-struct TrackPositioner final : ClientData::Base, wxEvtHandler
+/*!
+ Attached to each project, it receives track list events and maintains the
+ cache of cumulative track view heights for use by TrackPanel.
+ */
+struct TrackPositioner final : ClientData::Base
 {
    AudacityProject &mProject;
 
    explicit TrackPositioner( AudacityProject &project )
       : mProject{ project }
    {
-      TrackList::Get( project ).Bind(
-         EVT_TRACKLIST_ADDITION, &TrackPositioner::OnUpdate, this );
-      TrackList::Get( project ).Bind(
-         EVT_TRACKLIST_DELETION, &TrackPositioner::OnUpdate, this );
-      TrackList::Get( project ).Bind(
-         EVT_TRACKLIST_PERMUTED, &TrackPositioner::OnUpdate, this );
-      TrackList::Get( project ).Bind(
-         EVT_TRACKLIST_RESIZING, &TrackPositioner::OnUpdate, this );
+      mSubscription = TrackList::Get( project )
+         .Subscribe(*this, &TrackPositioner::OnUpdate);
    }
    TrackPositioner( const TrackPositioner & ) PROHIBITED;
    TrackPositioner &operator=( const TrackPositioner & ) PROHIBITED;
 
-   void OnUpdate( TrackListEvent & e )
+   void OnUpdate(const TrackListEvent & e)
    {
-      e.Skip();
-
+      switch (e.mType) {
+      case TrackListEvent::ADDITION:
+      case TrackListEvent::DELETION:
+      case TrackListEvent::PERMUTED:
+      case TrackListEvent::RESIZING:
+         break;
+      default:
+         return;
+      }
       auto iter =
          TrackList::Get( mProject ).Find( e.mpTrack.lock().get() );
       if ( !*iter )
@@ -198,11 +225,13 @@ struct TrackPositioner final : ClientData::Base, wxEvtHandler
 
       while( auto pTrack = *iter ) {
          auto &view = TrackView::Get( *pTrack );
-         view.SetY( yy );
+         view.SetCumulativeHeightBefore( yy );
          yy += view.GetHeight();
          ++iter;
       }
    }
+
+   Observer::Subscription mSubscription;
 };
 
 static const AudacityProject::AttachedObjects::RegisteredFactory key{
@@ -213,12 +242,10 @@ static const AudacityProject::AttachedObjects::RegisteredFactory key{
 
 }
 
-template<> auto DoGetView::Implementation() -> Function {
+DEFINE_ATTACHED_VIRTUAL(DoGetView) {
    return nullptr;
 }
-static DoGetView registerDoGetView;
 
-template<> auto GetDefaultTrackHeight::Implementation() -> Function {
+DEFINE_ATTACHED_VIRTUAL(GetDefaultTrackHeight) {
    return nullptr;
 }
-static GetDefaultTrackHeight registerGetDefaultTrackHeight;

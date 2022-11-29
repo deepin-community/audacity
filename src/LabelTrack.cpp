@@ -28,25 +28,21 @@ for drawing different aspects of the label and its text box.
 
 *//*******************************************************************/
 
-#include "Audacity.h" // for HAVE_GTK
+
 #include "LabelTrack.h"
 
-#include "tracks/ui/TrackView.h"
-#include "tracks/ui/TrackControls.h"
-
-#include "Experimental.h"
-
-#include <stdio.h>
 #include <algorithm>
 #include <limits.h>
 #include <float.h>
 
+#include <wx/log.h>
 #include <wx/tokenzr.h>
 
 #include "Prefs.h"
-#include "ProjectFileIORegistry.h"
+#include "Project.h"
+#include "prefs/ImportExportPrefs.h"
 
-#include "effects/TimeWarper.h"
+#include "TimeWarper.h"
 #include "widgets/AudacityMessageBox.h"
 
 wxDEFINE_EVENT(EVT_LABELTRACK_ADDITION, LabelTrackEvent);
@@ -54,40 +50,114 @@ wxDEFINE_EVENT(EVT_LABELTRACK_DELETION, LabelTrackEvent);
 wxDEFINE_EVENT(EVT_LABELTRACK_PERMUTED, LabelTrackEvent);
 wxDEFINE_EVENT(EVT_LABELTRACK_SELECTION, LabelTrackEvent);
 
-static ProjectFileIORegistry::Entry registerFactory{
-   wxT( "labeltrack" ),
-   []( AudacityProject &project ){
-      auto &trackFactory = TrackFactory::Get( project );
-      auto &tracks = TrackList::Get( project );
-      auto result = tracks.Add(trackFactory.NewLabelTrack());
-      TrackView::Get( *result );
-      TrackControls::Get( *result );
-      return result;
-   }
+static ProjectFileIORegistry::ObjectReaderEntry readerEntry{
+   "labeltrack",
+   LabelTrack::New
 };
 
-LabelTrack::Holder TrackFactory::NewLabelTrack()
+wxString LabelTrack::GetDefaultName()
 {
-   return std::make_shared<LabelTrack>(mDirManager);
+   return _("Labels");
 }
 
-LabelTrack::LabelTrack(const std::shared_ptr<DirManager> &projDirManager):
-   Track(projDirManager),
+LabelTrack *LabelTrack::New( AudacityProject &project )
+{
+   auto &tracks = TrackList::Get( project );
+   auto result = tracks.Add(std::make_shared<LabelTrack>());
+   result->AttachedTrackObjects::BuildAll();
+   return result;
+}
+
+LabelTrack* LabelTrack::Create(TrackList& trackList, const wxString& name)
+{
+   auto track = std::make_shared<LabelTrack>();
+   track->SetName(name);
+   trackList.Add(track);
+   return track.get();
+}
+
+LabelTrack* LabelTrack::Create(TrackList& trackList)
+{
+   return Create(trackList, trackList.MakeUniqueTrackName(GetDefaultName()));
+}
+
+LabelTrack::LabelTrack():
+   Track(),
    mClipLen(0.0),
    miLastLabel(-1)
 {
-   SetDefaultName(_("Label Track"));
-   SetName(GetDefaultName());
 }
 
-LabelTrack::LabelTrack(const LabelTrack &orig) :
-   Track(orig),
-   mClipLen(0.0)
+LabelTrack::LabelTrack(const LabelTrack &orig, ProtectedCreationArg &&a)
+   : Track(orig, std::move(a))
+   , mClipLen(0.0)
 {
    for (auto &original: orig.mLabels) {
       LabelStruct l { original.selectedRegion, original.title };
       mLabels.push_back(l);
    }
+}
+
+static const Track::TypeInfo &typeInfo()
+{
+   static Track::TypeInfo info{
+      { "label", "label", XO("Label Track") }, true, &Track::ClassTypeInfo() };
+   return info;
+}
+
+auto LabelTrack::GetTypeInfo() const -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+auto LabelTrack::ClassTypeInfo() -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+Track::Holder LabelTrack::PasteInto( AudacityProject & ) const
+{
+   auto pNewTrack = std::make_shared<LabelTrack>();
+   pNewTrack->Init(*this);
+   pNewTrack->Paste(0.0, this);
+   return pNewTrack;
+}
+
+template<typename IntervalType>
+static IntervalType DoMakeInterval(const LabelStruct &label, size_t index)
+{
+   return {
+      label.getT0(), label.getT1(),
+      std::make_unique<LabelTrack::IntervalData>( index ) };
+}
+
+auto LabelTrack::MakeInterval( size_t index ) const -> ConstInterval
+{
+   return DoMakeInterval<ConstInterval>(mLabels[index], index);
+}
+
+auto LabelTrack::MakeInterval( size_t index ) -> Interval
+{
+   return DoMakeInterval<Interval>(mLabels[index], index);
+}
+
+template< typename Container, typename LabelTrack >
+static Container DoMakeIntervals(LabelTrack &track)
+{
+   Container result;
+   for (size_t ii = 0, nn = track.GetNumLabels(); ii < nn; ++ii)
+      result.emplace_back( track.MakeInterval( ii ) );
+   return result;
+}
+
+auto LabelTrack::GetIntervals() const -> ConstIntervals
+{
+   return DoMakeIntervals<ConstIntervals>(*this);
+}
+
+auto LabelTrack::GetIntervals() -> Intervals
+{
+   return DoMakeIntervals<Intervals>(*this);
 }
 
 void LabelTrack::SetLabel( size_t iLabel, const LabelStruct &newLabel )
@@ -299,7 +369,9 @@ double LabelTrack::GetEndTime() const
 
 Track::Holder LabelTrack::Clone() const
 {
-   return std::make_shared<LabelTrack>( *this );
+   auto result = std::make_shared<LabelTrack>(*this, ProtectedCreationArg{});
+   result->Init(*this);
+   return result;
 }
 
 // Adjust label's left or right boundary, depending which is requested.
@@ -412,8 +484,9 @@ void LabelStruct::Export(wxTextFile &file) const
    // Do we need more lines?
    auto f0 = selectedRegion.f0();
    auto f1 = selectedRegion.f1();
-   if (f0 == SelectedRegion::UndefinedFrequency &&
-       f1 == SelectedRegion::UndefinedFrequency)
+   if ((f0 == SelectedRegion::UndefinedFrequency &&
+      f1 == SelectedRegion::UndefinedFrequency) ||
+      ImportExportPrefs::LabelStyleSetting.ReadEnum())
       return;
 
    // Write a \ character at the start of a second line,
@@ -525,33 +598,25 @@ void LabelTrack::Import(wxTextFile & in)
    SortLabels();
 }
 
-bool LabelTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
+bool LabelTrack::HandleXMLTag(const std::string_view& tag, const AttributesList &attrs)
 {
-   if (!wxStrcmp(tag, wxT("label"))) {
+   if (tag == "label") {
 
       SelectedRegion selectedRegion;
       wxString title;
 
       // loop through attrs, which is a null-terminated list of
       // attribute-value pairs
-      while(*attrs) {
-         const wxChar *attr = *attrs++;
-         const wxChar *value = *attrs++;
+      for (auto pair : attrs)
+      {
+         auto attr = pair.first;
+         auto value = pair.second;
 
-         if (!value)
-            break;
-
-         const wxString strValue = value;
-         // Bug 1905 was about long label strings.
-         if (!XMLValueChecker::IsGoodLongString(strValue))
-         {
-            return false;
-         }
-
-         if (selectedRegion.HandleXMLAttribute(attr, value, wxT("t"), wxT("t1")))
+         if (selectedRegion.HandleXMLAttribute(attr, value, "t", "t1"))
             ;
-         else if (!wxStrcmp(attr, wxT("title")))
-            title = strValue;
+         // Bug 1905 no longer applies, as valueView has no limits anyway
+         else if (attr == "title")
+            title = value.ToWString();
 
       } // while
 
@@ -567,20 +632,16 @@ bool LabelTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
 
       return true;
    }
-   else if (!wxStrcmp(tag, wxT("labeltrack"))) {
+   else if (tag == "labeltrack") {
       long nValue = -1;
-      while (*attrs) {
-         const wxChar *attr = *attrs++;
-         const wxChar *value = *attrs++;
+      for (auto pair : attrs)
+      {
+         auto attr = pair.first;
+         auto value = pair.second;
 
-         if (!value)
-            return true;
-
-         const wxString strValue = value;
-         if (this->Track::HandleCommonXMLAttribute(attr, strValue))
+         if (this->Track::HandleCommonXMLAttribute(attr, value))
             ;
-         else if (!wxStrcmp(attr, wxT("numlabels")) &&
-                     XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue))
+         else if (attr == "numlabels" && value.TryGet(nValue))
          {
             if (nValue < 0)
             {
@@ -598,9 +659,9 @@ bool LabelTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
    return false;
 }
 
-XMLTagHandler *LabelTrack::HandleXMLChild(const wxChar *tag)
+XMLTagHandler *LabelTrack::HandleXMLChild(const std::string_view& tag)
 {
-   if (!wxStrcmp(tag, wxT("label")))
+   if (tag == "label")
       return this;
    else
       return NULL;
@@ -618,7 +679,7 @@ void LabelTrack::WriteXML(XMLWriter &xmlFile) const
    for (auto &labelStruct: mLabels) {
       xmlFile.StartTag(wxT("label"));
       labelStruct.getSelectedRegion()
-         .WriteXMLAttributes(xmlFile, wxT("t"), wxT("t1"));
+         .WriteXMLAttributes(xmlFile, "t", "t1");
       // PRL: to do: write other selection fields
       xmlFile.WriteAttr(wxT("title"), labelStruct.title);
       xmlFile.EndTag(wxT("label"));
@@ -626,53 +687,6 @@ void LabelTrack::WriteXML(XMLWriter &xmlFile) const
 
    xmlFile.EndTag(wxT("labeltrack"));
 }
-
-#if LEGACY_PROJECT_FILE_SUPPORT
-bool LabelTrack::Load(wxTextFile * in, DirManager * dirManager)
-{
-   if (in->GetNextLine() != wxT("NumMLabels"))
-      return false;
-
-   unsigned long len;
-   if (!(in->GetNextLine().ToULong(&len)))
-      return false;
-
-   mLabels.clear();
-   mLabels.reserve(len);
-
-   for (int i = 0; i < len; i++) {
-      double t0;
-      if (!Internat::CompatibleToDouble(in->GetNextLine(), &t0))
-         return false;
-      // Legacy file format does not include label end-times.
-      // PRL: nothing NEW to do, legacy file support
-      mLabels.push_back(LabelStruct {
-         SelectedRegion{ t0, t0 }, in->GetNextLine()
-      });
-   }
-
-   if (in->GetNextLine() != wxT("MLabelsEnd"))
-      return false;
-   SortLabels();
-   return true;
-}
-
-bool LabelTrack::Save(wxTextFile * out, bool overwrite)
-{
-   out->AddLine(wxT("NumMLabels"));
-   int len = mLabels.size();
-   out->AddLine(wxString::Format(wxT("%d"), len));
-
-   for (auto pLabel : mLabels) {
-      const auto &labelStruct = *pLabel;
-      out->AddLine(wxString::Format(wxT("%lf"), labelStruct.selectedRegion.mT0));
-      out->AddLine(labelStruct.title);
-   }
-   out->AddLine(wxT("MLabelsEnd"));
-
-   return true;
-}
-#endif
 
 Track::Holder LabelTrack::Cut(double t0, double t1)
 {
@@ -699,7 +713,8 @@ Track::Holder LabelTrack::SplitCut(double t0, double t1)
 
 Track::Holder LabelTrack::Copy(double t0, double t1, bool) const
 {
-   auto tmp = std::make_shared<LabelTrack>(GetDirManager());
+   auto tmp = std::make_shared<LabelTrack>();
+   tmp->Init(*this);
    const auto lt = static_cast<LabelTrack*>(tmp.get());
 
    for (auto &labelStruct: mLabels) {

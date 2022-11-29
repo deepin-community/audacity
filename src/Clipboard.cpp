@@ -18,6 +18,14 @@ Clipboard::Clipboard()
 
 Clipboard::~Clipboard() = default;
 
+void Clipboard::Swap( Clipboard &other )
+{
+   std::swap( mTracks, other.mTracks );
+   std::swap( mProject, other.mProject );
+   std::swap( mT0, other.mT0 );
+   std::swap( mT1, other.mT1 );
+}
+
 Clipboard &Clipboard::Get()
 {
    static Clipboard instance;
@@ -34,7 +42,7 @@ void Clipboard::Clear()
 {
    mT0 = 0.0;
    mT1 = 0.0;
-   mProject = nullptr;
+   mProject.reset();
    mTracks->Clear();
 
    // Emit an event for listeners
@@ -42,7 +50,7 @@ void Clipboard::Clear()
 }
 
 void Clipboard::Assign( TrackList && newContents,
-   double t0, double t1, AudacityProject *pProject )
+   double t0, double t1, const std::weak_ptr<AudacityProject> &pProject )
 {
    newContents.Swap( *mTracks );
    newContents.Clear();

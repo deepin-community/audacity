@@ -2,7 +2,7 @@
 
    Audacity - A Digital Audio Editor
    Copyright 1999-2018 Audacity Team
-   License: GPL v2 - see LICENSE.txt
+   License: GPL v2 or later - see LICENSE.txt
 
    Dominic Mazzoni
    Dan Horgan
@@ -17,13 +17,15 @@ small calculations of rectangles.
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "ScreenshotCommand.h"
 
 #include <mutex>
+#include <thread>
 
 #include "LoadCommands.h"
-#include "../Project.h"
+#include "Project.h"
+#include <wx/app.h>
 #include <wx/toplevel.h>
 #include <wx/dcscreen.h>
 #include <wx/dcmemory.h>
@@ -32,17 +34,17 @@ small calculations of rectangles.
 #include <wx/valgen.h>
 
 #include "../AdornedRulerPanel.h"
-#include "../BatchCommands.h"
 #include "../TrackPanel.h"
-#include "../effects/Effect.h"
 #include "../toolbars/ToolManager.h"
-#include "../Prefs.h"
+#include "Prefs.h"
 #include "../ProjectWindow.h"
 #include "../Shuttle.h"
 #include "../ShuttleGui.h"
-#include "../Track.h"
+#include "Track.h"
+#include "../widgets/VetoDialogHook.h"
 #include "CommandContext.h"
 #include "CommandManager.h"
+#include "CommandDispatch.h"
 
 const ComponentInterfaceSymbol ScreenshotCommand::Symbol
 { XO("Screenshot") };
@@ -66,7 +68,6 @@ kCaptureWhatStrings[ ScreenshotCommand::nCaptureWhats ] =
    { XO("Timer") },
    { XO("Tools") },
    { XO("Transport") },
-   { XO("Mixer") },
    { XO("Meter") },
    { wxT("PlayMeter"), XO("Play Meter") },
    { wxT("RecordMeter"), XO("Record Meter") },
@@ -105,20 +106,23 @@ ScreenshotCommand::ScreenshotCommand()
    mbBringToTop=true;
    mIgnore=NULL;
    
-   static std::once_flag flag;
-   std::call_once( flag, []{
-      AudacityCommand::SetVetoDialogHook( MayCapture );
-      Effect::SetVetoDialogHook( MayCapture );
-   });
+   static VetoDialogHook::Scope scope{ MayCapture };
 }
 
-bool ScreenshotCommand::DefineParams( ShuttleParams & S ){
-   S.Define(                               mPath,        wxT("Path"),         wxT(""));
+template<bool Const>
+bool ScreenshotCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   S.Define(                               mPath,        wxT("Path"),         wxString{});
    S.DefineEnum(                           mWhat,        wxT("CaptureWhat"),  kwindow,kCaptureWhatStrings, nCaptureWhats );
    S.DefineEnum(                           mBack,        wxT("Background"),   kNone, kBackgroundStrings, nBackgrounds );
    S.Define(                               mbBringToTop, wxT("ToTop"), true );
    return true;
 };
+
+bool ScreenshotCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool ScreenshotCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void ScreenshotCommand::PopulateOrExchange(ShuttleGui & S)
 {
@@ -168,37 +172,14 @@ wxTopLevelWindow *ScreenshotCommand::GetFrontWindow(AudacityProject *project)
    wxWindow *front = NULL;
    wxWindow *proj = wxGetTopLevelParent( ProjectWindow::Find( project ) );
 
-
-   // JKC: The code below is no longer such a good idea.
-   // We now have options to directly capture toolbars, effects, preferences.
-   // We now also may have more than one dialog open, so who is to say 
-   // which one we want to capture?  Additionally, as currently written,
-   // it may capture the screenshot dialog itself (on Linux)
-   // IF we still keep this code in future, it needs a rethink.
-   // Possibly as well as the kWindow options, we should offer kDialog options, 
-   // which attempt to do what this once did.
-#if 0
-   // This is kind of an odd hack.  There's no method to enumerate all
-   // possible windows, so we search the whole screen for any windows
-   // that are not this one and not the given Audacity project and
-   // if we find anything, we assume that's the dialog the user wants
-   // to capture.
-
-   int width, height, x, y;
-   wxDisplaySize(&width, &height);
-   for (x = 0; x < width; x += 50) {
-      for (y = 0; y < height; y += 50) {
-         wxWindow *win = wxFindWindowAtPoint(wxPoint(x, y));
-         if (win) {
-            win = wxGetTopLevelParent(win);
-            if (win != mIgnore && win != proj  && win->IsShown()) {
-               front = win;
-               break;
-            }
-         }
+   for (auto & win : wxTopLevelWindows)
+   {
+      win = wxGetTopLevelParent(win);
+      if (win != mIgnore && win != proj  && win->IsShown()) {
+         front = win;
+         break;
       }
    }
-#endif
 
    if (!front || !front->IsTopLevel()) {
       return (wxTopLevelWindow *)proj;
@@ -221,14 +202,13 @@ wxRect ScreenshotCommand::GetBackgroundRect()
 
 static void Yield()
 {
+   using namespace std::chrono;
    int cnt;
-   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--) {
-      wxMilliSleep(10);
-   }
-   wxMilliSleep(200);
-   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--) {
-      wxMilliSleep(10);
-   }
+   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--)
+      std::this_thread::sleep_for(10ms);
+   std::this_thread::sleep_for(200ms);
+   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--)
+      std::this_thread::sleep_for(10ms);
 }
 
 bool ScreenshotCommand::Capture(
@@ -378,6 +358,7 @@ void ScreenshotCommand::CaptureWindowOnIdle(
    const CommandContext & context,
    wxWindow * pWin )
 {
+   using namespace std::chrono;
    wxDialog * pDlg = dynamic_cast<wxDialog*>(pWin);
    if( !pDlg ){
       wxLogDebug("Event from bogus dlg" );
@@ -397,7 +378,7 @@ void ScreenshotCommand::CaptureWindowOnIdle(
    wxLogDebug("Taking screenshot of window %s (%i,%i,%i,%i)", Name, 
          Pos.x, Pos.y, Siz.x, Siz.y );
    // This delay is needed, as dialogs take a moment or two to fade in.
-   wxMilliSleep( 400 );
+   std::this_thread::sleep_for(400ms);
    // JKC: The border of 7 pixels was determined from a trial capture and then measuring
    // in the GIMP.  I'm unsure where the border comes from.
    Capture( context, Name, pDlg, wxRect((int)Pos.x+7, (int)Pos.y, (int)Siz.x-14, (int)Siz.y-7) );
@@ -409,7 +390,9 @@ void ScreenshotCommand::CaptureWindowOnIdle(
 
 void ScreenshotCommand::CapturePreferences( 
    const CommandContext & context,
-   AudacityProject * pProject, const wxString &FileName ){
+   AudacityProject * pProject, const wxString &FileName )
+{
+   using namespace std::chrono;
    (void)&FileName;//compiler food.
    (void)&context;
    CommandManager &commandManager = CommandManager::Get( *pProject );
@@ -431,7 +414,7 @@ void ScreenshotCommand::CapturePreferences(
       gPrefs->Flush();
       CommandID Command{ wxT("Preferences") };
       const CommandContext projectContext( *pProject );
-      if( !MacroCommands::HandleTextualCommand( commandManager,
+      if( !::HandleTextualCommand( commandManager,
          Command, projectContext, AlwaysEnabledFlag, true ) )
       {
          // using GET in a log message for devs' eyes only
@@ -439,7 +422,7 @@ void ScreenshotCommand::CapturePreferences(
       }
       // This sleep is not needed, but gives user a chance to see the
       // dialogs as they whizz by.
-      wxMilliSleep( 200 );
+      std::this_thread::sleep_for(200ms);
    }
 }
 
@@ -462,9 +445,9 @@ void ScreenshotCommand::CaptureEffects(
       "PlotSpectrum",
 
       "Auto Duck...",  // needs a track below.
-      //"Spectral edit multi tool",
-      "Spectral edit parametric EQ...", // Needs a spectral selection.
-      "Spectral edit shelves...",
+      //"Spectral Edit Multi Tool",
+      "Spectral Edit Parametric EQ...", // Needs a spectral selection.
+      "Spectral Edit Shelves...",
 
       //"Noise Reduction...", // Exits twice...
       //"SC4...", //Has 'Close' rather than 'Cancel'.
@@ -528,10 +511,9 @@ void ScreenshotCommand::CaptureEffects(
       "Find Clipping...",
 #ifdef CAPTURE_NYQUIST_TOO
       "Beat Finder...",
+      "Label Sounds...",
       "Regular Interval Labels...",
       "Sample Data Export...",
-      "Silence Finder...",
-      "Sound Finder...",
 #endif
    } );
 }
@@ -576,7 +558,9 @@ void ScreenshotCommand::CaptureScriptables(
 
 
 void ScreenshotCommand::CaptureCommands( 
-   const CommandContext & context, const wxArrayStringEx & Commands ){
+   const CommandContext & context, const wxArrayStringEx & Commands )
+{
+   using namespace std::chrono;
    AudacityProject * pProject = &context.project;
    CommandManager &manager = CommandManager::Get( *pProject );
    wxString Str;
@@ -600,7 +584,7 @@ void ScreenshotCommand::CaptureCommands(
       }
       // This particular sleep is not needed, but gives user a chance to see the
       // dialogs as they whizz by.
-      wxMilliSleep( 200 );
+      std::this_thread::sleep_for(200ms);
    }
 }
 
@@ -733,27 +717,7 @@ wxRect ScreenshotCommand::GetTracksRect(TrackPanel * panel){
 wxRect ScreenshotCommand::GetTrackRect( AudacityProject * pProj, TrackPanel * panel, int n){
    auto FindRectangle = []( TrackPanel &panel, Track &t )
    {
-      // This rectangle omits the focus ring about the track, and
-      // also within that, a narrow black border with a "shadow" below and
-      // to the right
-      wxRect rect = panel.FindTrackRect( &t );
-
-      // Enlarge horizontally.
-      // PRL:  perhaps it's one pixel too much each side, including some gray
-      // beyond the yellow?
-      rect.x = 0;
-      panel.GetClientSize(&rect.width, nullptr);
-
-      // Enlarge vertically, enough to enclose the yellow focus border pixels
-      // Omit the outermost ring of gray pixels
-
-      // (Note that TrackPanel paints its focus over the "top margin" of the
-      // rectangle allotted to the track, according to TrackView::GetY() and
-      // TrackView::GetHeight(), but also over the margin of the next track.)
-
-      rect.height += kBottomMargin;
-      int dy = kTopMargin - 1;
-      rect.Inflate( 0, dy );
+      wxRect rect = panel.FindFocusedTrackRect( &t );
 
       // Reposition it relative to parent of panel
       rect.SetPosition(
@@ -838,8 +802,6 @@ bool ScreenshotCommand::Apply(const CommandContext & context)
       return CaptureToolbar(context, &toolManager, ToolsBarID, mFileName);
    case ktransport:
       return CaptureToolbar(context, &toolManager, TransportBarID, mFileName);
-   case kmixer:
-      return CaptureToolbar(context, &toolManager, MixerBarID, mFileName);
    case kmeter:
       return CaptureToolbar(context, &toolManager, MeterBarID, mFileName);
    case krecordmeter:

@@ -4,19 +4,19 @@ $type process
 $name (_ "Limiter")
 $manpage "Limiter"
 $debugbutton false
-$action (_ "Limiting...")
 $preview enabled
 $author (_ "Steve Daulton")
-$release 2.3.0
-$copyright (_ "Released under terms of the GNU General Public License version 2")
+$release 3.0.4-1
+$copyright (_ "GNU General Public License v2.0 or later")
 
 ;; limiter.ny by Steve Daulton November 2011, updated May 2015.
 
-;; Released under terms of the GNU General Public License version 2:
+;; License: GPL v2+
 ;; http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 ;;
 ;; For information about writing and modifying Nyquist plug-ins:
 ;; https://wiki.audacityteam.org/wiki/Nyquist_Plug-ins_Reference
+
 
 $control type (_ "Type") choice (
    ("SoftLimit" (_ "Soft Limit"))
@@ -71,7 +71,7 @@ $control makeup (_ "Apply Make-up Gain") choice (
 (defun get-env (sig step lookahead limit)
   (let* ((sig (mult (/ limit) sig))
          (pad-time (* 3 lookahead))       ; padding required at start (seconds)
-         (pad-s (* 3 step))               ; padding smaples
+         (pad-s (* 3 step))               ; padding samples
          (padding (snd-const (peak sig pad-s) 0 *sound-srate* pad-time))
          (peak-env (snd-avg sig (* 4 step) step OP-PEAK)))
     (extract 0 1

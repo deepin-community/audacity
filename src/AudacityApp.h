@@ -14,19 +14,15 @@
 #ifndef __AUDACITY_APP__
 #define __AUDACITY_APP__
 
-#include "Audacity.h"
-#include "audacity/Types.h"
 
-#include "Experimental.h"
+#include "Identifier.h"
+#include "Observer.h"
+#include "Theme.h"
 
 #include <wx/app.h> // to inherit
 #include <wx/timer.h> // member variable
 
-#if defined(EXPERIMENTAL_CRASH_REPORT)
-#include <wx/debugrpt.h> // for wxDebugReport::Context
-#endif
-
-#include "MemoryX.h"
+#include <memory>
 
 class wxSingleInstanceChecker;
 class wxSocketEvent;
@@ -38,16 +34,18 @@ class CommandHandler;
 class AppCommandEvent;
 class AudacityProject;
 
-class AliasBlockFile;
-
 class AudacityApp final : public wxApp {
  public:
    AudacityApp();
    ~AudacityApp();
-   bool OnInit(void) override;
+   bool OnInit() override;
+   bool InitPart2();
+   int OnRun() override;
    int OnExit(void) override;
    void OnFatalException() override;
    bool OnExceptionInMainLoop() override;
+
+   void OnIdle( wxIdleEvent & );
 
    // These are currently only used on Mac OS, where it's
    // possible to have a menu bar but no windows open.  It doesn't
@@ -84,20 +82,27 @@ class AudacityApp final : public wxApp {
     void MacOpenFile(const wxString &fileName)  override;
     void MacPrintFile(const wxString &fileName)  override;
     void MacNewFile()  override;
+   #ifdef HAS_CUSTOM_URL_HANDLING
+    void MacOpenURL(const wxString &url) override;
+   #endif
    #endif
 
    #if defined(__WXMSW__) && !defined(__WXUNIVERSAL__) && !defined(__CYGWIN__)
     void AssociateFileTypes();
    #endif
 
+   static void OnThemeChange(struct ThemeChangeMessage);
+
 #ifdef __WXMAC__
-
    void MacActivateApp();
-
+   void MacFinishLaunching();
 #endif
 
 
  private:
+   void OnInit0();
+   Observer::Subscription mThemeChangeSubscription;
+
    std::unique_ptr<CommandHandler> mCmdHandler;
 
    std::unique_ptr<wxSingleInstanceChecker> mChecker;

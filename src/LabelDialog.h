@@ -15,7 +15,7 @@
 #include <wx/defs.h>
 
 #include "widgets/wxPanelWrapper.h" // to inherit
-#include "audacity/ComponentInterface.h" // member variable
+#include "ComponentInterface.h" // member variable
 
 class wxArrayString;
 class wxGridEvent;
@@ -23,7 +23,6 @@ class AudacityProject;
 class ChoiceEditor;
 class Grid;
 class NumericEditor;
-class TrackFactory;
 class TrackList;
 class RowData;
 class EmptyLabelRenderer;
@@ -39,7 +38,6 @@ class LabelDialog final : public wxDialogWrapper
 
    LabelDialog(wxWindow *parent,
                AudacityProject &project,
-               TrackFactory &factory,
                TrackList *tracks,
 
                // if NULL edit all tracks, else this one only:
@@ -62,8 +60,8 @@ class LabelDialog final : public wxDialogWrapper
    void Populate();
    void PopulateOrExchange( ShuttleGui & S );
    void PopulateLabels();
-   virtual void OnHelp(wxCommandEvent & event);
-   virtual wxString GetHelpPageName() {return "Labels_Editor";};
+   void OnHelp(wxCommandEvent & event);
+   ManualPageID GetHelpPageName() {return "Labels_Editor";}
 
    bool TransferDataToWindow() override;
    bool TransferDataFromWindow() override;
@@ -104,7 +102,6 @@ class LabelDialog final : public wxDialogWrapper
 
    RowDataArray mData;
 
-   TrackFactory &mFactory;
    TrackList *mTracks;
    LabelTrack *mSelectedTrack {};
    int mIndex { -1 };

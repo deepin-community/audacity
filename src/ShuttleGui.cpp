@@ -85,7 +85,7 @@ own background.
 It is used (a) To group together widgets which need to be refreshed
 together.  A single refresh of the panel causes all the subwindows to
 refresh.  (b) as a base class for some flicker-free classes for which
-the backgorund is never repainted.
+the background is never repainted.
 
 JKC: InvisiblePanel will probably be replaced in time by a mechanism
 for registering for changes.
@@ -93,11 +93,12 @@ for registering for changes.
 *//******************************************************************/
 
 
-#include "Audacity.h"
+
 #include "ShuttleGui.h"
 
-#include "Experimental.h"
 
+
+#include "MemoryX.h"
 #include "Prefs.h"
 #include "ShuttlePrefs.h"
 #include "Theme.h"
@@ -113,8 +114,12 @@ for registering for changes.
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
 #include <wx/bmpbuttn.h>
-#include "../include/audacity/ComponentInterface.h"
+#include <wx/wrapsizer.h>
+
+#include "ComponentInterface.h"
+#include "widgets/ReadOnlyText.h"
 #include "widgets/wxPanelWrapper.h"
+#include "widgets/wxTextCtrlWrapper.h"
 #include "AllThemeResources.h"
 
 #if wxUSE_ACCESSIBILITY
@@ -188,6 +193,11 @@ void ShuttleGuiBase::ResetId()
    miIdNext = 3000;
 }
 
+
+int ShuttleGuiBase::GetBorder() const noexcept
+{
+   return miBorder;
+}
 
 /// Used to modify an already placed FlexGridSizer to make a column stretchy.
 void ShuttleGuiBase::SetStretchyCol( int i )
@@ -287,13 +297,13 @@ void ShuttleGuiBase::AddTitle(const TranslatableString &Prompt, int wrapWidth)
 
 /// Very generic 'Add' function.  We can add anything we like.
 /// Useful for unique controls
-wxWindow * ShuttleGuiBase::AddWindow(wxWindow * pWindow)
+wxWindow* ShuttleGuiBase::AddWindow(wxWindow* pWindow, int PositionFlags)
 {
    if( mShuttleMode != eIsCreating )
       return pWindow;
    mpWind = pWindow;
    SetProportions( 0 );
-   UpdateSizersCore(false, wxALIGN_CENTRE | wxALL);
+   UpdateSizersCore(false, PositionFlags | wxALL);
    return pWindow;
 }
 
@@ -484,6 +494,27 @@ wxStaticText * ShuttleGuiBase::AddVariableText(
    return pStatic;
 }
 
+ReadOnlyText * ShuttleGuiBase::AddReadOnlyText(
+   const TranslatableString &Caption, const wxString &Value)
+{
+   const auto translated = Caption.Translation();
+   auto style = GetStyle( wxBORDER_NONE );
+   HandleOptionality( Caption );
+   mItem.miStyle = wxALIGN_CENTER_VERTICAL;
+   AddPrompt( Caption );
+   UseUpId();
+   if( mShuttleMode != eIsCreating )
+      return wxDynamicCast(wxWindow::FindWindowById( miId, mpDlg), ReadOnlyText);
+   ReadOnlyText * pReadOnlyText;
+   miProp=0;
+
+   mpWind = pReadOnlyText = safenew ReadOnlyText(GetParent(), miId, Value,
+      wxDefaultPosition, wxDefaultSize, GetStyle( style ));
+   mpWind->SetName(wxStripMenuCodes(translated));
+   UpdateSizers();
+   return pReadOnlyText;
+}
+
 wxComboBox * ShuttleGuiBase::AddCombo(
    const TranslatableString &Prompt,
    const wxString &Selected, const wxArrayStringEx & choices )
@@ -630,7 +661,7 @@ wxTextCtrl * ShuttleGuiBase::AddTextBox(
    long flags = wxTE_LEFT;
 #endif
 
-   mpWind = pTextCtrl = safenew wxTextCtrl(GetParent(), miId, Value,
+   mpWind = pTextCtrl = safenew wxTextCtrlWrapper(GetParent(), miId, Value,
       wxDefaultPosition, Size, GetStyle( flags ));
 #if wxUSE_ACCESSIBILITY
    // so that name can be set on a standard control
@@ -844,7 +875,8 @@ void ShuttleGuiBase::AddIcon(wxBitmap *pBmp)
    wxBitmapButton * pBtn;
    mpWind = pBtn = safenew wxBitmapButton(GetParent(), miId, *pBmp,
       wxDefaultPosition, wxDefaultSize, GetStyle( wxBU_AUTODRAW ) );
-   pBtn->SetWindowStyle( 0 );
+   pBtn->SetWindowStyle( wxBORDER_NONE  );
+   pBtn->SetCanFocus(false);
    UpdateSizersC();
 }
 
@@ -1098,7 +1130,7 @@ void InvisiblePanel::OnPaint( wxPaintEvent & WXUNUSED(event))
    // event.Skip(); // swallow the paint event.
 }
 
-wxPanel * ShuttleGuiBase::StartInvisiblePanel()
+wxPanel * ShuttleGuiBase::StartInvisiblePanel(int border)
 {
    UseUpId();
    if( mShuttleMode != eIsCreating )
@@ -1111,7 +1143,7 @@ wxPanel * ShuttleGuiBase::StartInvisiblePanel()
       wxSystemSettings::GetColour(wxSYS_COLOUR_BTNFACE)
       );
    SetProportions( 1 );
-   miBorder=0;
+   miBorder = border;
    UpdateSizers();  // adds window in to current sizer.
 
    // create a sizer within the window...
@@ -1173,6 +1205,25 @@ void ShuttleGuiBase::EndVerticalLay()
 {
    if( mShuttleMode != eIsCreating )
       return;
+   PopSizer();
+}
+
+void ShuttleGuiBase::StartWrapLay(int PositionFlags, int iProp)
+{
+   if (mShuttleMode != eIsCreating)
+      return;
+
+   miSizerProp = iProp;
+   mpSubSizer = std::make_unique<wxWrapSizer>(wxHORIZONTAL, 0);
+
+   UpdateSizersCore(false, PositionFlags | wxALL);
+}
+
+void ShuttleGuiBase::EndWrapLay()
+{
+   if (mShuttleMode != eIsCreating)
+      return;
+
    PopSizer();
 }
 
@@ -1542,7 +1593,7 @@ wxRadioButton * ShuttleGuiBase::TieRadioButton()
 }
 
 /// Call this before any TieRadioButton calls.
-void ShuttleGuiBase::StartRadioButtonGroup( const ChoiceSetting &Setting )
+void ShuttleGuiBase::StartRadioButtonGroup(ChoiceSetting &Setting)
 {
    mRadioSymbols = Setting.GetSymbols();
 
@@ -1761,7 +1812,7 @@ The repeated choice logic can then be taken out of those
 functions.
 
 JKC: This paves the way for doing data validation too,
-though when we add that we wil need to renumber the
+though when we add that we will need to renumber the
 steps.
 */
 bool ShuttleGuiBase::DoStep( int iStep )
@@ -1791,7 +1842,7 @@ bool ShuttleGuiBase::DoStep( int iStep )
 /// between gui and stack variable and stack variable and shuttle.
 wxCheckBox * ShuttleGuiBase::TieCheckBox(
    const TranslatableString &Prompt,
-   const SettingSpec< bool > &Setting)
+   const BoolSetting &Setting)
 {
    wxCheckBox * pCheck=NULL;
 
@@ -1808,7 +1859,7 @@ wxCheckBox * ShuttleGuiBase::TieCheckBox(
 /// between gui and stack variable and stack variable and shuttle.
 wxCheckBox * ShuttleGuiBase::TieCheckBoxOnRight(
    const TranslatableString &Prompt,
-   const SettingSpec< bool > &Setting)
+   const BoolSetting & Setting)
 {
    wxCheckBox * pCheck=NULL;
 
@@ -1825,7 +1876,7 @@ wxCheckBox * ShuttleGuiBase::TieCheckBoxOnRight(
 /// between gui and stack variable and stack variable and shuttle.
 wxSlider * ShuttleGuiBase::TieSlider(
    const TranslatableString &Prompt,
-   const SettingSpec< int > &Setting,
+   const IntSetting & Setting,
    const int max,
    const int min)
 {
@@ -1844,7 +1895,7 @@ wxSlider * ShuttleGuiBase::TieSlider(
 /// between gui and stack variable and stack variable and shuttle.
 wxSpinCtrl * ShuttleGuiBase::TieSpinCtrl(
    const TranslatableString &Prompt,
-   const SettingSpec< int > &Setting,
+   const IntSetting &Setting,
    const int max,
    const int min)
 {
@@ -1863,7 +1914,7 @@ wxSpinCtrl * ShuttleGuiBase::TieSpinCtrl(
 /// between gui and stack variable and stack variable and shuttle.
 wxTextCtrl * ShuttleGuiBase::TieTextBox(
    const TranslatableString & Prompt,
-   const SettingSpec< wxString > &Setting,
+   const StringSetting & Setting,
    const int nChars)
 {
    wxTextCtrl * pText=(wxTextCtrl*)NULL;
@@ -1881,7 +1932,7 @@ wxTextCtrl * ShuttleGuiBase::TieTextBox(
 /// This one does it for double values...
 wxTextCtrl * ShuttleGuiBase::TieIntegerTextBox(
    const TranslatableString & Prompt,
-   const SettingSpec< int > &Setting,
+   const IntSetting &Setting,
    const int nChars)
 {
    wxTextCtrl * pText=(wxTextCtrl*)NULL;
@@ -1899,7 +1950,7 @@ wxTextCtrl * ShuttleGuiBase::TieIntegerTextBox(
 /// This one does it for double values...
 wxTextCtrl * ShuttleGuiBase::TieNumericTextBox(
    const TranslatableString & Prompt,
-   const SettingSpec< double > &Setting,
+   const DoubleSetting & Setting,
    const int nChars)
 {
    wxTextCtrl * pText=(wxTextCtrl*)NULL;
@@ -1918,9 +1969,8 @@ wxTextCtrl * ShuttleGuiBase::TieNumericTextBox(
 ///   @param Setting            Encapsulates setting name, internal and visible
 ///                             choice strings, and a designation of one of
 ///                             those as default.
-wxChoice *ShuttleGuiBase::TieChoice(
-   const TranslatableString &Prompt,
-   const ChoiceSetting &choiceSetting )
+wxChoice *ShuttleGuiBase::TieChoice(const TranslatableString &Prompt,
+   ChoiceSetting &choiceSetting)
 {
    // Do this to force any needed migrations first
    choiceSetting.Read();
@@ -1943,7 +1993,7 @@ wxChoice *ShuttleGuiBase::TieChoice(
    if( DoStep(1) ) TempIndex = TranslateToIndex( TempStr, InternalChoices ); // To an index
    if( DoStep(2) ) pChoice = TieChoice( Prompt, TempIndex, Choices );
    if( DoStep(3) ) TempStr = TranslateFromIndex( TempIndex, InternalChoices ); // To a string
-   if( DoStep(3) ) DoDataShuttle( SettingName, WrappedRef ); // Put into Prefs.
+   if( DoStep(3) ) choiceSetting.Write(TempStr); // Put into Prefs.
    return pChoice;
 }
 
@@ -1958,9 +2008,8 @@ wxChoice *ShuttleGuiBase::TieChoice(
 ///   @param Choices            An array of choices that appear on screen.
 ///   @param pInternalChoices   The corresponding values (as an integer array)
 ///                             if null, then use 0, 1, 2, ...
-wxChoice * ShuttleGuiBase::TieNumberAsChoice(
-   const TranslatableString &Prompt,
-   const SettingSpec< int > &Setting,
+wxChoice * ShuttleGuiBase::TieNumberAsChoice(const TranslatableString &Prompt,
+   IntSetting &Setting,
    const TranslatableStrings & Choices,
    const std::vector<int> * pInternalChoices,
    int iNoMatchSelector)
@@ -1975,7 +2024,6 @@ wxChoice * ShuttleGuiBase::TieNumberAsChoice(
       for ( int ii = 0; ii < (int)Choices.size(); ++ii )
          InternalChoices.push_back( fn( ii ) );
 
-
    const auto Default = Setting.GetDefault();
 
    miNoMatchSelector = iNoMatchSelector;
@@ -1989,7 +2037,7 @@ wxChoice * ShuttleGuiBase::TieNumberAsChoice(
       defaultIndex = -1;
 
    ChoiceSetting choiceSetting{
-      Setting.GetPath(),
+      Setting,
       {
          ByColumns,
          Choices,
@@ -1998,7 +2046,7 @@ wxChoice * ShuttleGuiBase::TieNumberAsChoice(
       defaultIndex
    };
 
-   return ShuttleGuiBase::TieChoice( Prompt, choiceSetting );
+   return ShuttleGuiBase::TieChoice(Prompt, choiceSetting);
 }
 
 //------------------------------------------------------------------//
@@ -2254,43 +2302,52 @@ std::unique_ptr<wxSizer> CreateStdButtonSizer(wxWindow *parent, long buttons, wx
 
    wxButton *b = NULL;
    auto bs = std::make_unique<wxStdDialogButtonSizer>();
+   
+   const auto makeButton =
+   [parent]( wxWindowID id, const wxString label = {} ) {
+      auto result = safenew wxButton( parent, id, label );
+      result->SetName( result->GetLabel() );
+      return result;
+   };
 
    if( buttons & eOkButton )
    {
-      b = safenew wxButton(parent, wxID_OK);
+      b = makeButton( wxID_OK );
       b->SetDefault();
       bs->AddButton( b );
    }
 
    if( buttons & eCancelButton )
    {
-      bs->AddButton(safenew wxButton(parent, wxID_CANCEL));
+      bs->AddButton( makeButton( wxID_CANCEL ) );
    }
 
    if( buttons & eYesButton )
    {
-      b = safenew wxButton(parent, wxID_YES);
+      b = makeButton( wxID_YES );
       b->SetDefault();
       bs->AddButton( b );
    }
 
    if( buttons & eNoButton )
    {
-      bs->AddButton(safenew wxButton(parent, wxID_NO));
+      bs->AddButton( makeButton( wxID_NO ) );
    }
 
    if( buttons & eApplyButton )
    {
-      b = safenew wxButton(parent, wxID_APPLY);
+      b = makeButton( wxID_APPLY );
       b->SetDefault();
       bs->AddButton( b );
    }
 
    if( buttons & eCloseButton )
    {
-      bs->AddButton(safenew wxButton(parent, wxID_CANCEL, XO("&Close").Translation()));
+      bs->AddButton( makeButton( wxID_CANCEL, XO("&Close").Translation() ) );
    }
 
+#if defined(__WXMSW__)
+   // See below for explanation
    if( buttons & eHelpButton )
    {
       // Replace standard Help button with smaller icon button.
@@ -2298,22 +2355,27 @@ std::unique_ptr<wxSizer> CreateStdButtonSizer(wxWindow *parent, long buttons, wx
       b = safenew wxBitmapButton(parent, wxID_HELP, theTheme.Bitmap( bmpHelpIcon ));
       b->SetToolTip( XO("Help").Translation() );
       b->SetLabel(XO("Help").Translation());       // for screen readers
+      b->SetName( b->GetLabel() );
       bs->AddButton( b );
    }
+#endif
 
    if (buttons & ePreviewButton)
    {
-      bs->Add(safenew wxButton(parent, ePreviewID, XO("&Preview").Translation()), 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin);
+      bs->Add( makeButton( ePreviewID, XO("&Preview").Translation() ),
+         0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin);
    }
    if (buttons & ePreviewDryButton)
    {
-      bs->Add(safenew wxButton(parent, ePreviewDryID, XO("Dry Previe&w").Translation()), 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin);
+      bs->Add( makeButton( ePreviewDryID, XO("Dry Previe&w").Translation() ),
+         0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin);
       bs->Add( 20, 0 );
    }
 
    if( buttons & eSettingsButton )
    {
-      bs->Add(safenew wxButton(parent, eSettingsID, XO("&Settings").Translation()), 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin);
+      bs->Add( makeButton( eSettingsID, XO("&Settings").Translation() ),
+         0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin);
       bs->Add( 20, 0 );
    }
 
@@ -2326,27 +2388,49 @@ std::unique_ptr<wxSizer> CreateStdButtonSizer(wxWindow *parent, long buttons, wx
    bs->AddStretchSpacer();
    bs->Realize();
 
+   size_t lastLastSpacer = 0;
+   size_t lastSpacer = 0;
+   wxSizerItemList & list = bs->GetChildren();
+   for( size_t i = 0, cnt = list.size(); i < cnt; i++ )
+   {
+      if( list[i]->IsSpacer() )
+      {
+         lastSpacer = i;
+      }
+      else
+      {
+         lastLastSpacer = lastSpacer;
+      }
+   }
+
    // Add any buttons that need to cuddle up to the right hand cluster
    if( buttons & eDebugButton )
    {
-      size_t lastLastSpacer = 0;
-      size_t lastSpacer = 0;
-      wxSizerItemList & list = bs->GetChildren();
-      for( size_t i = 0, cnt = list.size(); i < cnt; i++ )
-      {
-         if( list[i]->IsSpacer() )
-         {
-            lastSpacer = i;
-         }
-         else  
-         {
-            lastLastSpacer = lastSpacer;
-         }
-      }
-
-      b = safenew wxButton(parent, eDebugID, XO("Debu&g").Translation());
-      bs->Insert( lastLastSpacer + 1, b, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin );
+      b = makeButton( eDebugID, XO("Debu&g").Translation() );
+      bs->Insert( ++lastLastSpacer, b, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, margin );
    }
+
+#if !defined(__WXMSW__)
+   // Bug #2432: Couldn't find GTK guidelines, but Mac HIGs state:
+   //
+   //    View style 	                                          Help button position
+   //    Dialog with dismissal buttons (like OK and Cancel). 	Lower-left corner, vertically aligned with the dismissal buttons.
+   //    Dialog without dismissal buttons. 	                  Lower-left or lower-right corner.
+   //    Preference window or pane. 	                        Lower-left or lower-right corner.
+   //
+   // So, we're gonna cheat a little and use the lower-right corner.
+   if( buttons & eHelpButton )
+   {
+      // Replace standard Help button with smaller icon button.
+      // bs->AddButton(safenew wxButton(parent, wxID_HELP));
+      b = safenew wxBitmapButton(parent, wxID_HELP, theTheme.Bitmap( bmpHelpIcon ));
+      b->SetToolTip( XO("Help").Translation() );
+      b->SetLabel(XO("Help").Translation());       // for screen readers
+      b->SetName( b->GetLabel() );
+      bs->Add( b, 0, wxALIGN_CENTER );
+   }
+#endif
+
 
    auto s = std::make_unique<wxBoxSizer>( wxVERTICAL );
    s->Add( bs.release(), 1, wxEXPAND | wxALL, 7 );
@@ -2432,3 +2516,17 @@ void ShuttleGui::SetMinSize( wxWindow *window, const std::vector<int> & items )
    SetMinSize( window, strs );
 }
 */
+
+TranslatableStrings Msgids(
+   const EnumValueSymbol strings[], size_t nStrings)
+{
+   return transform_range<TranslatableStrings>(
+      strings, strings + nStrings,
+      std::mem_fn( &EnumValueSymbol::Msgid )
+   );
+}
+
+TranslatableStrings Msgids( const std::vector<EnumValueSymbol> &strings )
+{
+   return Msgids( strings.data(), strings.size() );
+}

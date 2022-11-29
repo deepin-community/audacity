@@ -2,7 +2,7 @@
 
    Audacity: A Digital Audio Editor
    Audacity(R) is copyright (c) 1999-2016 Audacity Team.
-   License: GPL v2.  See License.txt.
+   License: GPL v2 or later.  See License.txt.
 
    BassTreble.h (two shelf filters)
    Steve Daulton
@@ -12,7 +12,8 @@
 #ifndef __AUDACITY_EFFECT_BASS_TREBLE__
 #define __AUDACITY_EFFECT_BASS_TREBLE__
 
-#include "Effect.h"
+#include "StatefulPerTrackEffect.h"
+#include "../ShuttleAutomation.h"
 
 class wxSlider;
 class wxCheckBox;
@@ -33,9 +34,11 @@ public:
    double xn1Treble, xn2Treble, yn1Treble, yn2Treble;
 };
 
-class EffectBassTreble final : public Effect
+class EffectBassTreble final : public StatefulPerTrackEffect
 {
 public:
+   static inline EffectBassTreble *
+   FetchParameters(EffectBassTreble &e, EffectSettings &) { return &e; }
    static const ComponentInterfaceSymbol Symbol;
 
    EffectBassTreble();
@@ -43,48 +46,50 @@ public:
 
    // ComponentInterface implementation
 
-   ComponentInterfaceSymbol GetSymbol() override;
-   TranslatableString GetDescription() override;
-   wxString ManualPage() override;
+   ComponentInterfaceSymbol GetSymbol() const override;
+   TranslatableString GetDescription() const override;
+   ManualPageID ManualPage() const override;
 
    // EffectDefinitionInterface implementation
 
-   EffectType GetType() override;
-   bool SupportsRealtime() override;
+   EffectType GetType() const override;
+   RealtimeSince RealtimeSupport() const override;
 
-   // EffectClientInterface implementation
-
-   unsigned GetAudioInCount() override;
-   unsigned GetAudioOutCount() override;
-   bool ProcessInitialize(sampleCount totalLen, ChannelNames chanMap = NULL) override;
-   size_t ProcessBlock(float **inBlock, float **outBlock, size_t blockLen) override;
-   bool RealtimeInitialize() override;
-   bool RealtimeAddProcessor(unsigned numChannels, float sampleRate) override;
-   bool RealtimeFinalize() override;
-   size_t RealtimeProcess(int group,
-                               float **inbuf,
-                               float **outbuf,
-                               size_t numSamples) override;
-   bool DefineParams( ShuttleParams & S ) override;
-   bool GetAutomationParameters(CommandParameters & parms) override;
-   bool SetAutomationParameters(CommandParameters & parms) override;
-
+   unsigned GetAudioInCount() const override;
+   unsigned GetAudioOutCount() const override;
+   bool ProcessInitialize(EffectSettings &settings, double sampleRate,
+      ChannelNames chanMap) override;
+   size_t ProcessBlock(EffectSettings &settings,
+      const float *const *inBlock, float *const *outBlock, size_t blockLen)
+      override;
+   bool RealtimeInitialize(EffectSettings &settings, double sampleRate)
+      override;
+   bool RealtimeAddProcessor(EffectSettings &settings,
+      unsigned numChannels, float sampleRate) override;
+   bool RealtimeFinalize(EffectSettings &settings) noexcept override;
+   size_t RealtimeProcess(size_t group,  EffectSettings &settings,
+      const float *const *inbuf, float *const *outbuf, size_t numSamples)
+      override;
 
    // Effect Implementation
 
-   void PopulateOrExchange(ShuttleGui & S) override;
-   bool TransferDataToWindow() override;
-   bool TransferDataFromWindow() override;
+   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
+   override;
+   bool TransferDataToWindow(const EffectSettings &settings) override;
+   bool TransferDataFromWindow(EffectSettings &settings) override;
 
-   bool CheckWhetherSkipEffect() override;
+   bool CheckWhetherSkipEffect(const EffectSettings &settings) const override;
 
 private:
    // EffectBassTreble implementation
 
    void InstanceInit(EffectBassTrebleState & data, float sampleRate);
-   size_t InstanceProcess(EffectBassTrebleState & data, float **inBlock, float **outBlock, size_t blockLen);
+   size_t InstanceProcess(EffectSettings &settings,
+      EffectBassTrebleState & data,
+      const float *const *inBlock, float *const *outBlock, size_t blockLen);
 
-   void Coefficents(double hz, double slope, double gain, double samplerate, int type,
+   void Coefficients(double hz, double slope, double gain, double samplerate, int type,
                     double& a0, double& a1, double& a2, double& b0, double& b1, double& b2);
    float DoFilter(EffectBassTrebleState & data, float in);
 
@@ -118,7 +123,17 @@ private:
 
    wxCheckBox  *mLinkCheckBox;
 
+   const EffectParameterMethods& Parameters() const override;
    DECLARE_EVENT_TABLE()
+
+static constexpr EffectParameter Bass{ &EffectBassTreble::mBass,
+   L"Bass",          0.0,     -30.0,   30.0,    1  };
+static constexpr EffectParameter Treble{ &EffectBassTreble::mTreble,
+   L"Treble",        0.0,     -30.0,   30.0,    1  };
+static constexpr EffectParameter Gain{ &EffectBassTreble::mGain,
+   L"Gain",          0.0,     -30.0,   30.0,    1  };
+static constexpr EffectParameter Link{ &EffectBassTreble::mLink,
+   L"Link Sliders",  false,    false,  true,    1  };
 };
 
 #endif

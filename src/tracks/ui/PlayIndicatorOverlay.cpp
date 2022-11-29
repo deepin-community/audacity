@@ -8,19 +8,22 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../Audacity.h"
+
 #include "PlayIndicatorOverlay.h"
 
-#include "../../AColor.h"
+#include "AColor.h"
 #include "../../AdornedRulerPanel.h"
+#include "AllThemeResources.h"
 #include "../../AudioIO.h"
-#include "../../Project.h"
+#include "../../LabelTrack.h"
+#include "Project.h"
 #include "../../ProjectAudioIO.h"
 #include "../../ProjectAudioManager.h"
 #include "../../ProjectWindow.h"
-#include "../../Track.h"
+#include "Theme.h"
+#include "Track.h"
 #include "../../TrackPanel.h"
-#include "../../ViewInfo.h"
+#include "ViewInfo.h"
 #include "Scrubbing.h"
 #include "TrackView.h"
 
@@ -53,15 +56,34 @@ unsigned PlayIndicatorOverlayBase::SequenceNumber() const
    return 10;
 }
 
+namespace {
+// Returns the appropriate bitmap, and panel-relative coordinates for its
+// upper left corner.
+std::pair< wxPoint, wxBitmap > GetIndicatorBitmap( AudacityProject &project,
+   wxCoord xx, bool playing)
+{
+   bool pinned = Scrubber::Get( project ).IsTransportingPinned();
+   wxBitmap & bmp = theTheme.Bitmap( pinned ?
+      (playing ? bmpPlayPointerPinned : bmpRecordPointerPinned) :
+      (playing ? bmpPlayPointer : bmpRecordPointer)
+   );
+   const int IndicatorHalfWidth = bmp.GetWidth() / 2;
+   return {
+      { xx - IndicatorHalfWidth - 1,
+         AdornedRulerPanel::Get(project).GetInnerRect().y },
+      bmp
+   };
+}
+}
+
 std::pair<wxRect, bool> PlayIndicatorOverlayBase::DoGetRectangle(wxSize size)
 {
    wxCoord width = 1, xx = mLastIndicatorX;
 
    if ( !mIsMaster ) {
-      auto &ruler = AdornedRulerPanel::Get( *mProject );
       auto gAudioIO = AudioIO::Get();
       bool rec = gAudioIO->IsCapturing();
-      auto pair = ruler.GetIndicatorBitmap( xx, !rec );
+      auto pair = GetIndicatorBitmap( *mProject, xx, !rec );
       xx = pair.first.x;
       width = pair.second.GetWidth();
    }
@@ -100,29 +122,12 @@ void PlayIndicatorOverlayBase::Draw(OverlayPanel &panel, wxDC &dc)
    if(auto tp = dynamic_cast<TrackPanel*>(&panel)) {
       wxASSERT(mIsMaster);
 
-      // Draw indicator in all visible tracks
-      tp->VisitCells( [&]( const wxRect &rect, TrackPanelCell &cell ) {
-         const auto pTrackView = dynamic_cast<TrackView*>(&cell);
-         if (pTrackView) pTrackView->FindTrack()->TypeSwitch(
-            [](LabelTrack *) {
-               // Don't draw the indicator in label tracks
-            },
-            [&](Track *) {
-               // Draw the NEW indicator in its NEW location
-               // AColor::Line includes both endpoints so use GetBottom()
-               AColor::Line(dc,
-                            mLastIndicatorX,
-                            rect.GetTop(),
-                            mLastIndicatorX,
-                            rect.GetBottom());
-            }
-         );
-      } );
+      AColor::Line(dc, mLastIndicatorX, 0, mLastIndicatorX, tp->GetSize().GetHeight());
    }
    else if(auto ruler = dynamic_cast<AdornedRulerPanel*>(&panel)) {
       wxASSERT(!mIsMaster);
 
-      auto pair = ruler->GetIndicatorBitmap( mLastIndicatorX, !rec );
+      auto pair = GetIndicatorBitmap( *mProject, mLastIndicatorX, !rec );
       dc.DrawBitmap( pair.second, pair.first.x, pair.first.y );
    }
    else
@@ -140,17 +145,12 @@ static const AudacityProject::AttachedObjects::RegisteredFactory sOverlayKey{
 PlayIndicatorOverlay::PlayIndicatorOverlay(AudacityProject *project)
 : PlayIndicatorOverlayBase(project, true)
 {
-   ProjectWindow::Get( *mProject ).GetPlaybackScroller().Bind(
-      EVT_TRACK_PANEL_TIMER,
-      &PlayIndicatorOverlay::OnTimer,
-      this);
+   mSubscription = ProjectWindow::Get( *mProject )
+      .GetPlaybackScroller().Subscribe( *this, &PlayIndicatorOverlay::OnTimer );
 }
 
-void PlayIndicatorOverlay::OnTimer(wxCommandEvent &event)
+void PlayIndicatorOverlay::OnTimer(Observer::Message)
 {
-   // Let other listeners get the notification
-   event.Skip();
-
    // Ensure that there is an overlay attached to the ruler
    if (!mPartner) {
       auto &ruler = AdornedRulerPanel::Get( *mProject );
@@ -174,24 +174,27 @@ void PlayIndicatorOverlay::OnTimer(wxCommandEvent &event)
       }
    }
    else {
-      // Calculate the horizontal position of the indicator
-      const double playPos = viewInfo.mRecentStreamTime;
-
       auto &window = ProjectWindow::Get( *mProject );
+      auto &scroller = window.GetPlaybackScroller();
+      // Calculate the horizontal position of the indicator
+      const double playPos = scroller.GetRecentStreamTime();
+
       using Mode = ProjectWindow::PlaybackScroller::Mode;
-      const Mode mode =
-         window.GetPlaybackScroller().GetMode();
+      const Mode mode = scroller.GetMode();
       const bool pinned = ( mode == Mode::Pinned || mode == Mode::Right );
 
       // Use a small tolerance to avoid flicker of play head pinned all the way
       // left or right
-      const auto tolerance = pinned ? 1.5 * kTimerInterval / 1000.0 : 0;
+      const auto tolerance = pinned
+         ? 1.5 * std::chrono::duration<double>{kTimerInterval}.count()
+         : 0;
       bool onScreen = playPos >= 0.0 &&
          between_incexc(viewInfo.h - tolerance,
          playPos,
          viewInfo.GetScreenEndTime() + tolerance);
 
       auto gAudioIO = AudioIO::Get();
+      const auto &scrubber = Scrubber::Get( *mProject );
 
       // BG: Scroll screen if option is set
       if( viewInfo.bUpdateTrackIndicator &&
@@ -201,7 +204,13 @@ void PlayIndicatorOverlay::OnTimer(wxCommandEvent &event)
          auto mode = ProjectAudioManager::Get( *mProject ).GetLastPlayMode();
          if (!pinned &&
              mode != PlayMode::oneSecondPlay &&
-             !gAudioIO->IsPaused())
+             !gAudioIO->IsPaused() &&
+             // Bug 2656 allow scrolling when paused in 
+             // scrubbing/play-at-speed.
+             // ONLY do this additional test if scrubbing/play-at-speed
+             // is active.
+             (!scrubber.IsScrubbing() || !scrubber.IsPaused())
+            )
          {
             auto newPos = playPos;
             if (playPos < viewInfo.h) {

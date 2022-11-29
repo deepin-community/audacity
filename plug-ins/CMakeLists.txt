@@ -7,8 +7,6 @@ message( STATUS "========== Configuring ${TARGET} ==========" )
 def_vars()
 
 list( APPEND SOURCES
-   SilenceMarker.ny
-   SoundFinder.ny
    SpectralEditMulti.ny
    SpectralEditParametricEQ.ny
    SpectralEditShelves.ny
@@ -22,6 +20,7 @@ list( APPEND SOURCES
    eq-xml-to-txt-converter.ny
    equalabel.ny
    highpass.ny
+   label-sounds.ny
    limiter.ny
    lowpass.ny
    noisegate.ny
@@ -59,8 +58,10 @@ endforeach()
 
 add_custom_target( ${TARGET} ALL DEPENDS ${OUTPUTS} SOURCES ${SOURCES} )
 
-if( NOT "${CMAKE_GENERATOR}" MATCHES "Xcode|Visual Studio*" )
-   install( DIRECTORY "${_DEST}/${TARGET}"
-            DESTINATION "${_PKGDATA}" )
+if( NOT CMAKE_SYSTEM_NAME MATCHES "Darwin" )
+   if( NOT "${CMAKE_GENERATOR}" MATCHES "Visual Studio*")
+      install( DIRECTORY "${_DEST}/${TARGET}"
+               DESTINATION "${_PKGDATA}" )
+   endif()
 endif()
 

@@ -8,20 +8,19 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../Audacity.h"
-#include "SelectHandle.h"
 
-#include "../../Experimental.h"
+#include "SelectHandle.h"
 
 #include "Scrubbing.h"
 #include "TrackView.h"
 
-#include "../../AColor.h"
+#include "AColor.h"
 #include "../../SpectrumAnalyst.h"
-#include "../../NumberScale.h"
-#include "../../Project.h"
+#include "../../LabelTrack.h"
+#include "NumberScale.h"
+#include "Project.h"
 #include "../../ProjectAudioIO.h"
-#include "../../ProjectHistory.h"
+#include "ProjectHistory.h"
 #include "../../ProjectSettings.h"
 #include "../../ProjectWindow.h"
 #include "../../RefreshCode.h"
@@ -32,14 +31,11 @@ Paul Licameli split from TrackPanel.cpp
 #include "../../TrackPanel.h"
 #include "../../TrackPanelDrawingContext.h"
 #include "../../TrackPanelMouseEvent.h"
-#include "../../ViewInfo.h"
+#include "ViewInfo.h"
 #include "../../WaveClip.h"
 #include "../../WaveTrack.h"
-#include "../../ondemand/ODManager.h"
 #include "../../prefs/SpectrogramSettings.h"
 #include "../../../images/Cursors.h"
-
-#include <wx/event.h>
 
 // Only for definition of SonifyBeginModifyState:
 //#include "../../NoteTrack.h"
@@ -64,21 +60,6 @@ bool SelectHandle::IsClicked() const
 
 namespace
 {
-   // If we're in OnDemand mode, we may change the tip.
-   void MaySetOnDemandTip(const Track * t, TranslatableString &tip)
-   {
-      wxASSERT(t);
-      //For OD regions, we need to override and display the percent complete for this task.
-      //first, make sure it's a wavetrack.
-      t->TypeSwitch( [&](const WaveTrack *wt) {
-         //see if the wavetrack exists in the ODManager (if the ODManager exists)
-         if (!ODManager::IsInstanceCreated())
-            return;
-         //ask the wavetrack for the corresponding tip - it may not change tip, but that's fine.
-         ODManager::Instance()->FillTipForWaveTrack(wt, tip);
-      });
-   }
-
    /// Converts a frequency to screen y position.
    wxInt64 FrequencyToPosition(const WaveTrack *wt,
       double frequency,
@@ -448,7 +429,12 @@ SelectHandle::SelectHandle
   const TrackList &trackList,
   const TrackPanelMouseState &st, const ViewInfo &viewInfo )
    : mpView{ pTrackView }
-   , mSnapManager{ std::make_shared<SnapManager>(&trackList, &viewInfo) }
+   // Selection dragging can snap to play region boundaries
+   , mSnapManager{ std::make_shared<SnapManager>(
+      *trackList.GetOwner(), trackList, viewInfo, SnapPointArray{
+         SnapPoint{ viewInfo.playRegion.GetLastActiveStart() },
+         SnapPoint{ viewInfo.playRegion.GetLastActiveEnd() },
+   } ) }
 {
    const wxMouseState &state = st.state;
    mRect = st.rect;
@@ -457,7 +443,7 @@ SelectHandle::SelectHandle
    auto pTrack = pTrackView->FindTrack();
    mSnapStart = mSnapManager->Snap(pTrack.get(), time, false);
    if (mSnapStart.snappedPoint)
-      mSnapStart.outCoord += mRect.x;
+         mSnapStart.outCoord += mRect.x;
    else
       mSnapStart.outCoord = -1;
 
@@ -516,14 +502,14 @@ bool SelectHandle::HasSnap() const
       (IsClicked() ? mSnapEnd : mSnapStart).snappedPoint;
 }
 
-bool SelectHandle::HasEscape() const
+bool SelectHandle::HasEscape(AudacityProject *) const
 {
    return HasSnap() && mUseSnap;
 }
 
 bool SelectHandle::Escape(AudacityProject *project)
 {
-   if (SelectHandle::HasEscape()) {
+   if (SelectHandle::HasEscape(project)) {
       SetUseSnap(false, project);
       return true;
    }
@@ -585,10 +571,11 @@ UIHandle::Result SelectHandle::Click
       // Special case: if we're over a clip in a WaveTrack,
       // select just that clip
       pTrack->TypeSwitch( [&] ( WaveTrack *wt ) {
-         WaveClip *const selectedClip = wt->GetClipAtX(event.m_x);
+         auto time = viewInfo.PositionToTime(event.m_x, mRect.x);
+         WaveClip *const selectedClip = wt->GetClipAtTime(time);
          if (selectedClip) {
             viewInfo.selectedRegion.setTimes(
-               selectedClip->GetOffset(), selectedClip->GetEndTime());
+               selectedClip->GetPlayStartTime(), selectedClip->GetPlayEndTime());
          }
       } );
 
@@ -785,11 +772,6 @@ UIHandle::Result SelectHandle::Click
       StartSelection(pProject);
       selectionState.SelectTrack( *pTrack, true, true );
       TrackFocus::Get( *pProject ).Set(pTrack);
-      //On-Demand: check to see if there is an OD thing associated with this track.
-      pTrack->TypeSwitch( [&](WaveTrack *wt) {
-         if(ODManager::IsInstanceCreated())
-            ODManager::Instance()->DemandTrackUpdate(wt,mSelStart);
-      });
 
       Connect(pProject);
       return RefreshAll;
@@ -992,13 +974,11 @@ HitTestPreview SelectHandle::Preview
                pView.get(), rect, !bModifierDown, !bModifierDown);
          SetTipAndCursorForBoundary(boundary, !bShiftDown, tip, pCursor);
       }
-
-      MaySetOnDemandTip(pTrack.get(), tip);
    }
    if (tip.empty()) {
       tip = XO("Click and drag to select audio");
    }
-   if (HasEscape() && mUseSnap) {
+   if (HasEscape(pProject) && mUseSnap) {
       tip.Join(
 /* i18n-hint: "Snapping" means automatic alignment of selection edges to any nearby label or clip boundaries */
         XO("(snapping)"), wxT(" ")
@@ -1073,7 +1053,7 @@ void SelectHandle::Connect(AudacityProject *pProject)
    mTimerHandler = std::make_shared<TimerHandler>( this, pProject );
 }
 
-class SelectHandle::TimerHandler : public wxEvtHandler
+class SelectHandle::TimerHandler
 {
 public:
    TimerHandler( SelectHandle *pParent, AudacityProject *pProject )
@@ -1081,23 +1061,21 @@ public:
       , mConnectedProject{ pProject }
    {
       if (mConnectedProject)
-         mConnectedProject->Bind(EVT_TRACK_PANEL_TIMER,
-            &SelectHandle::TimerHandler::OnTimer,
-            this);
+         mSubscription = ProjectWindow::Get( *mConnectedProject )
+            .GetPlaybackScroller().Subscribe( *this, &SelectHandle::TimerHandler::OnTimer);
    }
 
    // Receives timer event notifications, to implement auto-scroll
-   void OnTimer(wxCommandEvent &event);
+   void OnTimer(Observer::Message);
 
 private:
    SelectHandle *mParent;
    AudacityProject *mConnectedProject;
+   Observer::Subscription mSubscription;
 };
 
-void SelectHandle::TimerHandler::OnTimer(wxCommandEvent &event)
+void SelectHandle::TimerHandler::OnTimer(Observer::Message)
 {
-   event.Skip();
-
    // AS: If the user is dragging the mouse and there is a track that
    //  has captured the mouse, then scroll the screen, as necessary.
 
@@ -1239,13 +1217,6 @@ void SelectHandle::AssignSelection
    }
 
    viewInfo.selectedRegion.setTimes(sel0, sel1);
-
-   //On-Demand: check to see if there is an OD thing associated with this track.  If so we want to update the focal point for the task.
-   if (pTrack && ODManager::IsInstanceCreated())
-      pTrack->TypeSwitch( [&](WaveTrack *wt) {
-         ODManager::Instance()->DemandTrackUpdate(wt, sel0);
-         //sel0 is sometimes less than mSelStart
-      });
 }
 
 void SelectHandle::StartFreqSelection(ViewInfo &viewInfo,
@@ -1394,9 +1365,9 @@ void SelectHandle::StartSnappingFreqSelection
             end - start));
    const auto effectiveLength = std::max(minLength, length);
    frequencySnappingData.resize(effectiveLength, 0.0f);
-   pTrack->Get(
-      reinterpret_cast<samplePtr>(&frequencySnappingData[0]),
-      floatSample, start, length, fillZero,
+   pTrack->GetFloats(
+      &frequencySnappingData[0],
+      start, length, fillZero,
       // Don't try to cope with exceptions, just read zeroes instead.
       false);
 

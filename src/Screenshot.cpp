@@ -20,6 +20,7 @@ It forwards the actual work of doing the commands to the ScreenshotCommand.
 #include "commands/ScreenshotCommand.h"
 #include "commands/CommandTargets.h"
 #include "commands/CommandContext.h"
+#include <wx/app.h>
 #include <wx/defs.h>
 #include <wx/event.h>
 #include <wx/frame.h>
@@ -38,11 +39,12 @@ It forwards the actual work of doing the commands to the ScreenshotCommand.
 #include <wx/tglbtn.h>
 #include <wx/window.h>
 
+#include "prefs/GUISettings.h" // for RTL_WORKAROUND
 #include "Project.h"
 #include "ProjectStatus.h"
 #include "ProjectWindow.h"
+#include "ProjectWindows.h"
 #include "Prefs.h"
-#include "toolbars/ToolManager.h"
 #include "tracks/ui/TrackView.h"
 #include "widgets/HelpSystem.h"
 
@@ -53,11 +55,14 @@ class OldStyleCommandType;
 class ScreenFrameTimer;
 
 ////////////////////////////////////////////////////////////////////////////////
+#define ScreenCaptureFrameTitle XO("Screen Capture Frame")
 
 // ANSWER-ME: Should this derive from wxDialogWrapper instead?
-class ScreenshotBigDialog final : public wxFrame
+class ScreenshotBigDialog final : public wxFrame,
+                                  public PrefsListener
 {
  public:
+
    // constructors and destructors
    ScreenshotBigDialog(
       wxWindow *parent, wxWindowID id, AudacityProject &project);
@@ -96,6 +101,9 @@ class ScreenshotBigDialog final : public wxFrame
    void OnShortTracks(wxCommandEvent & event);
    void OnMedTracks(wxCommandEvent & event);
    void OnTallTracks(wxCommandEvent & event);
+
+   // PrefsListener implementation
+   void UpdatePrefs() override;
 
    AudacityProject &mProject;
 
@@ -279,7 +287,7 @@ std::unique_ptr<ScreenshotCommand> ScreenshotBigDialog::CreateCommand()
 
 ScreenshotBigDialog::ScreenshotBigDialog(
    wxWindow * parent, wxWindowID id, AudacityProject &project)
-:  wxFrame(parent, id, _("Screen Capture Frame"),
+:  wxFrame(parent, id, ScreenCaptureFrameTitle.Translation(),
            wxDefaultPosition, wxDefaultSize,
 
 #if !defined(__WXMSW__)
@@ -504,26 +512,30 @@ void ScreenshotBigDialog::PopulateOrExchange(ShuttleGui & S)
 
 bool ScreenshotBigDialog::ProcessEvent(wxEvent & e)
 {
-   int id = e.GetId();
-
-   // If split into two parts to make for easier breakpoint
-   // when testing timer.
-   if (mDelayCheckBox &&
-       mDelayCheckBox->GetValue() &&
-       e.IsCommandEvent() &&
-       e.GetEventType() == wxEVT_COMMAND_BUTTON_CLICKED)
+   if (!IsFrozen())
    {
-      if( id >= IdAllDelayedEvents && id <= IdLastDelayedEvent &&
-       e.GetEventObject() != NULL) {
-         mTimer = std::make_unique<ScreenFrameTimer>(this, e);
-         mTimer->Start(5000, true);
-         return true;
+      int id = e.GetId();
+
+      // If split into two parts to make for easier breakpoint
+      // when testing timer.
+      if (mDelayCheckBox &&
+          mDelayCheckBox->GetValue() &&
+          e.IsCommandEvent() &&
+          e.GetEventType() == wxEVT_COMMAND_BUTTON_CLICKED)
+      {
+         if( id >= IdAllDelayedEvents && id <= IdLastDelayedEvent &&
+          e.GetEventObject() != NULL) {
+            mTimer = std::make_unique<ScreenFrameTimer>(this, e);
+            mTimer->Start(5000, true);
+            return true;
+         }
+      }
+
+      if (e.IsCommandEvent() && e.GetEventObject() == NULL) {
+         e.SetEventObject(this);
       }
    }
 
-   if (e.IsCommandEvent() && e.GetEventObject() == NULL) {
-      e.SetEventObject(this);
-   }
    return wxFrame::ProcessEvent(e);
 }
 
@@ -549,7 +561,7 @@ void ScreenshotBigDialog::OnClose(wxCommandEvent &  WXUNUSED(event))
 
 void ScreenshotBigDialog::OnGetURL(wxCommandEvent & WXUNUSED(event))
 {
-   HelpSystem::ShowHelp(this, wxT("Screenshot"));
+   HelpSystem::ShowHelp(this, L"Screenshot");
 }
 
 void ScreenshotBigDialog::OnUIUpdate(wxUpdateUIEvent &  WXUNUSED(event))
@@ -633,6 +645,7 @@ void ScreenshotBigDialog::OnMainWindowLarge(wxCommandEvent & WXUNUSED(event))
 void ScreenshotBigDialog::DoCapture(int captureMode)
 {
    Hide();
+   wxYieldIfNeeded();
    //mCommand->SetParameter(wxT("FilePath"), mDirectoryTextBox->GetValue());
    //mCommand->SetParameter(wxT("CaptureMode"), captureMode);
    mCommand->mBack = mWhite->GetValue()
@@ -643,6 +656,20 @@ void ScreenshotBigDialog::DoCapture(int captureMode)
    mCommand->mWhat = captureMode;
    if (!mCommand->Apply(mContext))
       mStatus->SetStatusText(_("Capture failed!"), mainStatusBarField);
+
+   // Bug 2323: (100% hackage alert) Since the command target dialog is not
+   // accessible from outside the command, this seems to be the only way we
+   // can get the window on top of this dialog. 
+   auto w = static_cast<wxDialogWrapper *>(wxFindWindowByLabel(XO("Long Message").Translation()));
+   if (w) {
+      auto endmodal = [w](wxCommandEvent &evt)
+      {
+         w->EndModal(0);
+      };
+      w->Bind(wxEVT_BUTTON, endmodal);
+      w->ShowModal();
+   }
+
    Show();
 }
 
@@ -699,7 +726,6 @@ void ScreenshotBigDialog::OnCaptureSomething(wxCommandEvent &  event)
       ScreenshotCommand::ktimer,
       ScreenshotCommand::ktools,
       ScreenshotCommand::ktransport,
-      ScreenshotCommand::kmixer,
       ScreenshotCommand::kmeter,
       ScreenshotCommand::kplaymeter,
       ScreenshotCommand::krecordmeter,
@@ -767,7 +793,7 @@ void ScreenshotBigDialog::SizeTracks(int h)
       auto nChannels = channels.size();
       auto height = nChannels == 1 ? 2 * h : h;
       for (auto channel : channels)
-         TrackView::Get( *channel ).SetHeight(height);
+         TrackView::Get( *channel ).SetExpandedHeight(height);
    }
    ProjectWindow::Get( mContext.project ).RedrawProject();
 }
@@ -776,7 +802,7 @@ void ScreenshotBigDialog::OnShortTracks(wxCommandEvent & WXUNUSED(event))
 {
    for (auto t : TrackList::Get( mContext.project ).Any<WaveTrack>()) {
       auto &view = TrackView::Get( *t );
-      view.SetHeight( view.GetMinimizedHeight() );
+      view.SetExpandedHeight( view.GetMinimizedHeight() );
    }
 
    ProjectWindow::Get( mContext.project ).RedrawProject();
@@ -790,4 +816,17 @@ void ScreenshotBigDialog::OnMedTracks(wxCommandEvent & WXUNUSED(event))
 void ScreenshotBigDialog::OnTallTracks(wxCommandEvent & WXUNUSED(event))
 {
    SizeTracks(85);
+}
+
+void ScreenshotBigDialog::UpdatePrefs()
+{
+   Freeze();
+
+   SetSizer(nullptr);
+   DestroyChildren();
+
+   SetTitle(ScreenCaptureFrameTitle.Translation());
+   Populate();
+
+   Thaw();
 }

@@ -69,7 +69,7 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 
 #include <wx/string.h>
 #include <wx/utils.h>
@@ -80,17 +80,16 @@
 #ifdef USE_MIDI
 #include "ImportMIDI.h"
 #endif // USE_MIDI
-#include "../FileNames.h"
+#include "FileNames.h"
 #include "../WaveTrack.h"
 #include "ImportPlugin.h"
 #include "Import.h"
-#include "../NoteTrack.h"
-#include "../Project.h"
-#include "../ProjectHistory.h"
+#include "Project.h"
+#include "ProjectHistory.h"
 #include "../ProjectManager.h"
 #include "../ProjectWindow.h"
-#include "../FileFormats.h"
-#include "../Prefs.h"
+#include "../ProjectWindows.h"
+#include "Prefs.h"
 #include "../widgets/AudacityMessageBox.h"
 #include "../widgets/ProgressDialog.h"
 
@@ -128,7 +127,7 @@ public:
 
    TranslatableString GetFileDescription() override;
    ByteCount GetFileUncompressedBytes() override;
-   ProgressResult Import(TrackFactory *trackFactory, TrackHolders &outTracks,
+   ProgressResult Import(WaveTrackFactory *trackFactory, TrackHolders &outTracks,
               Tags *tags) override;
 
    wxInt32 GetStreamCount() override { return 1; }
@@ -153,7 +152,7 @@ private:
    AudacityProject *mProject{};
 
    // In order to know whether or not to create a NEW window
-   bool              windowCalledOnce{ false };
+   int nFilesInGroup{ 0 };
 
    // In order to zoom in, it must be done after files are opened
    bool              callDurationFactor{ false };
@@ -181,7 +180,7 @@ TranslatableString LOFImportPlugin::GetPluginFormatDescription()
 std::unique_ptr<ImportFileHandle> LOFImportPlugin::Open(
    const FilePath &filename, AudacityProject *pProject)
 {
-   // Check if it is a binary file
+   // Check if it is a text file.
    {
       wxFile binaryFile;
       if (!binaryFile.Open(filename))
@@ -190,16 +189,62 @@ std::unique_ptr<ImportFileHandle> LOFImportPlugin::Open(
       char buf[BINARY_FILE_CHECK_BUFFER_SIZE];
       int count = binaryFile.Read(buf, BINARY_FILE_CHECK_BUFFER_SIZE);
 
-      for (int i = 0; i < count; i++)
+      bool isTextFile = false;
+      const std::string lofToken("file");
+
+      // At least we should get a size more than: <token> + <space> + <filename>.
+      if (count > (lofToken.length() + sizeof(' ') + 1))
       {
-         // Check if this char is below the space character, but not a
-         // line feed or carriage return
-         if (buf[i] < 32 && buf[i] != 10 && buf[i] != 13)
-         {
-            // Assume it is a binary file
-            binaryFile.Close();
-            return nullptr;
-         }
+          // Audacity can import list from LOF only with BOM or ASCII,
+          // each other text (like unicode without BOM, bin, etc) can't be recognized.
+
+          // UTF-16 BOM checker.
+          auto IsUtf16_BE = [](const char* str) -> bool
+          {
+              return str[0] == static_cast<char>(0xFE) && str[1] == static_cast<char>(0xFF);
+          };
+          auto IsUtf16_LE = [](const char* str) -> bool
+          {
+              return str[0] == static_cast<char>(0xFF) && str[1] == static_cast<char>(0xFE);
+          };
+
+          // UTF-32 BOM checker.
+          auto IsUtf32_BE = [](const char* str) -> bool
+          {
+              return str[0] == static_cast<char>(0x00) &&
+                     str[1] == static_cast<char>(0x00) &&
+                     str[2] == static_cast<char>(0xFE) &&
+                     str[3] == static_cast<char>(0xFF);
+          };
+          auto IsUtf32_LE = [](const char* str) -> bool
+          {
+              return str[0] == static_cast<char>(0xFF) &&
+                     str[1] == static_cast<char>(0xFE) &&
+                     str[2] == static_cast<char>(0x00) &&
+                     str[3] == static_cast<char>(0x00);
+          };
+
+          // Is unicode text file.
+          if (IsUtf16_BE(buf) || IsUtf16_LE(buf) || IsUtf32_BE(buf) || IsUtf32_LE(buf))
+          {
+              isTextFile = true;
+          }
+          // Try parse as ASCII and UTF-8 text as ASCII too.
+          else
+          {
+              buf[sizeof(buf) - 1] = '\0';
+
+              std::string importedText(buf);
+
+              if (importedText.find(lofToken) != std::string::npos)
+                  isTextFile = true;
+          }
+      }
+
+      if (!isTextFile)
+      {
+          binaryFile.Close();
+          return nullptr;
       }
    }
 
@@ -225,7 +270,7 @@ auto LOFImportFileHandle::GetFileUncompressedBytes() -> ByteCount
 }
 
 ProgressResult LOFImportFileHandle::Import(
-   TrackFactory * WXUNUSED(trackFactory), TrackHolders &outTracks,
+   WaveTrackFactory * WXUNUSED(trackFactory), TrackHolders &outTracks,
    Tags * WXUNUSED(tags))
 {
    // Unlike other ImportFileHandle subclasses, this one never gives any tracks
@@ -311,20 +356,17 @@ void LOFImportFileHandle::lofOpenFiles(wxString* ln)
    wxString targetfile;
    wxString tokenholder = tok.GetNextToken();
 
+
    if (tokenholder.IsSameAs(wxT("window"), false))
    {
       // set any duration/offset factors for last window, as all files were called
       doDurationAndScrollOffset();
 
-      if (windowCalledOnce)
+      if (nFilesInGroup > 0 )
          // Cause a project to be created with the next import
          mProject = nullptr;
-      else
-         // Apply any offset and duration directives of the first "window" line
-         // to the previously open project, not a NEW one.
-         ;
 
-      windowCalledOnce = true;
+      nFilesInGroup = 0;
 
       while (tok.HasMoreTokens())
       {
@@ -383,7 +425,7 @@ void LOFImportFileHandle::lofOpenFiles(wxString* ln)
 
    else if (tokenholder.IsSameAs(wxT("file"), false))
    {
-
+      nFilesInGroup++;
       // To identify filename and open it
       tokenholder = temptok1.GetNextToken();
       wxString targettoken = temptok1.GetNextToken();
@@ -415,7 +457,8 @@ void LOFImportFileHandle::lofOpenFiles(wxString* ln)
           * audio file. TODO: Some sort of message here? */
 
 #endif // USE_MIDI
-         mProject = ProjectManager::OpenProject( mProject, targetfile );
+         mProject = ProjectManager::OpenProject( mProject, targetfile,
+            true /* addtohistory */, true /* reuseNonemptyProject */ );
 
       // Set tok to right after filename
       temptok2.SetString(targettoken);
@@ -503,7 +546,9 @@ void LOFImportFileHandle::doDurationAndScrollOffset()
    if (!mProject)
       return;
 
+   callScrollOffset = callScrollOffset && (scrollOffset != 0);
    bool doSomething = callDurationFactor || callScrollOffset;
+
    if (callDurationFactor)
    {
       double longestDuration = TrackList::Get( *mProject ).GetEndTime();
@@ -511,7 +556,7 @@ void LOFImportFileHandle::doDurationAndScrollOffset()
       callDurationFactor = false;
    }
 
-   if (callScrollOffset && (scrollOffset != 0))
+   if (callScrollOffset)
    {
       ProjectWindow::Get( *mProject ).TP_ScrollWindow(scrollOffset);
       callScrollOffset = false;

@@ -14,6 +14,7 @@
 #include <wx/defs.h>
 
 #include "ToolBar.h"
+#include "widgets/auStaticText.h"
 
 // Column for 
 //   Project rate
@@ -42,7 +43,7 @@ class AudacityProject;
 class SelectionBarListener;
 class NumericTextCtrl;
 
-class SelectionBar final : public ToolBar {
+class AUDACITY_DLL_API SelectionBar final : public ToolBar {
 
  public:
    SelectionBar( AudacityProject &project );
@@ -112,6 +113,8 @@ class SelectionBar final : public ToolBar {
    wxComboBox        *mRateBox;
    wxChoice          *mSnapTo;
    wxWindow          *mRateText;
+
+   wxString mLastValidText;
 
  public:
 

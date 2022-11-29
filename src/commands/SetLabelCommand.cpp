@@ -16,13 +16,14 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "SetLabelCommand.h"
 
 #include "LoadCommands.h"
-#include "../ViewInfo.h"
+#include "ViewInfo.h"
 #include "../WaveTrack.h"
 #include "../LabelTrack.h"
+#include "ProjectHistory.h"
 #include "../Shuttle.h"
 #include "../ShuttleGui.h"
 #include "CommandContext.h"
@@ -37,15 +38,21 @@ SetLabelCommand::SetLabelCommand()
 {
 }
 
-
-bool SetLabelCommand::DefineParams( ShuttleParams & S ){ 
-   S.Define(    mLabelIndex,                            wxT("Label"), 0, 0, 100 );
-   S.OptionalY( bHasText       ).Define(  mText,        wxT("Text"),       wxT("empty") );
+template<bool Const>
+bool SetLabelCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   S.Define(    mLabelIndex,                            wxT("Label"), 0, 0, 10000 );
+   S.OptionalY( bHasText       ).Define(  mText,        wxT("Text"),       wxString{"empty"} );
    S.OptionalY( bHasT0         ).Define(  mT0,          wxT("Start"),      0.0, 0.0, 100000.0);
    S.OptionalY( bHasT1         ).Define(  mT1,          wxT("End"),        0.0, 0.0, 100000.0);
    S.OptionalN( bHasSelected   ).Define(  mbSelected,   wxT("Selected"),   false );
    return true;
 };
+
+bool SetLabelCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool SetLabelCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void SetLabelCommand::PopulateOrExchange(ShuttleGui & S)
 {
@@ -113,15 +120,19 @@ bool SetLabelCommand::Apply(const CommandContext & context)
       auto &view = LabelTrackView::Get( *labelTrack );
       if( mbSelected )
       {
-         view.SetSelectedIndex( ii );
+         view.SetNavigationIndex( ii );
          double t0 = pLabel->selectedRegion.t0();
          double t1 = pLabel->selectedRegion.t1();
          selectedRegion.setTimes( t0, t1);
       }
-      else if( view.GetSelectedIndex( context.project ) == ii )
-         view.SetSelectedIndex( -1 );
+      else if( view.GetNavigationIndex( context.project ) == ii )
+         view.SetNavigationIndex( -1 );
    }
 
    labelTrack->SortLabels();
+
+   ProjectHistory::Get(context.project).PushState(
+      XO("Edited Label"), XO("Label"));
+
    return true;
 }

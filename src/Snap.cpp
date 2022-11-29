@@ -8,63 +8,67 @@
 
 **********************************************************************/
 
-#include "Audacity.h" // for USE_* macros
+
 #include "Snap.h"
 
 #include <algorithm>
 #include <cstdlib>
 
 #include "Project.h"
+#include "ProjectRate.h"
 #include "ProjectSettings.h"
-#include "LabelTrack.h"
-#include "NoteTrack.h"
-#include "WaveClip.h"
+#include "Track.h"
 #include "ViewInfo.h"
-#include "WaveTrack.h"
 
 inline bool operator < (SnapPoint s1, SnapPoint s2)
 {
    return s1.t < s2.t;
 }
 
-TrackClip::TrackClip(Track *t, WaveClip *c)
-{
-   track = origTrack = t;
-   dstTrack = NULL;
-   clip = c;
-}
-
-TrackClip::~TrackClip()
-{
-
-}
-
-SnapManager::SnapManager(const TrackList *tracks,
-                         const ZoomInfo *zoomInfo,
-                         const TrackClipArray *clipExclusions,
-                         const TrackArray *trackExclusions,
+SnapManager::SnapManager(const AudacityProject &project,
+                         SnapPointArray candidates,
+                         const ZoomInfo &zoomInfo,
                          bool noTimeSnap,
                          int pixelTolerance)
-:  mConverter(NumericConverter::TIME)
+: mProject{ &project }
+, mZoomInfo{ &zoomInfo }
+, mPixelTolerance{ pixelTolerance }
+, mNoTimeSnap{ noTimeSnap }
+, mCandidates{ move( candidates ) }
+, mSnapPoints{}
+, mConverter{ NumericConverter::TIME }
 {
-   mTracks = tracks;
-   mZoomInfo = zoomInfo;
-   mClipExclusions = clipExclusions;
-   mTrackExclusions = trackExclusions;
-   mPixelTolerance = pixelTolerance;
-   mNoTimeSnap = noTimeSnap;
-
-   mProject = tracks->GetOwner();
-   wxASSERT(mProject);
-
-   mSnapTo = 0;
-   mRate = 0.0;
-   mFormat = {};
-
-   // Two time points closer than this are considered the same
-   mEpsilon = 1 / 44100.0;
-
    Reinit();
+}
+
+namespace {
+SnapPointArray FindCandidates(
+   SnapPointArray candidates, const TrackList &tracks )
+{
+   for ( const auto track : tracks.Any() ) {
+      auto intervals = track->GetIntervals();
+      for (const auto &interval : intervals) {
+         candidates.emplace_back( interval.Start(), track );
+         if ( interval.Start() != interval.End() )
+            candidates.emplace_back( interval.End(), track );
+      }
+   }
+   return move(candidates);
+}
+}
+
+SnapManager::SnapManager(const AudacityProject &project,
+            const TrackList &tracks,
+            const ZoomInfo &zoomInfo,
+            SnapPointArray candidates,
+            bool noTimeSnap,
+            int pixelTolerance)
+   : SnapManager{ project,
+      // Add candidates to given ones by default rules,
+      // then delegate to other ctor
+      FindCandidates( move(candidates), tracks ),
+      zoomInfo, noTimeSnap, pixelTolerance }
+{
 }
 
 SnapManager::~SnapManager()
@@ -75,7 +79,7 @@ void SnapManager::Reinit()
 {
    const auto &settings = ProjectSettings::Get( *mProject );
    int snapTo = settings.GetSnapTo();
-   double rate = settings.GetRate();
+   auto rate = ProjectRate::Get(*mProject).GetRate();
    auto format = settings.GetSelectionFormat();
 
    // No need to reinit if these are still the same
@@ -105,58 +109,9 @@ void SnapManager::Reinit()
    // Add a SnapPoint at t=0
    mSnapPoints.push_back(SnapPoint{});
 
-   auto trackRange =
-      mTracks->Any()
-         - [&](const Track *pTrack){
-            return mTrackExclusions &&
-               make_iterator_range( *mTrackExclusions ).contains( pTrack );
-         };
-   trackRange.Visit(
-      [&](const LabelTrack *labelTrack) {
-         for (int i = 0, cnt = labelTrack->GetNumLabels(); i < cnt; ++i)
-         {
-            const LabelStruct *label = labelTrack->GetLabel(i);
-            const double t0 = label->getT0();
-            const double t1 = label->getT1();
-            CondListAdd(t0, labelTrack);
-            if (t1 != t0)
-            {
-               CondListAdd(t1, labelTrack);
-            }
-         }
-      },
-      [&](const WaveTrack *waveTrack) {
-         for (const auto &clip: waveTrack->GetClips())
-         {
-            if (mClipExclusions)
-            {
-               bool skip = false;
-               for (size_t j = 0, cnt = mClipExclusions->size(); j < cnt; ++j)
-               {
-                  if ((*mClipExclusions)[j].track == waveTrack &&
-                      (*mClipExclusions)[j].clip == clip.get())
-                  {
-                     skip = true;
-                     break;
-                  }
-               }
-
-               if (skip)
-                  continue;
-            }
-
-            CondListAdd(clip->GetStartTime(), waveTrack);
-            CondListAdd(clip->GetEndTime(), waveTrack);
-         }
-      }
-#ifdef USE_MIDI
-      ,
-      [&](const NoteTrack *track) {
-         CondListAdd(track->GetStartTime(), track);
-         CondListAdd(track->GetEndTime(), track);
-      }
-#endif
-   );
+   // Adjust and filter the candidate points
+   for (const auto &candidate : mCandidates)
+      CondListAdd( candidate.t, candidate.track );
 
    // Sort all by time
    std::sort(mSnapPoints.begin(), mSnapPoints.end());

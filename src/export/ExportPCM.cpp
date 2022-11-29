@@ -8,10 +8,11 @@
 
 **********************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 
 #include <wx/defs.h>
 
+#include <wx/app.h>
 #include <wx/choice.h>
 #include <wx/dynlib.h>
 #include <wx/filename.h>
@@ -23,17 +24,18 @@
 
 #include "sndfile.h"
 
+#include "Dither.h"
 #include "../FileFormats.h"
-#include "../Mix.h"
-#include "../Prefs.h"
-#include "../ProjectSettings.h"
+#include "Mix.h"
+#include "Prefs.h"
+#include "ProjectRate.h"
 #include "../ShuttleGui.h"
 #include "../Tags.h"
-#include "../Track.h"
+#include "Track.h"
 #include "../widgets/AudacityMessageBox.h"
-#include "../widgets/ErrorDialog.h"
 #include "../widgets/ProgressDialog.h"
-#include "../wxFileNameWrapper.h"
+#include "../widgets/wxWidgetsWindowPlacement.h"
+#include "wxFileNameWrapper.h"
 
 #include "Export.h"
 
@@ -90,24 +92,10 @@ static void SaveOtherFormat(int val)
 
 static int LoadEncoding(int type)
 {
-   // LLL: Temporary hack until I can figure out how to add an "ExportPCMCommand"
-   //      to create a 32-bit float WAV file.  It tells the ExportPCM exporter
-   //      to use float when exporting the next WAV file.
-   //
-   //      This was done as part of the resolution for bug #2062.
-   //
-   // See: ProjectFileManager.cpp, ProjectFileManager::SaveCopyWaveTracks()
-   if (gPrefs->HasEntry(wxT("/FileFormats/ExportFormat_SF1_ForceFloat")))
-   {
-      gPrefs->DeleteEntry(wxT("/FileFormats/ExportFormat_SF1_ForceFloat"));
-      gPrefs->Flush();
-
-      return SF_FORMAT_FLOAT;
-   }
-
    return gPrefs->Read(wxString::Format(wxT("/FileFormats/ExportFormat_SF1_Type/%s_%x"),
                                         sf_header_shortname(type), type), (long int) 0);
 }
+
 static void SaveEncoding(int type, int val)
 {
    gPrefs->Write(wxString::Format(wxT("/FileFormats/ExportFormat_SF1_Type/%s_%x"),
@@ -194,6 +182,7 @@ ExportPCMOptions::ExportPCMOptions(wxWindow *parent, int selformat)
 ExportPCMOptions::~ExportPCMOptions()
 {
    // Save the encoding
+   SaveOtherFormat(mType);
    SaveEncoding(mType, sf_encoding_index_to_subtype(mEncodingIndexes[mEncodingFromChoice]));
 }
 
@@ -400,7 +389,7 @@ public:
 
    void OptionsCreate(ShuttleGui &S, int format) override;
    ProgressResult Export(AudacityProject *project,
-                         std::unique_ptr<ProgressDialog> &pDialog,
+                         std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                          unsigned channels,
                          const wxFileNameWrapper &fName,
                          bool selectedOnly,
@@ -455,13 +444,15 @@ void ExportPCM::ReportTooBigError(wxWindow * pParent)
       XO("You have attempted to Export a WAV or AIFF file which would be greater than 4GB.\n"
       "Audacity cannot do this, the Export was abandoned.");
 
-   ShowErrorDialog(pParent, XO("Error Exporting"), message,
-                  wxT("Size_limits_for_WAV_and_AIFF_files"));
+   BasicUI::ShowErrorDialog( wxWidgetsWindowPlacement{ pParent },
+      XO("Error Exporting"), message,
+      wxT("Size_limits_for_WAV_and_AIFF_files"));
 
 // This alternative error dialog was to cover the possibility we could not 
 // compute the size in advance.
 #if 0
-   ShowErrorDialog(pParent, XO("Error Exporting"),
+   BasicUI::ShowErrorDialog( wxWidgetsWindowPlacement{ pParent },
+                  XO("Error Exporting"),
                   XO("Your exported WAV file has been truncated as Audacity cannot export WAV\n"
                     "files bigger than 4GB."),
                   wxT("Size_limits_for_WAV_files"));
@@ -474,7 +465,7 @@ void ExportPCM::ReportTooBigError(wxWindow * pParent)
  * file type, or giving the user full control over libsndfile.
  */
 ProgressResult ExportPCM::Export(AudacityProject *project,
-                                 std::unique_ptr<ProgressDialog> &pDialog,
+                                 std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                                  unsigned numChannels,
                                  const wxFileNameWrapper &fName,
                                  bool selectionOnly,
@@ -484,7 +475,7 @@ ProgressResult ExportPCM::Export(AudacityProject *project,
                                  const Tags *metadata,
                                  int subformat)
 {
-   double rate = ProjectSettings::Get( *project ).GetRate();
+   double rate = ProjectRate::Get( *project ).GetRate();
    const auto &tracks = TrackList::Get( *project );
 
    // Set a default in case the settings aren't found
@@ -623,11 +614,16 @@ ProgressResult ExportPCM::Export(AudacityProject *project,
       size_t maxBlockLen = 44100 * 5;
 
       {
+         std::vector<char> dither;
+         if ((info.format & SF_FORMAT_SUBMASK) == SF_FORMAT_PCM_24) {
+            dither.reserve(maxBlockLen * info.channels * SAMPLE_SIZE(int24Sample));
+         }
+
          wxASSERT(info.channels >= 0);
          auto mixer = CreateMixer(tracks, selectionOnly,
                                   t0, t1,
                                   info.channels, maxBlockLen, true,
-                                  rate, format, true, mixerSpec);
+                                  rate, format, mixerSpec);
 
          InitProgress( pDialog, fName,
             (selectionOnly
@@ -638,21 +634,39 @@ ProgressResult ExportPCM::Export(AudacityProject *project,
 
          while (updateResult == ProgressResult::Success) {
             sf_count_t samplesWritten;
-            size_t numSamples = mixer->Process(maxBlockLen);
-
+            size_t numSamples = mixer->Process();
             if (numSamples == 0)
                break;
 
-            samplePtr mixed = mixer->GetBuffer();
+            auto mixed = mixer->GetBuffer();
+
+            // Bug 1572: Not ideal, but it does add the desired dither
+            if ((info.format & SF_FORMAT_SUBMASK) == SF_FORMAT_PCM_24) {
+               for (int c = 0; c < info.channels; ++c) {
+                  CopySamples(
+                     mixed + (c * SAMPLE_SIZE(format)), format,
+                     dither.data() + (c * SAMPLE_SIZE(int24Sample)), int24Sample,
+                     numSamples, gHighQualityDither, info.channels, info.channels
+                  );
+                  // Copy back without dither
+                  CopySamples(
+                     dither.data() + (c * SAMPLE_SIZE(int24Sample)), int24Sample,
+                     const_cast<samplePtr>(mixed) // PRL fix this!
+                        + (c * SAMPLE_SIZE(format)), format,
+                     numSamples, DitherType::none, info.channels, info.channels);
+               }
+            }
 
             if (format == int16Sample)
-               samplesWritten = SFCall<sf_count_t>(sf_writef_short, sf.get(), (short *)mixed, numSamples);
+               samplesWritten = SFCall<sf_count_t>(sf_writef_short, sf.get(), (const short *)mixed, numSamples);
             else
-               samplesWritten = SFCall<sf_count_t>(sf_writef_float, sf.get(), (float *)mixed, numSamples);
+               samplesWritten = SFCall<sf_count_t>(sf_writef_float, sf.get(), (const float *)mixed, numSamples);
 
             if (static_cast<size_t>(samplesWritten) != numSamples) {
                char buffer2[1000];
                sf_error_str(sf.get(), buffer2, 1000);
+               //Used to give this error message
+#if 0
                AudacityMessageBox(
                   XO(
                   /* i18n-hint: %s will be the error message from libsndfile, which
@@ -660,11 +674,20 @@ ProgressResult ExportPCM::Export(AudacityProject *project,
                    * error" */
 "Error while writing %s file (disk full?).\nLibsndfile says \"%s\"")
                      .Format( formatStr, wxString::FromAscii(buffer2) ));
+#else
+               // But better to give the same error message as for
+               // other cases of disk exhaustion.
+               // The thrown exception doesn't escape but GuardedCall
+               // will enqueue a message.
+               GuardedCall([&fName]{
+                  throw FileException{
+                     FileException::Cause::Write, fName }; });
+#endif
                updateResult = ProgressResult::Cancelled;
                break;
             }
             
-            updateResult = progress.Update(mixer->MixGetCurrentTime() - t0, t1 - t0);
+            updateResult = progress.Poll(mixer->MixGetCurrentTime() - t0, t1 - t0);
          }
       }
       
@@ -675,13 +698,13 @@ ProgressResult ExportPCM::Export(AudacityProject *project,
              fileFormat == SF_FORMAT_WAVEX) {
             if (!AddStrings(project, sf.get(), metadata, sf_format)) {
                // TODO: more precise message
-               AudacityMessageBox( XO("Unable to export") );
+               ShowExportErrorDialog("PCM:675");
                return ProgressResult::Cancelled;
             }
          }
          if (0 != sf.close()) {
             // TODO: more precise message
-            AudacityMessageBox( XO("Unable to export") );
+            ShowExportErrorDialog("PCM:681");
             return ProgressResult::Cancelled;
          }
       }
@@ -694,7 +717,7 @@ ProgressResult ExportPCM::Export(AudacityProject *project,
          // Note: file has closed, and gets reopened and closed again here:
          if (!AddID3Chunk(fName, metadata, sf_format) ) {
             // TODO: more precise message
-            AudacityMessageBox( XO("Unable to export") );
+            ShowExportErrorDialog("PCM:694");
             return ProgressResult::Cancelled;
          }
 
@@ -1078,3 +1101,31 @@ unsigned ExportPCM::GetMaxChannels(int index)
 static Exporter::RegisteredExportPlugin sRegisteredPlugin{ "PCM",
    []{ return std::make_unique< ExportPCM >(); }
 };
+
+#ifdef HAS_CLOUD_UPLOAD
+#   include "CloudExporterPlugin.h"
+#   include "CloudExportersRegistry.h"
+
+class PCMCloudHelper : public cloud::CloudExporterPlugin
+{
+public:
+   wxString GetExporterID() const override
+   {
+      return "WAV";
+   }
+
+   FileExtension GetFileExtension() const override
+   {
+      return "wav";
+   }
+
+   void OnBeforeExport() override
+   {
+   }
+
+}; // WavPackCloudHelper
+
+static bool cloudExporterRegisterd = cloud::RegisterCloudExporter(
+   "audio/x-wav",
+   [](const AudacityProject&) { return std::make_unique<PCMCloudHelper>(); });
+#endif

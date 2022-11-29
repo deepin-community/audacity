@@ -8,8 +8,8 @@
 
 **********************************************************************/
 
-#include "Audacity.h" // for USE_* macros
-#include "Experimental.h"
+
+
 
 #ifndef __AUDACITY_MIXER_BOARD__
 #define __AUDACITY_MIXER_BOARD__
@@ -20,6 +20,7 @@
 #include "widgets/ASlider.h" // to inherit
 #include "commands/CommandManagerWindowClasses.h"
 
+#include "Observer.h"
 #include "Prefs.h"
 
 class wxArrayString;
@@ -27,6 +28,7 @@ class wxBitmapButton;
 class wxImage;
 class wxMemoryDC;
 class AButton;
+struct AudioIOEvent;
 struct TrackListEvent;
 
 // containment hierarchy:
@@ -233,10 +235,10 @@ private:
    // event handlers
    void OnPaint(wxPaintEvent& evt);
    void OnSize(wxSizeEvent &evt);
-   void OnTimer(wxCommandEvent &event);
-   void OnTrackSetChanged(wxEvent &event);
-   void OnTrackChanged(TrackListEvent &event);
-   void OnStartStop(wxCommandEvent &event);
+   void OnTimer(Observer::Message);
+   void OnTrackSetChanged();
+   void OnTrackChanged(const TrackListEvent &event);
+   void OnStartStop(AudioIOEvent);
 
 public:
    // mute & solo button images: Create once and store on MixerBoard for use in all MixerTrackClusters.
@@ -247,6 +249,10 @@ public:
    int mMuteSoloWidth;
 
 private:
+   Observer::Subscription mPlaybackScrollerSubscription,
+      mTrackPanelSubscription,
+      mAudioIOSubscription;
+
    // Track clusters are maintained in the same order as the WaveTracks.
    std::vector<MixerTrackCluster*> mMixerTrackClusters;
 
@@ -279,6 +285,9 @@ private:
    void OnSize(wxSizeEvent &evt);
    void OnKeyEvent(wxKeyEvent &evt);
 
+   void SetWindowTitle();
+
+   AudacityProject *mProject;
 public:
    MixerBoard* mMixerBoard;
 

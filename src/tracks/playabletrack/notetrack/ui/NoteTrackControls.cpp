@@ -8,13 +8,13 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h" // for USE_* macros
+
 #ifdef USE_MIDI
 #include "NoteTrackControls.h"
 
-#include "../../../../Experimental.h"
-
 #include "NoteTrackButtonHandle.h"
+#include "Observer.h"
+#include "Theme.h"
 
 #include "../../ui/PlayableTrackButtonHandles.h"
 #include "NoteTrackSliderHandles.h"
@@ -25,12 +25,14 @@ Paul Licameli split from TrackPanel.cpp
 #include "../../../../TrackPanelMouseEvent.h"
 #include "../../../../NoteTrack.h"
 #include "../../../../widgets/PopupMenuTable.h"
-#include "../../../../Project.h"
-#include "../../../../ProjectHistory.h"
+#include "Project.h"
+#include "ProjectHistory.h"
+#include "../../../../ProjectWindows.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../prefs/ThemePrefs.h"
 
 #include <mutex>
+#include <wx/app.h>
 #include <wx/frame.h>
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -92,11 +94,6 @@ private:
       mpData = static_cast<NoteTrackControlsBase::InitMenuData*>(pUserData);
    }
 
-   void DestroyMenu() override
-   {
-      mpData = nullptr;
-   }
-
    NoteTrackControlsBase::InitMenuData *mpData{};
 
    void OnChangeOctave(wxCommandEvent &);
@@ -150,7 +147,7 @@ PopupMenuTable *NoteTrackControls::GetMenuExtension(Track *)
 #include "../../../../widgets/ASlider.h"
 #include "../../../../TrackInfo.h"
 #include "../../../../TrackPanelDrawingContext.h"
-#include "../../../../ViewInfo.h"
+#include "ViewInfo.h"
 
 using TCPLine = TrackInfo::TCPLine;
 
@@ -188,6 +185,7 @@ void SliderDrawFunction
    Selector( sliderRect, nt, captured, pParent )->OnPaint(*dc, highlight);
 }
 
+#ifdef EXPERIMENTAL_MIDI_OUT
 void VelocitySliderDrawFunction
 ( TrackPanelDrawingContext &context,
   const wxRect &rect, const Track *pTrack )
@@ -204,6 +202,7 @@ void VelocitySliderDrawFunction
       &NoteTrackControls::VelocitySlider, dc, rect, pTrack,
       pParent, captured, hit);
 }
+#endif
 
 void MidiControlsDrawFunction
 ( TrackPanelDrawingContext &context,
@@ -222,13 +221,15 @@ void MidiControlsDrawFunction
 
 static const struct NoteTrackTCPLines
    : TCPLines { NoteTrackTCPLines() {
-   (TCPLines&)*this =
-      NoteTrackControlsBase::StaticTCPLines();
+   *static_cast<TCPLines*>(this) =
+      NoteTrackControlsBase::StaticNoteTCPLines();
    insert( end(), {
       { TCPLine::kItemMidiControlsRect, kMidiCellHeight * 4, 0,
         MidiControlsDrawFunction },
+#ifdef EXPERIMENTAL_MIDI_OUT
       { TCPLine::kItemVelocity, kTrackInfoSliderHeight, kTrackInfoSliderExtra,
         VelocitySliderDrawFunction },
+#endif
    } );
 } } noteTrackTCPLines;
 
@@ -275,11 +276,8 @@ LWSlider * NoteTrackControls::VelocitySlider
 (const wxRect &sliderRect, const NoteTrack *t, bool captured, wxWindow *pParent)
 {
    static std::once_flag flag;
-   std::call_once( flag, [] {
-      wxCommandEvent dummy;
-      ReCreateVelocitySlider( dummy );
-      wxTheApp->Bind(EVT_THEME_CHANGE, ReCreateVelocitySlider);
-   } );
+   std::call_once( flag, []{ ReCreateVelocitySlider({}); });
+   static auto subscription = theTheme.Subscribe(ReCreateVelocitySlider);
 
    wxPoint pos = sliderRect.GetPosition();
    float velocity = t ? t->GetVelocity() : 0.0;
@@ -295,9 +293,10 @@ LWSlider * NoteTrackControls::VelocitySlider
 }
 #endif
 
-void NoteTrackControls::ReCreateVelocitySlider( wxEvent &evt )
+void NoteTrackControls::ReCreateVelocitySlider(ThemeChangeMessage message)
 {
-   evt.Skip();
+   if (message.appearance)
+      return;
 #ifdef EXPERIMENTAL_MIDI_OUT
    wxPoint point{ 0, 0 };
    wxRect sliderRect;
@@ -314,28 +313,23 @@ void NoteTrackControls::ReCreateVelocitySlider( wxEvent &evt )
       wxSize(sliderRect.width, sliderRect.height),
       VEL_SLIDER);
    gVelocityCaptured->SetDefaultValue(0.0);
-#else
-   pParent;
 #endif
 }
 
 using DoGetNoteTrackControls = DoGetControls::Override< NoteTrack >;
-template<> template<> auto DoGetNoteTrackControls::Implementation() -> Function {
+DEFINE_ATTACHED_VIRTUAL_OVERRIDE(DoGetNoteTrackControls) {
    return [](NoteTrack &track) {
       return std::make_shared<NoteTrackControls>( track.SharedPointer() );
    };
 }
-static DoGetNoteTrackControls registerDoGetNoteTrackControls;
 
 #include "../../../ui/TrackView.h"
 
 using GetDefaultNoteTrackHeight = GetDefaultTrackHeight::Override< NoteTrack >;
-template<> template<>
-auto GetDefaultNoteTrackHeight::Implementation() -> Function {
+DEFINE_ATTACHED_VIRTUAL_OVERRIDE(GetDefaultNoteTrackHeight) {
    return [](NoteTrack &) {
       return NoteTrackControls::DefaultNoteTrackHeight();
    };
 }
-static GetDefaultNoteTrackHeight registerGetDefaultNoteTrackHeight;
 
 #endif

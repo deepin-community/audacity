@@ -14,7 +14,7 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "HelpCommand.h"
 
 #include "../Shuttle.h"
@@ -27,7 +27,11 @@
 const ComponentInterfaceSymbol HelpCommand::Symbol
 { XO("Help") };
 
+const ComponentInterfaceSymbol CommentCommand::Symbol
+{ XO("Comment") };
+
 namespace{ BuiltinCommandsModule::Registration< HelpCommand > reg; }
+namespace{ BuiltinCommandsModule::Registration< CommentCommand > reg2; }
 
 enum {
    kJson,
@@ -47,12 +51,17 @@ static const EnumValueSymbol kFormats[nFormats] =
    { XO("Brief") }
 };
 
-
-bool HelpCommand::DefineParams( ShuttleParams & S ){
-   S.Define( mCommandName, wxT("Command"),  "Help" );
+template<bool Const>
+bool HelpCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   S.Define( mCommandName, wxT("Command"), wxString{"Help"} );
    S.DefineEnum( mFormat, wxT("Format"), 0, kFormats, nFormats );
    return true;
 }
+bool HelpCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool HelpCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void HelpCommand::PopulateOrExchange(ShuttleGui & S)
 {
@@ -101,5 +110,28 @@ bool HelpCommand::ApplyInner(const CommandContext & context){
    else
       em.GetCommandDefinition( ID, context, 1);
    return true;
+}
+
+template<bool Const>
+bool CommentCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   S.Define( mComment, wxT("_"),  wxString{} );
+   return true;
+}
+
+bool CommentCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool CommentCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
+
+void CommentCommand::PopulateOrExchange(ShuttleGui & S)
+{
+   S.AddSpace(0, 5);
+
+   S.StartMultiColumn(2, wxALIGN_CENTER);
+   {
+      S.TieTextBox(XXO("_"),mComment,80);
+   }
+   S.EndMultiColumn();
 }
 

@@ -11,7 +11,7 @@
  
  *//*******************************************************************/
 
-#include "../Audacity.h"
+
 
 // For compilers that support precompilation, includes "wx/wx.h".
 #include <wx/wxprec.h>
@@ -28,10 +28,11 @@
 #include "ToolManager.h"
 
 #include "../AudioIO.h"
-#include "../Project.h"
+#include "Project.h"
 #include "../ProjectAudioIO.h"
+#include "ProjectRate.h"
 #include "../ProjectSettings.h"
-#include "../ViewInfo.h"
+#include "ViewInfo.h"
 
 IMPLEMENT_CLASS(TimeToolBar, ToolBar);
 
@@ -53,7 +54,8 @@ TimeToolBar::TimeToolBar(AudacityProject &project)
    mListener(NULL),
    mAudioTime(NULL)
 {
-   project.Bind(EVT_PROJECT_SETTINGS_CHANGE, &TimeToolBar::OnSettingsChanged, this);
+   mSubscription =
+      ProjectRate::Get(project).Subscribe(*this, &TimeToolBar::OnRateChanged);
 }
 
 TimeToolBar::~TimeToolBar()
@@ -76,7 +78,7 @@ void TimeToolBar::Populate()
    const auto &settings = ProjectSettings::Get(mProject);
 
    // Get the default sample rate
-   auto rate = settings.GetRate();
+   auto rate = ProjectRate::Get(mProject).GetRate();
 
    // Get the default time format
    auto format = settings.GetAudioTimeFormat();
@@ -261,16 +263,11 @@ void TimeToolBar::SetResizingLimits()
    SetMaxSize(maxSize);
 }
 
-// Called when the project settings change
-void TimeToolBar::OnSettingsChanged(wxCommandEvent &evt)
+// Called when the project rate changes
+void TimeToolBar::OnRateChanged(double rate)
 {
-   evt.Skip(false);
-
-   if (evt.GetInt() == ProjectSettings::ChangedProjectRate && mAudioTime)
-   {
-      const auto &settings = ProjectSettings::Get(mProject);
-      mAudioTime->SetSampleRate(settings.GetRate());
-   }
+   if (mAudioTime)
+      mAudioTime->SetSampleRate(rate);
 }
 
 // Called when the format drop downs is changed.
@@ -362,7 +359,7 @@ void TimeToolBar::OnIdle(wxIdleEvent &evt)
 
    auto &projectAudioIO = ProjectAudioIO::Get(mProject);
    if (projectAudioIO.IsAudioActive()) {
-      auto gAudioIO = AudioIOBase::Get();
+      auto gAudioIO = AudioIO::Get();
       audioTime = gAudioIO->GetStreamTime();
    }
    else {

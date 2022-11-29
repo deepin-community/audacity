@@ -8,11 +8,10 @@ Paul Licameli split from WaveTrackView.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h"
+
 #include "WaveformView.h"
 
-#include "../../../../Experimental.h"
-
+#include "WaveformCache.h"
 #include "WaveformVRulerControls.h"
 #include "WaveTrackView.h"
 #include "WaveTrackViewConstants.h"
@@ -20,18 +19,22 @@ Paul Licameli split from WaveTrackView.cpp
 #include "SampleHandle.h"
 #include "../../../ui/EnvelopeHandle.h"
 #include "../../../ui/TimeShiftHandle.h"
-#include "../../../../AColor.h"
-#include "../../../../Envelope.h"
+#include "AColor.h"
+#include "Envelope.h"
 #include "../../../../EnvelopeEditor.h"
 #include "../../../../ProjectSettings.h"
-#include "../../../../SelectedRegion.h"
+#include "SelectedRegion.h"
+#include "../../../../SyncLock.h"
+#include "../../../../TrackArt.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanelDrawingContext.h"
 #include "../../../../TrackPanelMouseEvent.h"
-#include "../../../../ViewInfo.h"
+#include "ViewInfo.h"
 #include "../../../../WaveClip.h"
 #include "../../../../WaveTrack.h"
 #include "../../../../prefs/WaveformSettings.h"
+
+#include "FrameStatistics.h"
 
 #include <wx/graphics.h>
 #include <wx/dc.h>
@@ -84,7 +87,10 @@ std::vector<UIHandlePtr> WaveformView::DetailedHitTest(
                // Unconditional hits appropriate to the tool
                // If tools toolbar were eliminated, we would eliminate these
             case ToolCodes::envelopeTool: {
-               auto envelope = pTrack->GetEnvelopeAtX( st.state.m_x );
+               auto &viewInfo = ViewInfo::Get(*pProject);
+               auto time =
+                  viewInfo.PositionToTime(st.state.m_x, st.rect.GetX());
+               auto envelope = pTrack->GetEnvelopeAtTime(time);
                result = EnvelopeHandle::HitAnywhere(
                   view.mEnvelopeHandle, envelope, false);
                break;
@@ -277,7 +283,7 @@ void DrawWaveformBackground(TrackPanelDrawingContext &context,
        zeroLevelYCoordinate <= rect.GetBottom()) {
       dc.SetPen(*wxBLACK_PEN);
       AColor::Line(dc, rect.x, zeroLevelYCoordinate,
-                   rect.x + rect.width, zeroLevelYCoordinate);
+                   rect.x + rect.width - 1, zeroLevelYCoordinate);
    }
 }
 
@@ -325,7 +331,7 @@ void DrawMinMaxRMS(
    float zoomMin, float zoomMax,
    bool dB, float dBRange,
    const float *min, const float *max, const float *rms, const int *bl,
-   bool /* showProgress */, bool muted)
+   bool muted)
 {
    auto &dc = context.dc;
 
@@ -348,6 +354,9 @@ void DrawMinMaxRMS(
 
    long pixAnimOffset = (long)fabs((double)(wxDateTime::Now().GetTicks() * -10)) +
       wxDateTime::Now().GetMillisecond() / 100; //10 pixels a second
+
+   const auto ms = wxDateTime::Now().GetMillisecond();
+   const auto ticks = (long)fabs((double)(wxDateTime::Now().GetTicks() * -10));
 
    bool drawStripes = true;
    bool drawWaveform = true;
@@ -481,11 +490,11 @@ void DrawIndividualSamples(TrackPanelDrawingContext &context,
    const auto artist = TrackArtist::Get( context );
    const auto &zoomInfo = *artist->pZoomInfo;
 
-   const double toffset = clip->GetOffset();
+   const double toffset = clip->GetPlayStartTime();
    double rate = clip->GetRate();
    const double t0 = std::max(0.0, zoomInfo.PositionToTime(0, -leftOffset) - toffset);
    const auto s0 = sampleCount(floor(t0 * rate));
-   const auto snSamples = clip->GetNumSamples();
+   const auto snSamples = clip->GetPlaySamplesCount();
    if (s0 > snSamples)
       return;
 
@@ -669,22 +678,30 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
                                    const WaveClip *clip,
                                    const wxRect & rect,
                                    bool dB,
-                                   bool muted)
+                                   bool muted,
+                                   bool selected)
 {
    auto &dc = context.dc;
    const auto artist = TrackArtist::Get( context );
    const auto &selectedRegion = *artist->pSelectedRegion;
    const auto &zoomInfo = *artist->pZoomInfo;
 
-#ifdef PROFILE_WAVEFORM
-   Profiler profiler;
-#endif
+   auto sw = FrameStatistics::CreateStopwatch(FrameStatistics::SectionID::WaveformView);
 
    bool highlightEnvelope = false;
 #ifdef EXPERIMENTAL_TRACK_PANEL_HIGHLIGHTING
    auto target = dynamic_cast<EnvelopeHandle*>(context.target.get());
    highlightEnvelope = target && target->GetEnvelope() == clip->GetEnvelope();
 #endif
+
+   //If clip is "too small" draw a placeholder instead of
+   //attempting to fit the contents into a few pixels
+   if (!WaveTrackView::ClipDetailsVisible(*clip, zoomInfo, rect))
+   {
+      auto clipRect = ClipParameters::GetClipRect(*clip, zoomInfo, rect);
+      TrackArt::DrawClipFolded(dc, clipRect);
+      return;
+   }
 
    const ClipParameters params{
       false, track, clip, rect, selectedRegion, zoomInfo };
@@ -712,10 +729,6 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
    int iColorIndex = clip->GetColourIndex();
    artist->SetColours( iColorIndex );
 
-   // If we get to this point, the clip is actually visible on the
-   // screen, so remember the display rectangle.
-   clip->SetDisplayRect(hiddenMid);
-
    // The bounds (controlled by vertical zooming; -1.0...1.0
    // by default)
    float zoomMin, zoomMax;
@@ -723,7 +736,7 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
 
    std::vector<double> vEnv(mid.width);
    double *const env = &vEnv[0];
-   Envelope::GetValues( *clip->GetEnvelope(),
+   CommonTrackView::GetEnvelopeValues( *clip->GetEnvelope(),
        tOffset,
 
         // PRL: change back to make envelope evaluate only at sample times
@@ -737,7 +750,7 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
    // part of the waveform
    {
       double tt0, tt1;
-      if (track->GetSelected() || track->IsSyncLockSelected()) {
+      if (SyncLock::IsSelectedOrSyncLockSelected(track)) {
          tt0 = track->LongSamplesToTime(track->TimeToLongSamples(selectedRegion.t0())),
             tt1 = track->LongSamplesToTime(track->TimeToLongSamples(selectedRegion.t1()));
       }
@@ -753,7 +766,6 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
    }
 
    WaveDisplay display(hiddenMid.width);
-   bool isLoadingOD = false;//true if loading on demand block in sequence.
 
    const double pps =
       averagePixelsPerSample * rate;
@@ -768,6 +780,8 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
    const double threshold1 = 0.5 * rate;
    // Require at least 3 pixels per sample for drawing the draggable points.
    const double threshold2 = 3 * rate;
+
+   auto &clipCache = WaveClipWaveformCache::Get(*clip);
 
    {
       bool showIndividualSamples = false;
@@ -788,14 +802,14 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
          // fisheye moves over the background, there is then less to do when
          // redrawing.
 
-         if (!clip->GetWaveDisplay(display,
-            t0, pps, isLoadingOD))
+         if (!clipCache.GetWaveDisplay( *clip, display,
+            t0, pps))
             return;
       }
    }
 
    // TODO Add a comment to say what this loop does.
-   // Possily make it into a subroutine.
+   // Possibly make it into a subroutine.
    for (unsigned ii = 0; ii < nPortions; ++ii) {
       WavePortion &portion = portions[ii];
       const bool showIndividualSamples = portion.averageZoom > threshold1;
@@ -811,7 +825,7 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
       if (portion.inFisheye) {
          if (!showIndividualSamples) {
             fisheyeDisplay.Allocate();
-            const auto numSamples = clip->GetNumSamples();
+            const auto numSamples = clip->GetPlaySamplesCount();
             // Get wave display data for different magnification
             int jj = 0;
             for (; jj < rectPortion.width; ++jj) {
@@ -839,9 +853,8 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
             fisheyeDisplay.width -= skipped;
             // Get a wave display for the fisheye, uncached.
             if (rectPortion.width > 0)
-               if (!clip->GetWaveDisplay(
-                     fisheyeDisplay, t0, -1.0, // ignored
-                     isLoadingOD))
+               if (!clipCache.GetWaveDisplay( *clip,
+                     fisheyeDisplay, t0, -1.0)) // ignored
                   continue; // serious error.  just don't draw??
             useMin = fisheyeDisplay.min;
             useMax = fisheyeDisplay.max;
@@ -863,7 +876,7 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
          if (!showIndividualSamples) {
             std::vector<double> vEnv2(rectPortion.width);
             double *const env2 = &vEnv2[0];
-            Envelope::GetValues( *clip->GetEnvelope(),
+            CommonTrackView::GetEnvelopeValues( *clip->GetEnvelope(),
                 tOffset,
 
                  // PRL: change back to make envelope evaluate only at sample times
@@ -871,11 +884,11 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
                  0, // 1.0 / rate,
 
                  env2, rectPortion.width, leftOffset, zoomInfo );
+
             DrawMinMaxRMS( context, rectPortion, env2,
                zoomMin, zoomMax,
                dB, dBRange,
-               useMin, useMax, useRms, useBl,
-               isLoadingOD, muted );
+               useMin, useMax, useRms, useBl, muted );
          }
          else {
             bool highlight = false;
@@ -899,7 +912,7 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
       DrawEnvelope(
          context, mid, env, zoomMin, zoomMax, dB, dBRange, highlightEnvelope );
       EnvelopeEditor::DrawPoints( *clip->GetEnvelope(),
-          context, rect, dB, dBRange, zoomMin, zoomMax, true );
+          context, mid, dB, dBRange, zoomMin, zoomMax, true, rect.x - mid.x );
    }
 
    // Draw arrows on the left side if the track extends to the left of the
@@ -907,7 +920,10 @@ void DrawClipWaveform(TrackPanelDrawingContext &context,
    if (h == 0.0 && tOffset < 0.0) {
       TrackArt::DrawNegativeOffsetTrackArrows( context, rect );
    }
-   params.DrawClipEdges( dc, rect );
+   {
+      auto clipRect = ClipParameters::GetClipRect(*clip, zoomInfo, rect);
+      TrackArt::DrawClipEdges(dc, clipRect, selected);
+   }
 }
 
 void DrawTimeSlider( TrackPanelDrawingContext &context,
@@ -974,7 +990,8 @@ void DrawTimeSlider( TrackPanelDrawingContext &context,
 //#include "tracks/ui/TimeShiftHandle.h"
 void WaveformView::DoDraw(TrackPanelDrawingContext &context,
                                const WaveTrack *track,
-                               const wxRect & rect,
+                               const WaveClip* selectedClip,
+                               const wxRect& rect,
                                bool muted)
 {
    auto &dc = context.dc;
@@ -995,10 +1012,11 @@ void WaveformView::DoDraw(TrackPanelDrawingContext &context,
    TrackArt::DrawBackgroundWithSelection(
       context, rect, track, blankSelectedBrush, blankBrush );
 
-   for (const auto &clip: track->GetClips())
+   for (const auto& clip : track->GetClips())
+   {
       DrawClipWaveform(context, track, clip.get(), rect,
-                       dB, muted);
-
+         dB, muted, clip.get() == selectedClip);
+   }
    DrawBoldBoundaries( context, track, rect );
 
    const auto drawSliders = artist->drawSliders;
@@ -1013,12 +1031,17 @@ void WaveformView::Draw(
 {
    if ( iPass == TrackArtist::PassTracks ) {
       auto &dc = context.dc;
+      // Update cache for locations, e.g. cutlines and merge points
+      // Bug2588: do this for both channels, even if one is not drawn, so that
+      // cut-line editing (which depends on the locations cache) works properly.
+      // If both channels are visible, we will duplicate this effort, but that
+      // matters little.
+      for( auto channel:
+          TrackList::Channels(static_cast<WaveTrack*>(FindTrack().get())) )
+         channel->UpdateLocationsCache();
+
       const auto wt = std::static_pointer_cast<const WaveTrack>(
          FindTrack()->SubstitutePendingChangedTrack());
-
-      for (const auto &clip : wt->GetClips()) {
-         clip->ClearDisplayRect();
-      }
 
       const auto artist = TrackArtist::Get( context );
       const auto hasSolo = artist->hasSolo;
@@ -1030,13 +1053,17 @@ void WaveformView::Draw(
       dc.GetGraphicsContext()->SetAntialiasMode(wxANTIALIAS_NONE);
 #endif
       
-      DoDraw(context, wt.get(), rect, muted);
+      auto waveTrackView = GetWaveTrackView().lock();
+      wxASSERT(waveTrackView.use_count());
+
+      auto selectedClip = waveTrackView->GetSelectedClip().lock();
+      DoDraw(context, wt.get(), selectedClip.get(), rect, muted);
 
 #if defined(__WXMAC__)
       dc.GetGraphicsContext()->SetAntialiasMode(aamode);
 #endif
    }
-   CommonTrackView::Draw( context, rect, iPass );
+   WaveTrackSubView::Draw( context, rect, iPass );
 }
 
 static const WaveTrackSubViews::RegisteredFactory key{
@@ -1053,7 +1080,7 @@ static const WaveTrackSubViews::RegisteredFactory key{
 #include "WaveTrackControls.h"
 #include "../../../../widgets/PopupMenuTable.h"
 #include "../../../../ProjectAudioIO.h"
-#include "../../../../ProjectHistory.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 
 //=============================================================================
@@ -1066,11 +1093,6 @@ struct WaveColorMenuTable : PopupMenuTable
    static WaveColorMenuTable &Instance();
 
    void InitUserData(void *pUserData) override;
-
-   void DestroyMenu() override
-   {
-      mpData = NULL;
-   }
 
    PlayableTrackControls::InitMenuData *mpData{};
 

@@ -50,7 +50,7 @@ preferences.
 
 *//*******************************************************************/
 
-#include "Audacity.h"
+
 #include "Shuttle.h"
 
 #include <wx/defs.h>
@@ -64,8 +64,6 @@ preferences.
 #include <wx/listctrl.h>
 #include <wx/radiobut.h>
 #include <wx/button.h>
-
-#include "../include/audacity/EffectAutomationParameters.h" // for command automation
 
 #include "WrappedType.h"
 //#include "effects/Effect.h"
@@ -317,213 +315,91 @@ bool ShuttleCli::ExchangeWithMaster(const wxString & Name)
 // on the pOptionalFlag.  They 'use it up' and clear it down for the next parameter.
 
 
+template<bool Const>
+SettingsVisitorBase<Const>::~SettingsVisitorBase() = default;
+
+template<bool Const>
+auto SettingsVisitorBase<Const>::Optional( [[maybe_unused]] Ref<bool> var )
+   -> SettingsVisitorBase &
+{
+   pOptionalFlag = nullptr;
+   return *this;
+}
+
+template<bool Const>
+auto SettingsVisitorBase<Const>::OptionalY( Ref<bool> var )
+   -> SettingsVisitorBase &
+{
+   return Optional( var );
+}
+
+template<bool Const>
+auto SettingsVisitorBase<Const>::OptionalN( Ref<bool> var )
+   -> SettingsVisitorBase &
+{
+   return Optional( var );
+}
+
 // Tests for parameter being optional.
 // Prepares for next parameter by clearing the pointer.
 // Reports on whether the parameter should be set, i.e. should set 
 // if it was chosen to be set, or was not optional.
-bool ShuttleParams::ShouldSet(){
+template<bool Const>
+bool SettingsVisitorBase<Const>::ShouldSet()
+{
    if( !pOptionalFlag )
       return true;
    bool result = *pOptionalFlag;
    pOptionalFlag = NULL;
    return result;
 }
+
 // These are functions to override.  They do nothing.
-void ShuttleParams::Define( bool & var,     const wxChar * key, const bool vdefault, const bool vmin, const bool vmax, const bool vscl){;};
-void ShuttleParams::Define( size_t & var,   const wxChar * key, const int vdefault, const int vmin, const int vmax, const int vscl ){;};
-void ShuttleParams::Define( int & var,      const wxChar * key, const int vdefault, const int vmin, const int vmax, const int vscl ){;};
-void ShuttleParams::Define( float & var,    const wxChar * key, const float vdefault, const float vmin, const float vmax, const float vscl ){;};
-void ShuttleParams::Define( double & var,   const wxChar * key, const float vdefault, const float vmin, const float vmax, const float vscl ){;};
-void ShuttleParams::Define( double & var,   const wxChar * key, const double vdefault, const double vmin, const double vmax, const double vscl ){;};
-void ShuttleParams::Define( wxString &var, const wxChar * key, const wxString vdefault, const wxString vmin, const wxString vmax, const wxString vscl ){;};
-void ShuttleParams::DefineEnum( int &var, const wxChar * key, const int vdefault, const EnumValueSymbol strings[], size_t nStrings ){;};
+template<bool Const>
+void SettingsVisitorBase<Const>::Define(Arg<bool>, const wxChar *,
+   bool, bool, bool, bool)
+{}
 
+template<bool Const>
+void SettingsVisitorBase<Const>::Define(Arg<size_t>, const wxChar *,
+   int, int, int, int)
+{}
 
+template<bool Const>
+void SettingsVisitorBase<Const>::Define(Arg<int>, const wxChar *,
+   int, int, int, int)
+{}
 
-/*
-void ShuttleParams::DefineEnum( int &var, const wxChar * key, const int vdefault, const EnumValueSymbol strings[], size_t nStrings )
-{
-}
-*/
+template<bool Const>
+void SettingsVisitorBase<Const>::Define(
+   Arg<float>, const wxChar *, float, float, float, float)
+{}
 
-// ShuttleGetAutomation gets from the shuttle into typically a string.
-ShuttleParams & ShuttleGetAutomation::Optional( bool & var ){ 
-   pOptionalFlag = &var;
-   return *this;
-};
+template<bool Const>
+void SettingsVisitorBase<Const>::Define(
+   Arg<double>, const wxChar *, float, float, float, float )
+{}
 
-void ShuttleGetAutomation::Define( bool & var,     const wxChar * key, const bool vdefault, const bool vmin, const bool vmax, const bool vscl )
-{
-   if( !ShouldSet() ) return;
-   mpEap->Write(key, var);
-}
+template<bool Const>
+void SettingsVisitorBase<Const>::Define(
+   Arg<double>, const wxChar *, double, double, double, double)
+{}
 
-void ShuttleGetAutomation::Define( int & var,      const wxChar * key, const int vdefault, const int vmin, const int vmax, const int vscl )
-{
-   if( !ShouldSet() ) return;
-   mpEap->Write(key, var);
-}
+template<bool Const>
+void SettingsVisitorBase<Const>::Define(
+   Ref<wxString>, const wxChar *, wxString, wxString, wxString, wxString)
+{}
 
-void ShuttleGetAutomation::Define( size_t & var,      const wxChar * key, const int vdefault, const int vmin, const int vmax, const int vscl )
-{
-   if( !ShouldSet() ) return;
-   mpEap->Write(key, (int) var);
-}
+template<bool Const>
+void SettingsVisitorBase<Const>::DefineEnum(
+   Arg<int>, const wxChar *, int, const EnumValueSymbol [], size_t)
+{}
 
-void ShuttleGetAutomation::Define( double & var,   const wxChar * key, const float vdefault, const float vmin, const float vmax, const float vscl )
-{
-   if( !ShouldSet() ) return;
-   mpEap->WriteFloat(key, var);
-}
-
-void ShuttleGetAutomation::Define( float & var,   const wxChar * key, const float vdefault, const float vmin, const float vmax, const float vscl )
-{
-   if( !ShouldSet() ) return;
-   mpEap->WriteFloat(key, var);
-}
-
-void ShuttleGetAutomation::Define( double & var,   const wxChar * key, const double vdefault, const double vmin, const double vmax, const double vscl )
-{
-   if( !ShouldSet() ) return;
-   mpEap->Write(key, var);
-}
-
-
-void ShuttleGetAutomation::Define( wxString &var, const wxChar * key, const wxString vdefault, const wxString vmin, const wxString vmax, const wxString vscl )
-{
-   if( !ShouldSet() ) return;
-   mpEap->Write(key, var);
-}
-
-
-void ShuttleGetAutomation::DefineEnum( int &var, const wxChar * key, const int vdefault, const EnumValueSymbol strings[], size_t nStrings )
-{
-   if( !ShouldSet() ) return;
-   mpEap->Write(key, strings[var].Internal());
-}
-
-
-
-ShuttleParams & ShuttleSetAutomation::Optional( bool & var ){ 
-   pOptionalFlag = &var;
-   return *this;
-};
-
-// Tests for parameter being optional.
-// Prepares for next parameter by clearing the pointer.
-// If the parameter is optional, finds out if it was actually provided.
-// i.e. could it be got from automation?
-// The result goes into the flag variable, so we typically ignore the result.
-bool ShuttleSetAutomation::CouldGet( const wxString &key ){
-   // Not optional?  Can get as we will get the default, at worst.
-   if( !pOptionalFlag )
-      return true;
-   bool result = mpEap->HasEntry( key );
-   *pOptionalFlag = result;
-   pOptionalFlag = NULL;
-   return result;
-}
-
-void ShuttleSetAutomation::Define( bool & var,     const wxChar * key, const bool vdefault, const bool vmin, const bool vmax, const bool vscl )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   // Use of temp in this and related functions is to handle the case of 
-   // only committing values if all values pass verification.
-   bool temp =var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault);
-   if( bWrite && bOK)
-      var = temp;
-}
-
-void ShuttleSetAutomation::Define( int & var,      const wxChar * key, const int vdefault, const int vmin, const int vmax, const int vscl )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   int temp =var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault, vmin, vmax);
-   if( bWrite && bOK)
-      var = temp;
-}
-
-void ShuttleSetAutomation::Define( size_t & var,      const wxChar * key, const int vdefault, const int vmin, const int vmax, const int vscl )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   int temp = var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault, vmin, vmax);
-   if( bWrite && bOK )
-      var = temp;
-}
-
-void ShuttleSetAutomation::Define( float & var,   const wxChar * key, const float vdefault, const float vmin, const float vmax, const float vscl )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   float temp = var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault, vmin, vmax);
-   if( bWrite && bOK )
-      var = temp;
-}
-
-
-void ShuttleSetAutomation::Define( double & var,   const wxChar * key, const float vdefault, const float vmin, const float vmax, const float vscl )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   double temp = var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault, vmin, vmax);
-   if( bWrite && bOK)
-      var = temp;
-}
-
-void ShuttleSetAutomation::Define( double & var,   const wxChar * key, const double vdefault, const double vmin, const double vmax, const double vscl )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   double temp = var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault, vmin, vmax);
-   if( bWrite && bOK)
-      var = temp;
-}
-
-
-void ShuttleSetAutomation::Define( wxString &var, const wxChar * key, const wxString vdefault, const wxString vmin, const wxString vmax, const wxString vscl )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   wxString temp = var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault);
-   if( bWrite && bOK )
-      var = temp;
-}
-
-
-void ShuttleSetAutomation::DefineEnum( int &var, const wxChar * key, const int vdefault, const EnumValueSymbol strings[], size_t nStrings )
-{
-   CouldGet( key );
-   if( !bOK )
-      return;
-   int temp = var;
-   bOK = mpEap->ReadAndVerify(key, &temp, vdefault, strings, nStrings);
-   if( bWrite && bOK)
-      var = temp;
-}
-
+// Explicit instantiations
+template class SettingsVisitorBase<false>;
+template class SettingsVisitorBase<true>;
 
 #ifdef _MSC_VER
 // If this is compiled with MSVC (Visual Studio)
 #pragma warning( pop )
 #endif //_MSC_VER
-
-
-
-
-

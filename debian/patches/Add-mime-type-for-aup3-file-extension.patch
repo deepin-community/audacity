@@ -1,0 +1,47 @@
+From: Benjamin Drung <benjamin.drung@canonical.com>
+Date: Wed, 28 Sep 2022 15:20:05 +0200
+Subject: Add mime type for 'aup3' file extension
+
+The new file extension `.aup3` is not recognized on Linux.
+
+Add a new mime type `application/x-audacity-project+sqlite3` for the
+file extension `.aup3` and add this mime type to the supported mime
+types of audacity.
+
+Ideally the Audacity team should register two mime types at IATA. These
+mime type should probably be named `audio/vnd.audacity.project+sqlite3`
+and `audio/vnd.audacity.project+xml`.
+
+Forwarded: https://github.com/audacity/audacity/pull/3713
+Signed-off-by: Benjamin Drung <benjamin.drung@canonical.com>
+---
+ src/CMakeLists.txt | 1 +
+ src/audacity.xml   | 5 +++++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index c5f30ad..059a123 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -1444,6 +1444,7 @@ else()
+    # entries in the list.)
+    set( MIMETYPES
+       application/x-audacity-project
++      application/x-audacity-project+sqlite3
+    )
+    if( USE_FFMPEG )
+       list( APPEND MIMETYPES
+diff --git a/src/audacity.xml b/src/audacity.xml
+index 9af55f5..91206c1 100644
+--- a/src/audacity.xml
++++ b/src/audacity.xml
+@@ -5,4 +5,9 @@
+     <comment>Audacity project</comment>
+     <glob pattern="*.aup"/>
+   </mime-type>
++  <mime-type type="application/x-audacity-project+sqlite3">
++    <sub-class-of type="application/vdn.sqlite3"/>
++    <comment>Audacity project</comment>
++    <glob pattern="*.aup3"/>
++  </mime-type>
+ </mime-info>

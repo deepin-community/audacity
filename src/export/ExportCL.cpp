@@ -11,9 +11,9 @@
 
 **********************************************************************/
 
-#include "../Audacity.h"
+#include "ProjectRate.h"
 
-#include "../ProjectSettings.h"
+#include <thread>
 
 #include <wx/app.h>
 #include <wx/button.h>
@@ -27,20 +27,21 @@
 #include <wx/msw/registry.h> // for wxRegKey
 #endif
 
-#include "../FileNames.h"
+#include "FileNames.h"
 #include "Export.h"
 
-#include "../Mix.h"
-#include "../Prefs.h"
+#include "Mix.h"
+#include "Prefs.h"
+#include "../SelectFile.h"
 #include "../ShuttleGui.h"
 #include "../Tags.h"
-#include "../Track.h"
-#include "../float_cast.h"
+#include "Track.h"
+#include "float_cast.h"
 #include "../widgets/FileHistory.h"
 #include "../widgets/AudacityMessageBox.h"
 #include "../widgets/ProgressDialog.h"
 #include "../widgets/Warning.h"
-#include "../wxFileNameWrapper.h"
+#include "wxFileNameWrapper.h"
 
 #ifdef USE_LIBID3TAG
    #include <id3tag.h>
@@ -165,7 +166,7 @@ bool ExportCLOptions::TransferDataFromWindow()
    wxString cmd = mCmd->GetValue();
 
    mHistory.Append(cmd);
-   mHistory.Save(*gPrefs, wxT("/FileFormats/ExternalProgramHistory"));
+   mHistory.Save(*gPrefs);
 
    gPrefs->Write(wxT("/FileFormats/ExternalProgramExportCommand"), cmd);
    gPrefs->Flush();
@@ -187,7 +188,7 @@ void ExportCLOptions::OnBrowse(wxCommandEvent& WXUNUSED(event))
    type = { XO("Executables"), { ext } };
 #endif
 
-   path = FileNames::SelectFile(FileNames::Operation::Open,
+   path = SelectFile(FileNames::Operation::Open,
       XO("Find path to command"),
       wxEmptyString,
       wxEmptyString,
@@ -281,7 +282,7 @@ public:
    void OptionsCreate(ShuttleGui &S, int format) override;
 
    ProgressResult Export(AudacityProject *project,
-                         std::unique_ptr<ProgressDialog> &pDialog,
+                         std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                          unsigned channels,
                          const wxFileNameWrapper &fName,
                          bool selectedOnly,
@@ -354,8 +355,7 @@ ExportCL::ExportCL()
    SetDescription(XO("(external program)"),0);
 }
 
-ProgressResult ExportCL::Export(AudacityProject *project,
-                                std::unique_ptr<ProgressDialog> &pDialog,
+ProgressResult ExportCL::Export(AudacityProject *project, std::unique_ptr<BasicUI::ProgressDialog>& pDialog,
                                 unsigned channels,
                                 const wxFileNameWrapper &fName,
                                 bool selectionOnly,
@@ -396,7 +396,7 @@ ProgressResult ExportCL::Export(AudacityProject *project,
    wxLogNull nolog;
 
    // establish parameters
-   int rate = lrint( ProjectSettings::Get( *project ).GetRate());
+   int rate = lrint( ProjectRate::Get( *project ).GetRate());
    const size_t maxBlockLen = 44100 * 5;
    unsigned long totalSamples = lrint((t1 - t0) * rate);
    unsigned long sampleBytes = totalSamples * channels * SAMPLE_SIZE(floatSample);
@@ -503,11 +503,10 @@ ProgressResult ExportCL::Export(AudacityProject *project,
                             true,
                             rate,
                             floatSample,
-                            true,
                             mixerSpec);
 
    size_t numBytes = 0;
-   samplePtr mixed = NULL;
+   constSamplePtr mixed = NULL;
    auto updateResult = ProgressResult::Success;
 
    {
@@ -531,10 +530,9 @@ ProgressResult ExportCL::Export(AudacityProject *project,
 
          // Need to mix another block
          if (numBytes == 0) {
-            auto numSamples = mixer->Process(maxBlockLen);
-            if (numSamples == 0) {
+            auto numSamples = mixer->Process();
+            if (numSamples == 0)
                break;
-            }
 
             mixed = mixer->GetBuffer();
             numBytes = numSamples * channels;
@@ -542,7 +540,7 @@ ProgressResult ExportCL::Export(AudacityProject *project,
             // Byte-swapping is necessary on big-endian machines, since
             // WAV files are little-endian
 #if wxBYTE_ORDER == wxBIG_ENDIAN
-            float *buffer = (float *) mixed;
+            auto buffer = (const float *) mixed;
             for (int i = 0; i < numBytes; i++) {
                buffer[i] = wxUINT32_SWAP_ON_BE(buffer[i]);
             }
@@ -565,14 +563,15 @@ ProgressResult ExportCL::Export(AudacityProject *project,
          }
 
          // Update the progress display
-         updateResult = progress.Update(mixer->MixGetCurrentTime() - t0, t1 - t0);
+         updateResult = progress.Poll(mixer->MixGetCurrentTime() - t0, t1 - t0);
       }
       // Done with the progress display
    }
 
    // Wait for process to terminate
    while (process.IsActive()) {
-      wxMilliSleep(10);
+      using namespace std::chrono;
+      std::this_thread::sleep_for(10ms);
       wxTheApp->Yield();
    }
 
@@ -741,10 +740,9 @@ bool ExportCL::CheckFileName(wxFileName &filename, int WXUNUSED(format))
    );
 
    if (argv.size() == 0) {
-      AudacityMessageBox(
-         XO("Program name appears to be missing."),
-         XO("Unable to export"),
-         wxOK | wxICON_INFORMATION);
+      ShowExportErrorDialog(
+         ":745",
+         XO("Program name appears to be missing."));
       return false;
    }
       

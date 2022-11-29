@@ -2,7 +2,7 @@
 
    Audacity: A Digital Audio Editor
    Audacity(R) is copyright (c) 1999-2010 Audacity Team.
-   License: GPL v2.  See License.txt.
+   License: GPL v2 or later.  See License.txt.
 
    MultiDialog.h
 
@@ -12,14 +12,13 @@
 *******************************************************************//**
 
 \class MultiDialog
-\brief A multi purpose dialog, mainly used to show lists of orphaned or
-damaged block files.  It is a good alternative to having a dialog pop up
-for each problem encountered, since there can be many orphans.
+\brief A dialog presenting an exclusive, multiple choice, help button, and log info
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "MultiDialog.h"
+#include "MemoryX.h"
 
 #include "../ShuttleGui.h"
 
@@ -36,10 +35,10 @@ for each problem encountered, since there can be many orphans.
 #include <wx/bmpbuttn.h>
 
 
-#include "../AudacityLogger.h"
 #include "wxPanelWrapper.h"
-#include "../Theme.h"
-#include "../AllThemeResources.h"
+#include "../LogWindow.h"
+#include "Theme.h"
+#include "AllThemeResources.h"
 #include "../widgets/HelpSystem.h"
 
 class MultiDialog final : public wxDialogWrapper
@@ -49,7 +48,7 @@ public:
                const TranslatableString &message,
                const TranslatableString &title,
                const TranslatableStrings &buttons,
-               const wxString &helpPage,
+               const ManualPageID &helpPage,
                const TranslatableString &boxMsg, bool log);
    ~MultiDialog() {};
 
@@ -59,7 +58,7 @@ private:
    void OnHelp(wxCommandEvent& event);
 
    wxRadioBox* mRadioBox;
-   wxString mHelpPage;
+   ManualPageID mHelpPage;
 
    DECLARE_EVENT_TABLE()
 };
@@ -76,7 +75,7 @@ MultiDialog::MultiDialog(wxWindow * pParent,
                          const TranslatableString &message,
                          const TranslatableString &title,
                          const TranslatableStrings &buttons,
-                         const wxString &helpPage,
+                         const ManualPageID &helpPage,
                          const TranslatableString &boxMsg, 
                          bool log
    )
@@ -145,7 +144,7 @@ MultiDialog::MultiDialog(wxWindow * pParent,
             auto pButton = S.Id(wxID_OK)
                .AddButton(XXO("OK"), wxALIGN_CENTER, !log);
 
-            if (!mHelpPage.IsEmpty()) {
+            if (!mHelpPage.empty()) {
                auto pHelpBtn = S.Id(wxID_HELP)
                   .AddBitmapButton(theTheme.Bitmap(bmpHelpIcon), wxALIGN_CENTER, false);
                pHelpBtn->SetToolTip(XO("Help").Translation());
@@ -169,10 +168,7 @@ void MultiDialog::OnOK(wxCommandEvent & WXUNUSED(event))
 
 void MultiDialog::OnShowLog(wxCommandEvent & WXUNUSED(event))
 {
-   auto logger = AudacityLogger::Get();
-   if (logger) {
-      logger->Show();
-   }
+   LogWindow::Show();
 }
 
 void MultiDialog::OnHelp(wxCommandEvent & WXUNUSED(event))
@@ -183,7 +179,7 @@ void MultiDialog::OnHelp(wxCommandEvent & WXUNUSED(event))
 int ShowMultiDialog(const TranslatableString &message,
    const TranslatableString &title,
    const TranslatableStrings &buttons,
-   const wxString &helpPage,
+   const ManualPageID &helpPage,
    const TranslatableString &boxMsg, bool log)
 {
    wxWindow * pParent = wxTheApp->GetTopWindow();
@@ -211,10 +207,4 @@ int ShowMultiDialog(const TranslatableString &message,
       dlog.Move(Pos);
    }
    return dlog.ShowModal();
-}
-
-const TranslatableString &DefaultMultiDialogMessage()
-{
-   static auto result = XO("Please select an action");
-   return result;
 }

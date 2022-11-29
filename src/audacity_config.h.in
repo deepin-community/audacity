@@ -4,9 +4,6 @@
    so it can find the files it needs at runtime */
 #cmakedefine AUDACITY_NAME "@AUDACITY_NAME@"
 
-/* Define we are compiling Audacity itself, not an Audacity plug-in */
-#cmakedefine BUILDING_AUDACITY 1
-
 /* Use system FFmpeg library and disable dynamic loading of it. */
 #cmakedefine DISABLE_DYNAMIC_LOADING_FFMPEG 1
 
@@ -65,6 +62,12 @@
 
 /* Define if mp3 support is implemented with the libmad library */
 #cmakedefine USE_LIBMAD 1
+
+/* Define if mp3 support is implemented with the libmpg123 library */
+#cmakedefine USE_LIBMPG123 1
+
+/* Define if wavpack support is implemented with the wavpack library */
+#cmakedefine USE_WAVPACK 1
 
 /* Define if libtwolame (MP2 export) support should be enabled */
 #cmakedefine USE_LIBTWOLAME 1

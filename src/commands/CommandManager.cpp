@@ -75,15 +75,14 @@ CommandManager.  It holds the callback for one command.
 
 *//******************************************************************/
 
-#include "../Audacity.h"
 
-#include "../Experimental.h"
 
 #include "CommandManager.h"
 
 #include "CommandContext.h"
 #include "CommandManagerWindowClasses.h"
 
+#include <wx/app.h>
 #include <wx/defs.h>
 #include <wx/evtloop.h>
 #include <wx/frame.h>
@@ -93,9 +92,13 @@ CommandManager.  It holds the callback for one command.
 #include <wx/menu.h>
 #include <wx/tokenzr.h>
 
+#include "../ActiveProject.h"
+#include "../Journal.h"
+#include "../JournalOutput.h"
+#include "../JournalRegistry.h"
 #include "../Menus.h"
-
-#include "../Project.h"
+#include "Project.h"
+#include "ProjectWindows.h"
 #include "../widgets/AudacityMessageBox.h"
 #include "../widgets/HelpSystem.h"
 
@@ -168,12 +171,13 @@ struct CommandListEntry
    bool useStrictFlags{ false };
 };
 
-NonKeystrokeInterceptingWindow::~NonKeystrokeInterceptingWindow()
-{
-}
+NonKeystrokeInterceptingWindow::~NonKeystrokeInterceptingWindow() = default;
 
-TopLevelKeystrokeHandlingWindow::~TopLevelKeystrokeHandlingWindow()
+TopLevelKeystrokeHandlingWindow::~TopLevelKeystrokeHandlingWindow() = default;
+
+bool TopLevelKeystrokeHandlingWindow::HandleCommandKeystrokes()
 {
+   return true;
 }
 
 MenuBarListEntry::MenuBarListEntry(const wxString &name_, wxMenuBar *menubar_)
@@ -211,20 +215,6 @@ const CommandManager &CommandManager::Get( const AudacityProject &project )
    return Get( const_cast< AudacityProject & >( project ) );
 }
 
-static CommandManager::MenuHook &sMenuHook()
-{
-   static CommandManager::MenuHook theHook;
-   return theHook;
-}
-
-auto CommandManager::SetMenuHook( const MenuHook &hook ) -> MenuHook
-{
-   auto &theHook = sMenuHook();
-   auto result = theHook;
-   theHook = hook;
-   return result;
-}
-
 ///
 ///  Standard Constructor
 ///
@@ -235,6 +225,7 @@ CommandManager::CommandManager():
 {
    mbSeparatorAllowed = false;
    SetMaxList();
+   mLastProcessId = 0;
 }
 
 ///
@@ -321,7 +312,7 @@ void CommandManager::SetMaxList()
    // KeyConfigPrefs::OnImportDefaults(wxCommandEvent & event)
 
    // TODO: At a later date get rid of the maxList entirely and
-   // instead use flags in the menu entrys to indicate whether the default
+   // instead use flags in the menu entries to indicate whether the default
    // shortcut is standard or full.
 
    mMaxListOnly.clear();
@@ -548,7 +539,7 @@ void CommandManager::AddItem(AudacityProject &project,
                              const Options &options)
 {
    if (options.global) {
-      wxASSERT( flags == AlwaysEnabledFlag );
+      //wxASSERT( flags == AlwaysEnabledFlag );
       AddGlobalCommand(
          name, label_in, finder, callback, options );
       return;
@@ -585,6 +576,12 @@ auto CommandManager::Options::MakeCheckFn(
    const wxString key, bool defaultValue ) -> CheckFn
 {
    return [=](AudacityProject&){ return gPrefs->ReadBool( key, defaultValue ); };
+}
+
+auto CommandManager::Options::MakeCheckFn(
+   const BoolSetting &setting ) -> CheckFn
+{
+   return MakeCheckFn( setting.GetPath(), setting.GetDefault() );
 }
 
 ///
@@ -716,6 +713,8 @@ CommandListEntry *CommandManager::NewIdentifier(const CommandID & nameIn,
       entry->parameter = parameter;
 
 #if defined(__WXMAC__)
+      // See bug #2642 for some history as to why these items 
+      // on Mac have their IDs set explicitly and not others.
       if (name == wxT("Preferences"))
          entry->id = wxID_PREFERENCES;
       else if (name == wxT("Exit"))
@@ -808,13 +807,37 @@ CommandListEntry *CommandManager::NewIdentifier(const CommandID & nameIn,
    return entry;
 }
 
+wxString CommandManager::FormatLabelForMenu(
+   const CommandID &id, const TranslatableString *pLabel) const
+{
+   NormalizedKeyString keyStr;
+   if (auto iter = mCommandNameHash.find(id); iter != mCommandNameHash.end()) {
+      if (auto pEntry = iter->second) {
+         keyStr = pEntry->key;
+         if (!pLabel)
+            pLabel = &pEntry->label;
+      }
+   }
+   if (pLabel)
+      return FormatLabelForMenu(*pLabel, keyStr);
+   return {};
+}
+
 wxString CommandManager::FormatLabelForMenu(const CommandListEntry *entry) const
 {
-   auto label = entry->label.Translation();
-   if (!entry->key.empty())
+   return FormatLabelForMenu( entry->label, entry->key );
+}
+
+wxString CommandManager::FormatLabelForMenu(
+   const TranslatableString &translatableLabel,
+   const NormalizedKeyString &keyStr) const
+{
+   auto label = translatableLabel.Translation();
+   auto key = keyStr.GET();
+   if (!key.empty())
    {
       // using GET to compose menu item name for wxWidgets
-      label += wxT("\t") + entry->key.GET();
+      label += wxT("\t") + key;
    }
 
    return label;
@@ -1099,8 +1122,8 @@ bool CommandManager::FilterKeyEvent(AudacityProject *project, const wxKeyEvent &
    // Bug 1557.  MixerBoard should count as 'destined for project'
    // MixerBoard IS a TopLevelWindow, and its parent is the project.
    if( pParent && pParent->GetParent() == pWindow ){
-      if( dynamic_cast< TopLevelKeystrokeHandlingWindow* >( pParent ) != NULL )
-         validTarget = true;
+      if(auto keystrokeHandlingWindow = dynamic_cast< TopLevelKeystrokeHandlingWindow* >( pParent ))
+         validTarget = keystrokeHandlingWindow->HandleCommandKeystrokes();
    }
    validTarget = validTarget && wxEventLoop::GetActive()->IsMain();
 
@@ -1175,13 +1198,41 @@ bool CommandManager::FilterKeyEvent(AudacityProject *project, const wxKeyEvent &
    return false;
 }
 
+namespace {
+
+constexpr auto JournalCode = wxT("CM");  // for CommandManager
+
+// Register a callback for the journal
+Journal::RegisteredCommand sCommand{ JournalCode,
+[]( const wxArrayStringEx &fields )
+{
+   // Expect JournalCode and the command name.
+   // To do, perhaps, is to include some parameters.
+   bool handled = false;
+   if ( fields.size() == 2 ) {
+      if (auto project = GetActiveProject().lock()) {
+         auto pManager = &CommandManager::Get( *project );
+         auto flags = MenuManager::Get( *project ).GetUpdateFlags();
+         const CommandContext context( *project );
+         auto &command = fields[1];
+         handled =
+            pManager->HandleTextualCommand( command, context, flags, false );
+      }
+   }
+   return handled;
+}
+};
+
+}
+
 /// HandleCommandEntry() takes a CommandListEntry and executes it
 /// returning true iff successful.  If you pass any flags,
 ///the command won't be executed unless the flags are compatible
 ///with the command's flags.
 bool CommandManager::HandleCommandEntry(AudacityProject &project,
    const CommandListEntry * entry,
-   CommandFlag flags, bool alwaysEnabled, const wxEvent * evt)
+   CommandFlag flags, bool alwaysEnabled, const wxEvent * evt,
+   const CommandContext *pGivenContext)
 {
    if (!entry )
       return false;
@@ -1202,14 +1253,57 @@ bool CommandManager::HandleCommandEntry(AudacityProject &project,
       // Otherwise we may get other handlers having a go at obeying the command.
       if (!allowed)
          return true;
+      mNiceName = NiceName;
+   }
+   else {
+      mNiceName = {};
    }
 
-   const CommandContext context{ project, evt, entry->index, entry->parameter };
+   Journal::Output({ JournalCode, entry->name.GET() });
+
+   CommandContext context{ project, evt, entry->index, entry->parameter };
+   if (pGivenContext)
+      context.temporarySelection = pGivenContext->temporarySelection;
    auto &handler = entry->finder(project);
    (handler.*(entry->callback))(context);
-
+   mLastProcessId = 0;
    return true;
 }
+
+// Called by Contrast and Plot Spectrum Plug-ins to mark them as Last Analzers.
+// Note that Repeat data has previously been collected
+void CommandManager::RegisterLastAnalyzer(const CommandContext& context) {
+   if (mLastProcessId != 0) {
+      auto& menuManager = MenuManager::Get(context.project);
+      menuManager.mLastAnalyzerRegistration = MenuCreator::repeattypeunique;
+      menuManager.mLastAnalyzerRegisteredId = mLastProcessId;
+      auto lastEffectDesc = XO("Repeat %s").Format(mNiceName);
+      Modify(wxT("RepeatLastAnalyzer"), lastEffectDesc);
+   }
+   return;
+}
+
+// Called by Selected Tools to mark them as Last Tools.
+// Note that Repeat data has previously been collected
+void CommandManager::RegisterLastTool(const CommandContext& context) {
+   if (mLastProcessId != 0) {
+      auto& menuManager = MenuManager::Get(context.project);
+      menuManager.mLastToolRegistration = MenuCreator::repeattypeunique;
+      menuManager.mLastToolRegisteredId = mLastProcessId;
+      auto lastEffectDesc = XO("Repeat %s").Format(mNiceName);
+      Modify(wxT("RepeatLastTool"), lastEffectDesc);
+   }
+   return;
+}
+
+// Used to invoke Repeat Last Analyzer Process for built-in, non-nyquist plug-ins.
+void CommandManager::DoRepeatProcess(const CommandContext& context, int id) {
+   mLastProcessId = 0;  //Don't Process this as repeat
+   CommandListEntry* entry = mCommandNumericIDHash[id];
+   auto& handler = entry->finder(context.project);
+   (handler.*(entry->callback))(context);
+}
+
 
 ///Call this when a menu event is received.
 ///If it matches a command, it will call the appropriate
@@ -1219,10 +1313,10 @@ bool CommandManager::HandleCommandEntry(AudacityProject &project,
 bool CommandManager::HandleMenuID(
    AudacityProject &project, int id, CommandFlag flags, bool alwaysEnabled)
 {
+   mLastProcessId = id;
    CommandListEntry *entry = mCommandNumericIDHash[id];
 
-   auto hook = sMenuHook();
-   if (hook && hook(entry->name))
+   if (GlobalMenuHook::Call(entry->name))
       return true;
 
    return HandleCommandEntry( project, entry, flags, alwaysEnabled );
@@ -1250,7 +1344,8 @@ CommandManager::HandleTextualCommand(const CommandID & Str,
             Str == entry->labelPrefix.Translation() )
          {
             return HandleCommandEntry(
-               context.project, entry.get(), flags, alwaysEnabled)
+               context.project, entry.get(), flags, alwaysEnabled,
+               nullptr, &context)
                ? CommandSuccess : CommandFailure;
          }
       }
@@ -1260,7 +1355,8 @@ CommandManager::HandleTextualCommand(const CommandID & Str,
          if( Str == entry->name )
          {
             return HandleCommandEntry(
-               context.project, entry.get(), flags, alwaysEnabled)
+               context.project, entry.get(), flags, alwaysEnabled,
+               nullptr, &context)
                ? CommandSuccess : CommandFailure;
          }
       }
@@ -1422,27 +1518,30 @@ NormalizedKeyString CommandManager::GetDefaultKeyFromName(const CommandID &name)
    return entry->defaultKey;
 }
 
-bool CommandManager::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
+bool CommandManager::HandleXMLTag(const std::string_view& tag, const AttributesList &attrs)
 {
-   if (!wxStrcmp(tag, wxT("audacitykeyboard"))) {
+   if (tag == "audacitykeyboard") {
       mXMLKeysRead = 0;
    }
 
-   if (!wxStrcmp(tag, wxT("command"))) {
+   if (tag == "command") {
       wxString name;
       NormalizedKeyString key;
 
-      while(*attrs) {
-         const wxChar *attr = *attrs++;
-         const wxChar *value = *attrs++;
+      for (auto pair : attrs)
+      {
+         auto attr = pair.first;
+         auto value = pair.second;
 
-         if (!value)
-            break;
+         if (value.IsStringView())
+         {
+            const wxString strValue = value.ToWString();
 
-         if (!wxStrcmp(attr, wxT("name")) && XMLValueChecker::IsGoodString(value))
-            name = value;
-         if (!wxStrcmp(attr, wxT("key")) && XMLValueChecker::IsGoodString(value))
-            key = NormalizedKeyString{ value };
+            if (attr == "name")
+               name = strValue;
+            else if (attr == "key")
+               key = NormalizedKeyString{ strValue };
+         }
       }
 
       if (mCommandNameHash[name]) {
@@ -1455,10 +1554,10 @@ bool CommandManager::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
 }
 
 // This message is displayed now in KeyConfigPrefs::OnImport()
-void CommandManager::HandleXMLEndTag(const wxChar *tag)
+void CommandManager::HandleXMLEndTag(const std::string_view& tag)
 {
    /*
-   if (!wxStrcmp(tag, wxT("audacitykeyboard"))) {
+   if (tag == "audacitykeyboard") {
       AudacityMessageBox(
          XO("Loaded %d keyboard shortcuts\n")
             .Format( mXMLKeysRead ),
@@ -1468,7 +1567,7 @@ void CommandManager::HandleXMLEndTag(const wxChar *tag)
    */
 }
 
-XMLTagHandler *CommandManager::HandleXMLChild(const wxChar * WXUNUSED(tag))
+XMLTagHandler *CommandManager::HandleXMLChild(const std::string_view&  WXUNUSED(tag))
 {
    return this;
 }
@@ -1561,7 +1660,7 @@ void CommandManager::CheckDups()
 // to test for this case.
 // Note that if a user is using the full set of default shortcuts, and one
 // of these is changed, then if /GUI/Shortcuts/FullDefaults is not set in audacity.cfg,
-// because the defaults appear as user assigned shorcuts in audacity.cfg,
+// because the defaults appear as user assigned shortcuts in audacity.cfg,
 // the previous default overrides the changed default, and no duplicate can
 // be introduced.
 void CommandManager::RemoveDuplicateShortcuts()
@@ -1599,22 +1698,21 @@ void CommandManager::RemoveDuplicateShortcuts()
 
 #include "../KeyboardCapture.h"
 
-static struct InstallHandlers
-{
-   InstallHandlers()
-   {
-      KeyboardCapture::SetPreFilter( []( wxKeyEvent & ) {
-         // We must have a project since we will be working with the
-         // CommandManager, which is tied to individual projects.
-         AudacityProject *project = GetActiveProject();
-         return project && GetProjectFrame( *project ).IsEnabled();
-      } );
-      KeyboardCapture::SetPostFilter( []( wxKeyEvent &key ) {
-         // Capture handler window didn't want it, so ask the CommandManager.
-         AudacityProject *project = GetActiveProject();
-         auto &manager = CommandManager::Get( *project );
-         return manager.FilterKeyEvent(project, key);
-      } );
+static KeyboardCapture::PreFilter::Scope scope1{
+[]( wxKeyEvent & ) {
+   // We must have a project since we will be working with the
+   // CommandManager, which is tied to individual projects.
+   auto project = GetActiveProject().lock();
+   return project && GetProjectFrame( *project ).IsEnabled();
+} };
+static KeyboardCapture::PostFilter::Scope scope2{
+[]( wxKeyEvent &key ) {
+   // Capture handler window didn't want it, so ask the CommandManager.
+   if (auto project = GetActiveProject().lock()) {
+      auto &manager = CommandManager::Get( *project );
+      return manager.FilterKeyEvent(project.get(), key);
    }
-} installHandlers;
+   else
+      return false;
+} };
 

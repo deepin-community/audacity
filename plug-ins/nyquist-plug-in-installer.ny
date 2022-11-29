@@ -1,15 +1,15 @@
 $nyquist plug-in
 $version 4
 $type tool
-$name (_ "Nyquist Plug-in Installer")
+$name (_ "Nyquist Plugin Installer")
 $manpage "Nyquist_Plug-in_Installer"
 $debugbutton false
 $preview disabled
 $author "Steve Daulton"
-$release 2.4.0
-$copyright (_ "Released under terms of the GNU General Public License version 2")
+$release 2.4.0-1
+$copyright (_ "GNU General Public License v2.0 or later")
 
-;; Released under terms of the GNU General Public License version 2:
+;; License: GPL v2+
 ;; http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 ;;
 ;; For information about writing and modifying Nyquist plug-ins:
@@ -18,11 +18,11 @@ $copyright (_ "Released under terms of the GNU General Public License version 2"
 
 ;i18n-hint: "Browse..." is text on a button that launches a file browser.
 $control files (_ "Select file(s) to install") file (_ "Browse...") "~/Desktop/" (((_ "Plug-in") (ny NY))
-										  ((_ "Lisp file") (lsp LSP))
-										  ((_ "HTML file") (htm HTM html HTML))
-										  ((_ "Text file") (txt TXT))
-										  ((_ "All supported") (ny NY lsp LSP htm HTM html HTML txt TXT))
-										  ((_ "All files") (""))) "open,exists,multiple"
+                      ((_ "Lisp file") (lsp LSP))
+                      ((_ "HTML file") (htm HTM html HTML))
+                      ((_ "Text file") (txt TXT))
+                      ((_ "All supported") (ny NY lsp LSP htm HTM html HTML txt TXT))
+                      ((_ "All files") (""))) "open,exists,multiple"
 $control overwrite (_ "Allow overwriting") choice ((_ "Disallow") (_ "Allow")) 0
 
 
@@ -185,11 +185,11 @@ $control overwrite (_ "Allow overwriting") choice ((_ "Disallow") (_ "Allow")) 0
   ;; Format results and display in human readable form.
   (cond
     ((isempty install-success)
-      (setf msg (_ "Error.\n")))
+      (setf msg (format nil (_ "Error.~%"))))
     ((isempty install-fail)
       (setf msg (format nil (_ "Success.~%Files written to:~%~s~%")
                         (get '*system-dir* 'user-plug-in))))
-    (t (setf msg (_ "Warning.\nFailed to copy some files:\n"))))
+    (t (setf msg (format nil (_ "Warning.~%Failed to copy some files:~%")))))
   (setf results (append install-success install-fail))
   (setf results (sort-results results))
   (let ((status -1))
@@ -211,9 +211,10 @@ $control overwrite (_ "Allow overwriting") choice ((_ "Disallow") (_ "Allow")) 0
 (defun status (num)
   ;; Return status message corresponding to the installation status number.
   ;; This allows result messages to be grouped according to installation status.
-  (case num
-    ;; Success
-    (0 (_ "Plug-ins installed.\n(Use the Plug-in Manager to enable effects):"))
+  (case num ; Success
+    ; Translations fail when strings contain control characters, so
+    ; use FORMAT directive "~%" instead of "\n" for new line.
+    (0 (format nil (_ "Plug-ins installed.~%(Use the Plug-in Manager to enable effects):")))
     (1 (_ "Plug-ins updated:"))
     (2 (_ "Files copied to plug-ins folder:"))
     ;; Fail

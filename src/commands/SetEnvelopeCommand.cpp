@@ -16,13 +16,16 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "SetEnvelopeCommand.h"
 
+#include "CommandContext.h"
 #include "LoadCommands.h"
+#include "ProjectHistory.h"
+#include "UndoManager.h"
 #include "../WaveClip.h"
 #include "../WaveTrack.h"
-#include "../Envelope.h"
+#include "Envelope.h"
 #include "../Shuttle.h"
 #include "../ShuttleGui.h"
 
@@ -36,13 +39,19 @@ SetEnvelopeCommand::SetEnvelopeCommand()
 {
 }
 
-
-bool SetEnvelopeCommand::DefineParams( ShuttleParams & S ){ 
+template<bool Const>
+bool SetEnvelopeCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
    S.OptionalY( bHasT              ).Define(  mT,              wxT("Time"),     0.0, 0.0, 100000.0);
    S.OptionalY( bHasV              ).Define(  mV,              wxT("Value"),    1.0, 0.0, 2.0);
    S.OptionalN( bHasDelete         ).Define(  mbDelete,        wxT("Delete"),   false );
    return true;
 };
+
+bool SetEnvelopeCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool SetEnvelopeCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void SetEnvelopeCommand::PopulateOrExchange(ShuttleGui & S)
 {
@@ -57,7 +66,7 @@ void SetEnvelopeCommand::PopulateOrExchange(ShuttleGui & S)
    S.EndMultiColumn();
 }
 
-bool SetEnvelopeCommand::ApplyInner( const CommandContext &, Track * t )
+bool SetEnvelopeCommand::ApplyInner( const CommandContext &context, Track * t )
 {
    // if no time is specified, then
    //   - delete deletes any envelope in selected tracks.
@@ -68,17 +77,26 @@ bool SetEnvelopeCommand::ApplyInner( const CommandContext &, Track * t )
          WaveClip * pClip = *it;
          bool bFound =
             !bHasT || (
-               ( pClip->GetStartTime() <= mT) &&
-               ( pClip->GetEndTime() >= mT )
+               ( pClip->GetPlayStartTime() <= mT) &&
+               ( pClip->GetPlayEndTime() >= mT )
             );
          if( bFound )
          {
             // Inside this IF is where we actually apply the command
             Envelope* pEnv = pClip->GetEnvelope();
+            bool didSomething = false;
             if( bHasDelete && mbDelete )
-               pEnv->Clear();
+               pEnv->Clear(), didSomething = true;
             if( bHasT && bHasV )
-               pEnv->InsertOrReplace( mT, pEnv->ClampValue( mV ) );
+               pEnv->InsertOrReplace( mT, pEnv->ClampValue( mV ) ),
+               didSomething = true;
+
+            if (didSomething)
+               // Consolidate, because this ApplyInner() function may be
+               // visited multiple times in one command invocation
+               ProjectHistory::Get(context.project).PushState(
+                  XO("Edited Envelope"), XO("Envelope"),
+                  UndoPush::CONSOLIDATE);
          }
       }
    } );

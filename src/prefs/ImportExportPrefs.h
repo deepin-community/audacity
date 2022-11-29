@@ -23,19 +23,20 @@ class ShuttleGui;
 
 template< typename Enum > class EnumSetting;
 
-class ImportExportPrefs final : public PrefsPanel
+class AUDACITY_DLL_API ImportExportPrefs final : public PrefsPanel
 {
  public:
    static EnumSetting< bool > ExportDownMixSetting;
+   static EnumSetting< bool > LabelStyleSetting;
    static EnumSetting< bool > AllegroStyleSetting;
 
    ImportExportPrefs(wxWindow * parent, wxWindowID winid);
    ~ImportExportPrefs();
-   ComponentInterfaceSymbol GetSymbol() override;
-   TranslatableString GetDescription() override;
+   ComponentInterfaceSymbol GetSymbol() const override;
+   TranslatableString GetDescription() const override;
 
    bool Commit() override;
-   wxString HelpPageName() override;
+   ManualPageID HelpPageName() override;
    void PopulateOrExchange(ShuttleGui & S) override;
 
  private:

@@ -8,7 +8,7 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h" // for USE_* macros
+
 
 #ifdef USE_MIDI
 #include "NoteTrackVRulerControls.h"
@@ -17,13 +17,12 @@ Paul Licameli split from TrackPanel.cpp
 
 #include "../../../../HitTestResult.h"
 #include "../../../../NoteTrack.h"
-#include "../../../../ProjectHistory.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanelMouseEvent.h"
 
-#include "../../../../AColor.h"
-#include "../../../../Experimental.h"
+#include "AColor.h"
 #include "../../../../TrackPanelDrawingContext.h"
 #include "../../../../widgets/Ruler.h"
 
@@ -227,6 +226,6 @@ void NoteTrackVRulerControls::UpdateRuler( const wxRect &rect )
    vruler->SetBounds(rect.x, rect.y, rect.x + 1, rect.y + rect.height-1);
    vruler->SetOrientation(wxVERTICAL);
 
-   vruler->GetMaxSize( &nt->vrulerSize.x, &nt->vrulerSize.y );
+   vruler->GetMaxSize( &nt->vrulerSize.first, &nt->vrulerSize.second );
 }
 #endif

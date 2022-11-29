@@ -8,7 +8,7 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "Audacity.h"
+
 #include "TrackPanelResizerCell.h"
 
 #include "AColor.h"
@@ -21,14 +21,12 @@ Paul Licameli split from TrackPanel.cpp
 #include "ViewInfo.h"
 #include "widgets/OverlayPanel.h"
 
-#include "tracks/ui/TrackView.h"
-
 #include <wx/dc.h>
 #include <wx/mousestate.h>
 
 TrackPanelResizerCell::TrackPanelResizerCell(
    const std::shared_ptr<Track> &pTrack )
-   : mwTrack{ pTrack }
+   : CommonTrackCell{ pTrack }
 {}
 
 std::vector<UIHandlePtr> TrackPanelResizerCell::HitTest
@@ -44,11 +42,6 @@ std::vector<UIHandlePtr> TrackPanelResizerCell::HitTest
       results.push_back(result);
    }
    return results;
-}
-
-std::shared_ptr<Track> TrackPanelResizerCell::DoFindTrack()
-{
-   return mwTrack.lock();
 }
 
 void TrackPanelResizerCell::Draw(
@@ -76,7 +69,7 @@ void TrackPanelResizerCell::Draw(
             
             // Paint the left part of the background
             const auto artist = TrackArtist::Get( context );
-            auto labelw = artist->pZoomInfo->GetLabelWidth();
+            auto labelw = artist->pZoomInfo->GetLeftOffset() - 1;
             AColor::MediumTrackInfo( dc, pTrack->GetSelected() );
             dc->DrawRectangle(
                rect.GetX(), rect.GetY(), labelw, rect.GetHeight() );

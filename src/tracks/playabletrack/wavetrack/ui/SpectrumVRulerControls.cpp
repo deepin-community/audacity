@@ -13,8 +13,8 @@ Paul Licameli split from WaveTrackVRulerControls.cpp
 #include "SpectrumVZoomHandle.h"
 #include "WaveTrackVRulerControls.h"
 
-#include "../../../../NumberScale.h"
-#include "../../../../ProjectHistory.h"
+#include "NumberScale.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackPanelMouseEvent.h"
 #include "../../../../WaveTrack.h"
@@ -197,5 +197,5 @@ void SpectrumVRulerControls::DoUpdateVRuler(
       }
          break;
    }
-   vruler->GetMaxSize( &wt->vrulerSize.x, &wt->vrulerSize.y );
+   vruler->GetMaxSize( &wt->vrulerSize.first, &wt->vrulerSize.second );
 }

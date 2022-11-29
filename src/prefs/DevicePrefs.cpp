@@ -22,8 +22,9 @@ other settings.
 
 *//********************************************************************/
 
-#include "../Audacity.h"
+
 #include "DevicePrefs.h"
+#include "AudioIOBase.h"
 
 #include "RecordingPrefs.h"
 
@@ -36,9 +37,9 @@ other settings.
 
 #include "portaudio.h"
 
-#include "../Prefs.h"
+#include "Prefs.h"
 #include "../ShuttleGui.h"
-#include "../DeviceManager.h"
+#include "DeviceManager.h"
 
 enum {
    HostID = 10000,
@@ -63,17 +64,17 @@ DevicePrefs::~DevicePrefs()
 }
 
 
-ComponentInterfaceSymbol DevicePrefs::GetSymbol()
+ComponentInterfaceSymbol DevicePrefs::GetSymbol() const
 {
    return DEVICE_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString DevicePrefs::GetDescription()
+TranslatableString DevicePrefs::GetDescription() const
 {
    return XO("Preferences for Device");
 }
 
-wxString DevicePrefs::HelpPageName()
+ManualPageID DevicePrefs::HelpPageName()
 {
    return "Devices_Preferences";
 }
@@ -84,10 +85,10 @@ void DevicePrefs::Populate()
    GetNamesAndLabels();
 
    // Get current setting for devices
-   mPlayDevice = gPrefs->Read(wxT("/AudioIO/PlaybackDevice"), wxT(""));
-   mRecordDevice = gPrefs->Read(wxT("/AudioIO/RecordingDevice"), wxT(""));
-   mRecordSource = gPrefs->Read(wxT("/AudioIO/RecordingSource"), wxT(""));
-   mRecordChannels = gPrefs->Read(wxT("/AudioIO/RecordChannels"), 2L);
+   mPlayDevice = AudioIOPlaybackDevice.Read();
+   mRecordDevice = AudioIORecordingDevice.Read();
+   mRecordSource = AudioIORecordingSource.Read();
+   mRecordChannels = AudioIORecordChannels.Read();
 
    //------------------------- Main section --------------------
    // Now construct the GUI itself.
@@ -126,6 +127,10 @@ void DevicePrefs::GetNamesAndLabels()
 
 void DevicePrefs::PopulateOrExchange(ShuttleGui & S)
 {
+   ChoiceSetting HostSetting{
+      AudioIOHost,
+      { ByColumns, mHostNames, mHostLabels }
+   };
    S.SetBorder(2);
    S.StartScroller();
 
@@ -135,12 +140,7 @@ void DevicePrefs::PopulateOrExchange(ShuttleGui & S)
       S.StartMultiColumn(2);
       {
          S.Id(HostID);
-         mHost = S.TieChoice( XXO("&Host:"),
-            {
-               wxT("/AudioIO/Host"),
-               { ByColumns, mHostNames, mHostLabels }
-            }
-         );
+         mHost = S.TieChoice( XXO("&Host:"), HostSetting);
 
          S.AddPrompt(XXO("Using:"));
          S.AddFixedText( Verbatim(wxSafeConvertMB2WX(Pa_GetVersionText() ) ) );
@@ -161,7 +161,8 @@ void DevicePrefs::PopulateOrExchange(ShuttleGui & S)
    }
    S.EndStatic();
 
-   S.StartStatic(XO("Recording"));
+   // i18n-hint: modifier as in "Recording preferences", not progressive verb
+   S.StartStatic(XC("Recording", "preference"));
    {
       S.StartMultiColumn(2);
       {
@@ -190,17 +191,14 @@ void DevicePrefs::PopulateOrExchange(ShuttleGui & S)
          w = S
             .NameSuffix(XO("milliseconds"))
             .TieNumericTextBox(XXO("&Buffer length:"),
-                                 {wxT("/AudioIO/LatencyDuration"),
-                                  DEFAULT_LATENCY_DURATION},
-                                 9);
+                                 AudioIOLatencyDuration,
+                                 25);
          S.AddUnits(XO("milliseconds"));
 
          w = S
             .NameSuffix(XO("milliseconds"))
             .TieNumericTextBox(XXO("&Latency compensation:"),
-                                 {wxT("/AudioIO/LatencyCorrection"),
-                                  DEFAULT_LATENCY_CORRECTION},
-                                 9);
+               AudioIOLatencyCorrection, 25);
          S.AddUnits(XO("milliseconds"));
       }
       S.EndThreeColumn();
@@ -262,7 +260,7 @@ void DevicePrefs::OnHost(wxCommandEvent & e)
          device   = MakeDeviceSourceString(&inMaps[i]);
          devindex = mRecord->Append(device);
          // We need to const cast here because SetClientData is a wx function
-         // It is okay beause the original variable is non-const.
+         // It is okay because the original variable is non-const.
          mRecord->SetClientData(devindex, const_cast<DeviceSourceMap *>(&inMaps[i]));
          if (device == recDevice) {  /* if this is the default device, select it */
             mRecord->SetSelection(devindex);
@@ -396,39 +394,36 @@ bool DevicePrefs::Commit()
       map = (DeviceSourceMap *) mPlay->GetClientData(
             mPlay->GetSelection());
    }
-   if (map) {
-      gPrefs->Write(wxT("/AudioIO/PlaybackDevice"), map->deviceString);
-   }
+   if (map)
+      AudioIOPlaybackDevice.Write(map->deviceString);
 
    map = NULL;
    if (mRecord->GetCount() > 0) {
       map = (DeviceSourceMap *) mRecord->GetClientData(mRecord->GetSelection());
    }
    if (map) {
-      gPrefs->Write(wxT("/AudioIO/RecordingDevice"),
-                    map->deviceString);
-      gPrefs->Write(wxT("/AudioIO/RecordingSourceIndex"),
-                    map->sourceIndex);
-      if (map->totalSources >= 1) {
-         gPrefs->Write(wxT("/AudioIO/RecordingSource"),
-                       map->sourceString);
-      } else {
-         gPrefs->Write(wxT("/AudioIO/RecordingSource"),
-                       wxT(""));
-      }
-      gPrefs->Write(wxT("/AudioIO/RecordChannels"),
-                    mChannels->GetSelection() + 1);
+      AudioIORecordingDevice.Write(map->deviceString);
+      AudioIORecordingSourceIndex.Write(map->sourceIndex);
+      if (map->totalSources >= 1)
+         AudioIORecordingSource.Write(map->sourceString);
+      else
+         AudioIORecordingSource.Reset();
+      AudioIORecordChannels.Write(mChannels->GetSelection() + 1);
    }
 
+   AudioIOLatencyDuration.Invalidate();
+   AudioIOLatencyCorrection.Invalidate();
    return true;
 }
 
+PrefsPanel *DevicePrefsFactory(wxWindow *parent, wxWindowID winid, AudacityProject *)
+{
+   wxASSERT(parent); // to justify safenew
+   return safenew DevicePrefs(parent, winid);
+}
+
 namespace{
-PrefsPanel::Registration sAttachment{ "Device",
-   [](wxWindow *parent, wxWindowID winid, AudacityProject *)
-   {
-      wxASSERT(parent); // to justify safenew
-      return safenew DevicePrefs(parent, winid);
-   }
-};
+   PrefsPanel::Registration sAttachment{ "Device",
+      DevicePrefsFactory
+   };
 }

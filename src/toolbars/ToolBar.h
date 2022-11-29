@@ -13,14 +13,12 @@
 #ifndef __AUDACITY_TOOLBAR__
 #define __AUDACITY_TOOLBAR__
 
-#include "../Experimental.h"
-
 #include <functional>
 #include <vector>
 #include <wx/defs.h>
 
-#include "../Prefs.h"
-#include "../Theme.h"
+#include "Prefs.h"
+#include "Theme.h"
 #include "../widgets/wxPanelWrapper.h" // to inherit
 #include <wx/windowptr.h>
 
@@ -41,6 +39,10 @@ class Grabber;
 class ToolDock;
 
 class ToolBarResizer;
+
+#ifdef __WXMAC__
+#define USE_AQUA_THEME 1
+#endif
 
 ////////////////////////////////////////////////////////////
 /// class ToolBar
@@ -72,7 +74,6 @@ enum ToolBarID
    MeterBarID,
    RecordMeterBarID,
    PlayMeterBarID,
-   MixerBarID,
    EditBarID,
    TranscriptionBarID,
    ScrubbingBarID,
@@ -80,6 +81,10 @@ enum ToolBarID
    SelectionBarID,
 #ifdef EXPERIMENTAL_SPECTRAL_EDITING
    SpectralSelectionBarID,
+#endif
+   AudioSetupBarID,
+#ifdef HAS_AUDIOCOM_UPLOAD
+   ShareAudioBarID,
 #endif
    TimeBarID,
    ToolBarCount
@@ -90,7 +95,7 @@ enum { ToolBarFloatMargin = 1 };
 
 class AudacityProject;
 
-class ToolBar /* not final */
+class AUDACITY_DLL_API ToolBar /* not final */
 : public wxPanelWrapper
 , protected PrefsListener
 {
@@ -161,6 +166,16 @@ public:
                        bool processdownevents,
                        wxSize size);
 
+
+   static
+   AButton *MakeButton(ToolBar *parent,
+                       teBmps eEnabledUp,
+                       teBmps eEnabledDown,
+                       teBmps eDisabled,
+                       int id,
+                       bool processdownevents,
+                       const TranslatableString &label);
+
    static
    void MakeAlternateImages(AButton &button, int idx,
                             teBmps eUp,
@@ -187,7 +202,9 @@ public:
    void SetButton(bool down, AButton *button);
 
    static void MakeMacRecoloredImage(teBmps eBmpOut, teBmps eBmpIn);
+   static void MakeMacRecoloredImageSize(teBmps eBmpOut, teBmps eBmpIn, const wxSize& size);
    static void MakeRecoloredImage(teBmps eBmpOut, teBmps eBmpIn);
+   static void MakeRecoloredImageSize(teBmps eBmpOut, teBmps eBmpIn, const wxSize& size);
 
    wxBoxSizer *GetSizer();
 
@@ -256,7 +273,7 @@ public:
    friend class ToolBarResizer;
 };
 
-struct RegisteredToolbarFactory {
+struct AUDACITY_DLL_API RegisteredToolbarFactory {
    using Function = std::function< ToolBar::Holder( AudacityProject & ) >;
    using Functions = std::vector< Function >;
 

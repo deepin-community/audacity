@@ -1,4 +1,4 @@
-#include "../Audacity.h"
+
 
 #include "../commands/CommandManager.h"
 
@@ -11,7 +11,6 @@
 #include "../CommonCommandFlags.h"
 #include "../Menus.h"
 #include "../Project.h"
-#include "../ProjectFileIO.h"
 #include "../commands/CommandContext.h"
 
 #include <wx/frame.h>
@@ -149,7 +148,7 @@ void OnMacZoom(const CommandContext &context)
 
 void OnMacBringAllToFront(const CommandContext &)
 {
-   // Reall this de-miniaturizes all, which is not exactly the standard
+   // Really this de-miniaturizes all, which is not exactly the standard
    // behavior.
    for (const auto project : AllProjects{})
       GetProjectFrame( *project ).Raise();

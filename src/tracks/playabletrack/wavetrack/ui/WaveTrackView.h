@@ -12,16 +12,31 @@ Paul Licameli split from class WaveTrack
 #define __AUDACITY_WAVE_TRACK_VIEW__
 
 #include "../../../ui/CommonTrackView.h"
-#include "../../../../ClientData.h"
+#include "ClientData.h"
+#include "SampleCount.h"
 namespace WaveTrackViewConstants{ enum Display : int; }
 struct WaveTrackSubViewType;
 
 class CutlineHandle;
 class TranslatableString;
+class SampleTrack;
 class WaveTrack;
 class WaveTrackView;
+class WaveClip;
+class WaveClipTrimHandle;
+class ZoomInfo;
 
-class WaveTrackSubView : public CommonTrackView
+
+class TrackPanelResizeHandle;
+class WaveTrackAffordanceHandle;
+
+class SubViewCloseHandle;
+class SubViewAdjustHandle;
+class SubViewRearrangeHandle;
+
+class wxDC;
+
+class AUDACITY_DLL_API WaveTrackSubView : public CommonTrackView
 {
 public:
 
@@ -32,6 +47,10 @@ public:
    WaveTrackSubView( WaveTrackView &waveTrackView );
    
    virtual const Type &SubViewType() const = 0;
+
+   // For undo and redo purpose
+   // Empty abstract method to be inherited, for copying the spectral data in SpectrumSubView
+   virtual void CopyToSubView(WaveTrackSubView *destSubView) const;
 
    std::pair<
       bool, // if true, hit-testing is finished
@@ -46,10 +65,18 @@ protected:
       TrackPanelDrawingContext &context, const WaveTrack *track,
       const wxRect &rect );
 
+   std::weak_ptr<WaveTrackView> GetWaveTrackView() const;
+
+   std::vector<MenuItem> GetMenuItems(
+      const wxRect &rect, const wxPoint *pPosition, AudacityProject *pProject )
+   override;
+
 private:
-   std::weak_ptr<UIHandle> mCloseHandle;
-   std::weak_ptr<UIHandle> mAdjustHandle;
-   std::weak_ptr<UIHandle> mRearrangeHandle;
+   std::weak_ptr<SubViewCloseHandle> mCloseHandle;
+   std::weak_ptr<TrackPanelResizeHandle> mResizeHandle;
+   std::weak_ptr<SubViewAdjustHandle> mAdjustHandle;
+   std::weak_ptr<SubViewRearrangeHandle> mRearrangeHandle;
+   std::weak_ptr<WaveClipTrimHandle> mClipTrimHandle;
    std::weak_ptr<CutlineHandle> mCutlineHandle;
    std::weak_ptr<WaveTrackView> mwWaveTrackView;
 };
@@ -65,7 +92,7 @@ using WaveTrackSubViews = ClientData::Site<
    WaveTrackView, WaveTrackSubView, ClientData::SkipCopying, std::shared_ptr
 >;
 
-class WaveTrackView final
+class AUDACITY_DLL_API WaveTrackView final
    : public CommonTrackView
    , public WaveTrackSubViews
 {
@@ -73,10 +100,14 @@ class WaveTrackView final
    WaveTrackView &operator=( const WaveTrackView& ) = delete;
 
 public:
+   static constexpr int kChannelSeparatorThickness{ 8 };
+
    using Display = WaveTrackViewConstants::Display;
 
    static WaveTrackView &Get( WaveTrack &track );
    static const WaveTrackView &Get( const WaveTrack &track );
+   static WaveTrackView *Find( WaveTrack *pTrack );
+   static const WaveTrackView *Find( const WaveTrack *pTrack );
 
    explicit
    WaveTrackView( const std::shared_ptr<Track> &pTrack );
@@ -121,9 +152,49 @@ public:
    bool GetMultiView() const { return mMultiView; }
    void SetMultiView( bool value ) { mMultiView = value; }
 
+
+   std::weak_ptr<WaveClip> GetSelectedClip();
+
+   // Returns a visible subset of subviews, sorted in the same 
+   // order as they are supposed to be displayed
+   
+
+   // Get the visible sub-views,
+   // if rect is provided then result will contain
+   // y coordinate for each subview within this rect
+   Refinement GetSubViews(const wxRect* rect = nullptr);
+
+   unsigned CaptureKey
+   (wxKeyEvent& event, ViewInfo& viewInfo, wxWindow* pParent,
+       AudacityProject* project) override;
+
+   unsigned KeyDown(wxKeyEvent& event, ViewInfo& viewInfo, wxWindow* pParent,
+       AudacityProject* project) override;
+
+   unsigned Char
+   (wxKeyEvent& event, ViewInfo& viewInfo, wxWindow* pParent,
+       AudacityProject* project) override;
+
+   unsigned LoseFocus(AudacityProject *project) override;
+
+   static bool ClipDetailsVisible(const WaveClip& clip, const ZoomInfo& zoomInfo, const wxRect& viewRect);
+   static wxRect ClipHitTestArea(const WaveClip& clip, const ZoomInfo& zoomInfo, const wxRect& viewRect);
+   static bool HitTest(const WaveClip& clip, const ZoomInfo& zoomInfo, const wxRect& rect, const wxPoint& pos);
+
+   //FIXME: These functions do not push state to undo history
+   //because attempt to do so leads to a focus lose which, in
+   //turn finalizes text editing (state is saved after text
+   //editing was intentionally finished instead)
+
+   bool CutSelectedText(AudacityProject& project);
+   bool CopySelectedText(AudacityProject& project);
+   bool PasteText(AudacityProject& project);
+   bool SelectAllText(AudacityProject& project);
+
 private:
    void BuildSubViews() const;
    void DoSetDisplay(Display display, bool exclusive = true);
+   bool SelectNextClip(ViewInfo& viewInfo, AudacityProject* project, bool forward);
 
    // TrackPanelDrawable implementation
    void Draw(
@@ -136,10 +207,11 @@ private:
       override;
 
    // TrackView implementation
-   // Get the visible sub-views with top y coordinates
-   Refinement GetSubViews( const wxRect &rect ) override;
+   Refinement GetSubViews(const wxRect& rect) override;
 
 protected:
+   std::shared_ptr<CommonTrackCell> GetAffordanceControls() override;
+
    void DoSetMinimized( bool minimized ) override;
 
    // Placements are in correspondence with the array of sub-views
@@ -149,6 +221,15 @@ protected:
    mutable wxCoord mLastHeight{};
 
    bool mMultiView{ false };
+
+private:
+   std::shared_ptr<CommonTrackCell> DoGetAffordance(const std::shared_ptr<Track>& track);
+
+   std::shared_ptr<CommonTrackCell> mpAffordanceCellControl;
+
+   std::weak_ptr<TrackPanelCell> mKeyEventDelegate;
+
+   std::weak_ptr<WaveTrackAffordanceHandle> mAffordanceHandle;
 };
 
 // Helper for drawing routines
@@ -156,11 +237,12 @@ class SelectedRegion;
 class WaveClip;
 class ZoomInfo;
 
-struct ClipParameters
+struct AUDACITY_DLL_API ClipParameters
 {
    // Do a bunch of calculations common to waveform and spectrum drawing.
-   ClipParameters
-      (bool spectrum, const WaveTrack *track, const WaveClip *clip, const wxRect &rect,
+   ClipParameters(
+      bool spectrum, const SampleTrack *track,
+      const WaveClip *clip, const wxRect &rect,
       const SelectedRegion &selectedRegion, const ZoomInfo &zoomInfo);
 
    double tOffset;
@@ -187,7 +269,9 @@ struct ClipParameters
    wxRect mid;
    int leftOffset;
 
-   void DrawClipEdges( wxDC &dc, const wxRect &rect ) const;
+   // returns a clip rectangle restricted by viewRect, 
+   // and with clipOffsetX - clip horizontal origin offset within view rect
+   static wxRect GetClipRect(const WaveClip& clip, const ZoomInfo& zoomInfo, const wxRect& viewRect, bool* outShowSamples = nullptr);
 };
 
 #endif

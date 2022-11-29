@@ -2,6 +2,8 @@
 set( TARGET Audacity )
 set( TARGET_ROOT ${topdir}/src )
 
+include (CheckFunctionExists)
+
 message( STATUS "========== Configuring ${TARGET} ==========" )
 
 # Allow modules to link against the Audacity executable
@@ -17,17 +19,28 @@ def_vars()
 # Add a target that will provide the git revision info
 # whenever it changes.  (Must be done at build time, not
 # configuration time.)
-if( GIT_FOUND )
+if( DEFINED AUDACITY_REV_LONG AND DEFINED AUDACITY_REV_TIME )
+   file( WRITE "${_PRVDIR}/RevisionIdent.h"
+      "#define REV_LONG \"${AUDACITY_REV_LONG}\"\n#define REV_TIME \"${AUDACITY_REV_TIME}\"\n"
+   )
+elseif( GIT_FOUND )
    add_custom_target(
       version
       COMMAND
-         ${CMAKE_COMMAND} -D GIT=${GIT_EXECUTABLE}
-                          -D _PRVDIR=${_PRVDIR}
-                          -P ${CMAKE_MODULE_PATH}/Version.cmake
+         ${CMAKE_COMMAND} -D GIT="${GIT_EXECUTABLE}"
+                          -D "_PRVDIR=${_PRVDIR}"
+                          -P "${AUDACITY_MODULE_PATH}/Version.cmake"
       WORKING_DIRECTORY
          ${topdir}
    )
+
    add_dependencies( ${TARGET} version )
+else()
+   # No Git installed and no version data is available.
+   # Generate an empty file and let AboutDialog do the rest
+   # WRITE, unlike TOUCH, will create any directories needed
+   # (see https://github.com/audacity/audacity/issues/2163)
+   file( WRITE "${_PRVDIR}/RevisionIdent.h" "" )
 endif()
 
 # Handle Audio Units option
@@ -38,6 +51,17 @@ if( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
       ON
    )
    set( USE_AUDIO_UNITS ${${_OPT}use_audio_units} CACHE INTERNAL "" )
+endif()
+
+# Detect, which version of FileDialog to use for
+# We always assume that GTK is used on platforms other than Windows and macOS,
+# as there is no other implementation available now
+if( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
+   set( wxIS_MAC on )
+elseif( CMAKE_SYSTEM_NAME MATCHES "Windows" )
+   set ( wxIS_WIN on )
+else()
+   set ( wxIS_GTK on)
 endif()
 
 # Handle Ladspa option
@@ -61,31 +85,28 @@ set( USE_VST ${${_OPT}use_vst} CACHE INTERNAL "" )
 #
 list( APPEND SOURCES
    PRIVATE
-      AColor.cpp
-      AColor.h
+      ActiveProject.cpp
+      ActiveProject.h
+      ActiveProjects.cpp
+      ActiveProjects.h
       AboutDialog.cpp
       AboutDialog.h
+      $<$<NOT:$<BOOL:${${_OPT}bundle_gplv3}>>:AboutDialogGPLv2Text.cpp>
+      $<$<BOOL:${${_OPT}bundle_gplv3}>:AboutDialogGPLv3Text.cpp>
       AdornedRulerPanel.cpp
       AdornedRulerPanel.h
-      AllThemeResources.cpp
-      AllThemeResources.h
-      AttachedVirtualFunction.h
-      Audacity.h
       AudacityApp.cpp
       AudacityApp.h
-      AudacityException.cpp
-      AudacityException.h
+      $<$<BOOL:${wxIS_MAC}>:AudacityApp.mm>
+      AudacityFileConfig.cpp
+      AudacityFileConfig.h
       AudacityHeaders.cpp
       AudacityHeaders.h
-      AudacityLogger.cpp
-      AudacityLogger.h
       AudioIO.cpp
       AudioIO.h
-      AudioIOBase.cpp
-      AudioIOBase.h
+      AudioIOExt.cpp
+      AudioIOExt.h
       AudioIOListener.h
-      AutoRecovery.cpp
-      AutoRecovery.h
       AutoRecoveryDialog.cpp
       AutoRecoveryDialog.h
       BatchCommandDialog.cpp
@@ -96,65 +117,51 @@ list( APPEND SOURCES
       BatchProcessDialog.h
       Benchmark.cpp
       Benchmark.h
-      BlockFile.cpp
-      BlockFile.h
       CellularPanel.cpp
       CellularPanel.h
-      ClassicThemeAsCeeCode.h
-      ClientData.h
-      ClientDataHelpers.h
       Clipboard.cpp
       Clipboard.h
       CommonCommandFlags.cpp
       CommonCommandFlags.h
       CrashReport.cpp
       CrashReport.h
-      DarkThemeAsCeeCode.h
-      Dependencies.cpp
-      Dependencies.h
-      DeviceChange.cpp
-      DeviceChange.h
-      DeviceManager.cpp
-      DeviceManager.h
+      DBConnection.cpp
+      DBConnection.h
       Diags.cpp
       Diags.h
-      DirManager.cpp
-      DirManager.h
-      Dither.cpp
-      Dither.h
-      Envelope.cpp
-      Envelope.h
+      DropTarget.cpp
+      DropoutDetector.cpp
+      EffectPlugin.cpp
+      EffectPlugin.h
       EnvelopeEditor.cpp
       EnvelopeEditor.h
-      Experimental.h
-      FFT.cpp
-      FFT.h
       FFmpeg.cpp
       FFmpeg.h
-      FileException.cpp
-      FileException.h
       FileFormats.cpp
       FileFormats.h
-      FileIO.cpp
-      FileIO.h
-      FileNames.cpp
-      FileNames.h
+      FrameStatisticsDialog.cpp
+      FrameStatisticsDialog.h
       FreqWindow.cpp
       FreqWindow.h
       HelpText.cpp
       HelpText.h
-      HiContrastThemeAsCeeCode.h
+      HelpUtilities.cpp
+      HelpUtilities.h
       HistoryWindow.cpp
       HistoryWindow.h
       HitTestResult.h
-      ImageManipulation.cpp
-      ImageManipulation.h
-      InconsistencyException.cpp
-      InconsistencyException.h
-      Internat.cpp
-      Internat.h
-      InterpolateAudio.cpp
-      InterpolateAudio.h
+      IncompatiblePluginsDialog.cpp
+      IncompatiblePluginsDialog.h
+      Journal.cpp
+      Journal.h
+      JournalEvents.cpp
+      JournalEvents.h
+      JournalOutput.cpp
+      JournalOutput.h
+      JournalRegistry.cpp
+      JournalRegistry.h
+      JournalWindowPaths.cpp
+      JournalWindowPaths.h
       KeyboardCapture.cpp
       KeyboardCapture.h
       LabelDialog.cpp
@@ -163,98 +170,81 @@ list( APPEND SOURCES
       LabelTrack.h
       LangChoice.cpp
       LangChoice.h
-      Languages.cpp
-      Languages.h
       Legacy.cpp
       Legacy.h
-      LightThemeAsCeeCode.h
+      LogWindow.cpp
+      LogWindow.h
       Lyrics.cpp
       Lyrics.h
       LyricsWindow.cpp
       LyricsWindow.h
-      MacroMagic.h
-      Matrix.cpp
-      Matrix.h
-      MemoryX.h
       Menus.cpp
       Menus.h
-      MissingAliasFileDialog.cpp
-      MissingAliasFileDialog.h
-      Mix.cpp
-      Mix.h
+      MIDIPlay.cpp
+      MIDIPlay.h
+      MixAndRender.cpp
+      MixAndRender.h
       MixerBoard.cpp
       MixerBoard.h
-      ModuleManager.cpp
-      ModuleManager.h
       NoteTrack.cpp
       NoteTrack.h
-      NumberScale.h
       PitchName.cpp
       PitchName.h
-      PlatformCompatibility.cpp
-      PlatformCompatibility.h
-      PluginManager.cpp
-      PluginManager.h
-      Prefs.cpp
-      Prefs.h
+      PlaybackSchedule.cpp
+      PlaybackSchedule.h
+      PluginRegistrationDialog.cpp
+      PluginRegistrationDialog.h
+      PluginStartupRegistration.cpp
+      PluginStartupRegistration.h
       Printing.cpp
       Printing.h
       Profiler.cpp
       Profiler.h
-      Project.cpp
-      Project.h
       ProjectAudioIO.cpp
       ProjectAudioIO.h
       ProjectAudioManager.cpp
       ProjectAudioManager.h
-      ProjectFSCK.cpp
-      ProjectFSCK.h
       ProjectFileIO.cpp
       ProjectFileIO.h
-      ProjectFileIORegistry.cpp
-      ProjectFileIORegistry.h
       ProjectFileManager.cpp
       ProjectFileManager.h
-      ProjectHistory.cpp
-      ProjectHistory.h
       ProjectManager.cpp
       ProjectManager.h
       ProjectSelectionManager.cpp
       ProjectSelectionManager.h
+      ProjectSerializer.cpp
+      ProjectSerializer.h
       ProjectSettings.cpp
       ProjectSettings.h
-      ProjectStatus.cpp
-      ProjectStatus.h
       ProjectWindow.cpp
       ProjectWindow.h
       ProjectWindowBase.cpp
       ProjectWindowBase.h
-      RealFFTf.cpp
-      RealFFTf.h
-      RealFFTf48x.cpp
-      RealFFTf48x.h
       RefreshCode.h
-      Registrar.h
-      Registry.cpp
-      Registry.h
-      Resample.cpp
-      Resample.h
+      ProjectWindows.cpp
+      ProjectWindows.h
+      RealtimeEffectPanel.cpp
+      RealtimeEffectPanel.h
       RingBuffer.cpp
       RingBuffer.h
-      SampleFormat.cpp
-      SampleFormat.h
+      SampleBlock.cpp
+      SampleBlock.h
       Screenshot.cpp
       Screenshot.h
+      ScrubState.cpp
+      ScrubState.h
       SelectUtilities.cpp
       SelectUtilities.h
-      SelectedRegion.cpp
-      SelectedRegion.h
+      SelectFile.cpp
+      SelectFile.h
       SelectionState.cpp
       SelectionState.h
       Sequence.cpp
       Sequence.h
       Shuttle.cpp
       Shuttle.h
+      ShuttleAutomation.cpp
+      ShuttleAutomation.h
       ShuttleGetDefinition.cpp
       ShuttleGetDefinition.h
       ShuttleGui.cpp
@@ -265,27 +255,33 @@ list( APPEND SOURCES
       Snap.h
       SoundActivatedRecord.cpp
       SoundActivatedRecord.h
-      Spectrum.cpp
-      Spectrum.h
+      SpectralDataDialog.cpp
+      SpectralDataManager.h
+      SpectralDataManager.cpp
       SpectrumAnalyst.cpp
       SpectrumAnalyst.h
+      SpectrumTransformer.cpp
+      SpectrumTransformer.h
       SplashDialog.cpp
       SplashDialog.h
+      SqliteSampleBlock.cpp
       SseMathFuncs.cpp
       SseMathFuncs.h
+      SyncLock.cpp
+      SyncLock.h
       Tags.cpp
       Tags.h
-      Theme.cpp
-      Theme.h
-      ThemeAsCeeCode.h
+      TagsEditor.cpp
+      TagsEditor.h
+      ThemedWrappers.h
       TimeDialog.cpp
       TimeDialog.h
       TimeTrack.cpp
       TimeTrack.h
       TimerRecordDialog.cpp
       TimerRecordDialog.h
-      Track.cpp
-      Track.h
+      TrackArt.cpp
+      TrackArt.h
       TrackArtist.cpp
       TrackArtist.h
       TrackInfo.cpp
@@ -296,6 +292,7 @@ list( APPEND SOURCES
       TrackPanelAx.h
       TrackPanelCell.cpp
       TrackPanelCell.h
+      TrackPanelConstants.h
       TrackPanelDrawable.cpp
       TrackPanelDrawable.h
       TrackPanelDrawingContext.h
@@ -309,12 +306,8 @@ list( APPEND SOURCES
       TrackUtilities.h
       UIHandle.cpp
       UIHandle.h
-      UndoManager.cpp
-      UndoManager.h
-      UserException.cpp
-      UserException.h
-      ViewInfo.cpp
-      ViewInfo.h
+      TransportUtilities.cpp
+      TransportUtilities.h
       VoiceKey.cpp
       VoiceKey.h
       WaveClip.cpp
@@ -322,31 +315,10 @@ list( APPEND SOURCES
       WaveTrack.cpp
       WaveTrack.h
       WaveTrackLocation.h
+      WaveTrackSink.cpp
+      WaveTrackSink.h
       WrappedType.cpp
       WrappedType.h
-      ZoomInfo.cpp
-      ZoomInfo.h
-      float_cast.h
-      wxFileNameWrapper.h
-
-      # Blockfile
-
-      blockfile/LegacyAliasBlockFile.cpp
-      blockfile/LegacyAliasBlockFile.h
-      blockfile/LegacyBlockFile.cpp
-      blockfile/LegacyBlockFile.h
-      blockfile/NotYetAvailableException.cpp
-      blockfile/NotYetAvailableException.h
-      blockfile/ODDecodeBlockFile.cpp
-      blockfile/ODDecodeBlockFile.h
-      blockfile/ODPCMAliasBlockFile.cpp
-      blockfile/ODPCMAliasBlockFile.h
-      blockfile/PCMAliasBlockFile.cpp
-      blockfile/PCMAliasBlockFile.h
-      blockfile/SilentBlockFile.cpp
-      blockfile/SilentBlockFile.h
-      blockfile/SimpleBlockFile.cpp
-      blockfile/SimpleBlockFile.h
 
       # Commands
 
@@ -366,6 +338,8 @@ list( APPEND SOURCES
       commands/CommandDirectory.h
       commands/CommandFlag.h
       commands/CommandFunctors.h
+      commands/CommandDispatch.cpp
+      commands/CommandDispatch.h
       commands/CommandHandler.cpp
       commands/CommandHandler.h
       commands/CommandManager.cpp
@@ -454,6 +428,8 @@ list( APPEND SOURCES
       effects/Echo.h
       effects/Effect.cpp
       effects/Effect.h
+      effects/EffectBase.cpp
+      effects/EffectBase.h
       effects/EffectManager.cpp
       effects/EffectManager.h
       effects/EffectUI.cpp
@@ -484,10 +460,18 @@ list( APPEND SOURCES
       effects/Normalize.h
       effects/Paulstretch.cpp
       effects/Paulstretch.h
+      effects/PerTrackEffect.cpp
+      effects/PerTrackEffect.h
       effects/Phaser.cpp
       effects/Phaser.h
+      effects/RealtimeEffectList.cpp
+      effects/RealtimeEffectList.h
       effects/RealtimeEffectManager.cpp
       effects/RealtimeEffectManager.h
+      effects/RealtimeEffectState.cpp
+      effects/RealtimeEffectState.h
+      effects/RealtimeEffectStateUI.h
+      effects/RealtimeEffectStateUI.cpp
       effects/Repair.cpp
       effects/Repair.h
       effects/Repeat.cpp
@@ -509,12 +493,14 @@ list( APPEND SOURCES
       effects/SimpleMono.h
       effects/SoundTouchEffect.cpp
       effects/SoundTouchEffect.h
+      effects/StatefulEffectBase.cpp
+      effects/StatefulEffectBase.h
+      effects/StatefulPerTrackEffect.cpp
+      effects/StatefulPerTrackEffect.h
       effects/StereoToMono.cpp
       effects/StereoToMono.h
       effects/TimeScale.cpp
       effects/TimeScale.h
-      effects/TimeWarper.cpp
-      effects/TimeWarper.h
       effects/ToneGen.cpp
       effects/ToneGen.h
       effects/TruncSilence.cpp
@@ -548,6 +534,49 @@ list( APPEND SOURCES
          effects/VST/VSTControlOSX.mm
       >
 
+      $<$<BOOL:${${_OPT}has_vst3}>:
+         effects/VST3/AudacityVst3HostApplication.h
+         effects/VST3/AudacityVst3HostApplication.cpp
+         effects/VST3/memorystream.h
+         effects/VST3/memorystream.cpp
+         effects/VST3/VST3Effect.h
+         effects/VST3/VST3Effect.cpp
+         effects/VST3/VST3EffectsModule.h
+         effects/VST3/VST3EffectsModule.cpp
+         effects/VST3/VST3Instance.h
+         effects/VST3/VST3Instance.cpp
+         effects/VST3/VST3Utils.h
+         effects/VST3/VST3Utils.cpp
+         effects/VST3/VST3Wrapper.h
+         effects/VST3/VST3Wrapper.cpp
+         effects/VST3/VST3OptionsDialog.h
+         effects/VST3/VST3OptionsDialog.cpp
+         effects/VST3/VST3ParametersWindow.h
+         effects/VST3/VST3ParametersWindow.cpp
+         effects/VST3/VST3UIValidator.cpp
+         effects/VST3/VST3UIValidator.h
+         effects/VST3/internal/ConnectionProxy.h
+         effects/VST3/internal/ConnectionProxy.cpp
+         effects/VST3/internal/PlugFrame.h
+         effects/VST3/internal/PlugFrame.cpp
+      >
+
+      $<$<AND:$<BOOL:${${_OPT}has_vst3}>,$<BOOL:${wxIS_WIN}>>:
+         effects/VST3/module_win32.cpp
+      >
+      $<$<AND:$<BOOL:${${_OPT}has_vst3}>,$<BOOL:${wxIS_GTK}>>:
+         effects/VST3/module_linux.cpp
+         effects/VST3/internal/x11/RunLoop.h
+         effects/VST3/internal/x11/RunLoop.cpp
+         effects/VST3/internal/x11/PlugFrame.h
+         effects/VST3/internal/x11/PlugFrame.cpp
+         effects/VST3/internal/x11/SocketWindow.h
+         effects/VST3/internal/x11/SocketWindow.cpp
+      >
+      $<$<AND:$<BOOL:${${_OPT}has_vst3}>,$<BOOL:${wxIS_MAC}>>:
+         effects/VST3/module_mac.mm
+      >
+
       # Audio Unit Effects
 
       $<$<AND:$<BOOL:${USE_AUDIO_UNITS}>,$<BOOL:${wxIS_MAC}>>:
@@ -555,6 +584,18 @@ list( APPEND SOURCES
          effects/audiounits/AUControl.mm
          effects/audiounits/AudioUnitEffect.cpp
          effects/audiounits/AudioUnitEffect.h
+         effects/audiounits/AudioUnitEffectOptionsDialog.cpp
+         effects/audiounits/AudioUnitEffectOptionsDialog.h
+         effects/audiounits/AudioUnitEffectsModule.cpp
+         effects/audiounits/AudioUnitEffectsModule.h
+         effects/audiounits/AudioUnitInstance.cpp
+         effects/audiounits/AudioUnitInstance.h
+         effects/audiounits/AudioUnitUtils.cpp
+         effects/audiounits/AudioUnitUtils.h
+         effects/audiounits/AudioUnitValidator.cpp
+         effects/audiounits/AudioUnitValidator.h
+         effects/audiounits/AudioUnitWrapper.cpp
+         effects/audiounits/AudioUnitWrapper.h
       >
 
       # Ladspa Effects
@@ -570,6 +611,27 @@ list( APPEND SOURCES
       $<$<BOOL:${USE_LV2}>:
          effects/lv2/LV2Effect.cpp
          effects/lv2/LV2Effect.h
+         effects/lv2/LV2EffectMeter.cpp
+         effects/lv2/LV2EffectMeter.h
+         effects/lv2/LV2FeaturesList.cpp
+         effects/lv2/LV2FeaturesList.h
+         effects/lv2/LV2Instance.cpp
+         effects/lv2/LV2Instance.h
+         effects/lv2/LV2InstanceFeaturesList.cpp
+         effects/lv2/LV2InstanceFeaturesList.h
+         effects/lv2/LV2Ports.cpp
+         effects/lv2/LV2Ports.h
+         effects/lv2/LV2Preferences.cpp
+         effects/lv2/LV2Preferences.h
+         effects/lv2/LV2Symbols.cpp
+         effects/lv2/LV2Symbols.h
+         effects/lv2/LV2UIFeaturesList.cpp
+         effects/lv2/LV2UIFeaturesList.h
+         effects/lv2/LV2Utils.h
+         effects/lv2/LV2Validator.cpp
+         effects/lv2/LV2Validator.h
+         effects/lv2/LV2Wrapper.cpp
+         effects/lv2/LV2Wrapper.h
          effects/lv2/LoadLV2.cpp
          effects/lv2/LoadLV2.h
          effects/lv2/NativeWindow.h
@@ -625,6 +687,10 @@ list( APPEND SOURCES
          export/ExportMP2.cpp
       >
 
+      $<$<BOOL:${USE_WAVPACK}>:
+         export/ExportWavPack.cpp
+      >
+
       $<$<AND:$<BOOL:${USE_LIBOGG}>,$<BOOL:${USE_LIBVORBIS}>>:
          export/ExportOGG.cpp
       >
@@ -645,6 +711,7 @@ list( APPEND SOURCES
 
       # Standard importers
 
+      import/ImportAUP.cpp
       import/ImportLOF.cpp
       import/ImportPCM.cpp
       import/ImportPlugin.h
@@ -672,7 +739,15 @@ list( APPEND SOURCES
       >
 
       $<$<BOOL:${USE_LIBMAD}>:
-         import/ImportMP3.cpp
+         import/ImportMP3_MAD.cpp
+      >
+
+      $<$<BOOL:${USE_LIBMPG123}>:
+         import/ImportMP3_MPG123.cpp
+      >
+
+      $<$<BOOL:${USE_WAVPACK}>:
+         import/ImportWavPack.cpp
       >
 
       $<$<AND:$<BOOL:${USE_LIBOGG}>,$<BOOL:${USE_LIBVORBIS}>>:
@@ -696,25 +771,6 @@ list( APPEND SOURCES
       menus/ViewMenus.cpp
       menus/WindowMenus.cpp
 
-      # On demand loading
-
-      ondemand/ODComputeSummaryTask.cpp
-      ondemand/ODComputeSummaryTask.h
-      ondemand/ODDecodeFFmpegTask.cpp
-      ondemand/ODDecodeFFmpegTask.h
-      ondemand/ODDecodeFlacTask.cpp
-      ondemand/ODDecodeFlacTask.h
-      ondemand/ODDecodeTask.cpp
-      ondemand/ODDecodeTask.h
-      ondemand/ODManager.cpp
-      ondemand/ODManager.h
-      ondemand/ODTask.cpp
-      ondemand/ODTask.h
-      ondemand/ODTaskThread.cpp
-      ondemand/ODTaskThread.h
-      ondemand/ODWaveTrackTaskQueue.cpp
-      ondemand/ODWaveTrackTaskQueue.h
-
       # Preferences
 
       prefs/BatchPrefs.cpp
@@ -729,6 +785,7 @@ list( APPEND SOURCES
       prefs/ExtImportPrefs.h
       prefs/GUIPrefs.cpp
       prefs/GUIPrefs.h
+      prefs/GUISettings.cpp
       prefs/GUISettings.h
       prefs/ImportExportPrefs.cpp
       prefs/ImportExportPrefs.h
@@ -748,8 +805,6 @@ list( APPEND SOURCES
       prefs/PrefsDialog.h
       prefs/PrefsPanel.cpp
       prefs/PrefsPanel.h
-      prefs/ProjectsPrefs.cpp
-      prefs/ProjectsPrefs.h
       prefs/QualityPrefs.cpp
       prefs/QualityPrefs.h
       prefs/RecordingPrefs.cpp
@@ -773,6 +828,8 @@ list( APPEND SOURCES
 
       # Toolbars
 
+      toolbars/AudioSetupToolBar.cpp
+      toolbars/AudioSetupToolBar.h
       toolbars/ControlToolBar.cpp
       toolbars/ControlToolBar.h
       toolbars/DeviceToolBar.cpp
@@ -781,8 +838,6 @@ list( APPEND SOURCES
       toolbars/EditToolBar.h
       toolbars/MeterToolBar.cpp
       toolbars/MeterToolBar.h
-      toolbars/MixerToolBar.cpp
-      toolbars/MixerToolBar.h
       toolbars/ScrubbingToolBar.cpp
       toolbars/ScrubbingToolBar.h
       toolbars/SelectionBar.cpp
@@ -814,14 +869,19 @@ list( APPEND SOURCES
       tracks/labeltrack/ui/LabelTextHandle.h
       tracks/labeltrack/ui/LabelTrackControls.cpp
       tracks/labeltrack/ui/LabelTrackControls.h
+      tracks/labeltrack/ui/LabelTrackShifter.cpp
       tracks/labeltrack/ui/LabelTrackVRulerControls.cpp
       tracks/labeltrack/ui/LabelTrackVRulerControls.h
       tracks/labeltrack/ui/LabelTrackView.cpp
       tracks/labeltrack/ui/LabelTrackView.h
+      tracks/playabletrack/notetrack/ui/NoteTrackAffordanceControls.h
+      tracks/playabletrack/notetrack/ui/NoteTrackAffordanceControls.cpp
       tracks/playabletrack/notetrack/ui/NoteTrackButtonHandle.cpp
       tracks/playabletrack/notetrack/ui/NoteTrackButtonHandle.h
       tracks/playabletrack/notetrack/ui/NoteTrackControls.cpp
       tracks/playabletrack/notetrack/ui/NoteTrackControls.h
+      tracks/playabletrack/notetrack/ui/NoteTrackMenuItems.cpp
+      tracks/playabletrack/notetrack/ui/NoteTrackShifter.cpp
       tracks/playabletrack/notetrack/ui/NoteTrackSliderHandles.cpp
       tracks/playabletrack/notetrack/ui/NoteTrackSliderHandles.h
       tracks/playabletrack/notetrack/ui/NoteTrackVRulerControls.cpp
@@ -838,16 +898,30 @@ list( APPEND SOURCES
       tracks/playabletrack/ui/PlayableTrackControls.h
       tracks/playabletrack/wavetrack/ui/CutlineHandle.cpp
       tracks/playabletrack/wavetrack/ui/CutlineHandle.h
+      tracks/playabletrack/wavetrack/ui/GetWaveDisplay.cpp
+      tracks/playabletrack/wavetrack/ui/GetWaveDisplay.h
       tracks/playabletrack/wavetrack/ui/SampleHandle.cpp
       tracks/playabletrack/wavetrack/ui/SampleHandle.h
+      tracks/playabletrack/wavetrack/ui/SpectrumCache.cpp
+      tracks/playabletrack/wavetrack/ui/SpectrumCache.h
       tracks/playabletrack/wavetrack/ui/SpectrumVRulerControls.cpp
       tracks/playabletrack/wavetrack/ui/SpectrumVRulerControls.h
       tracks/playabletrack/wavetrack/ui/SpectrumVZoomHandle.cpp
       tracks/playabletrack/wavetrack/ui/SpectrumVZoomHandle.h
       tracks/playabletrack/wavetrack/ui/SpectrumView.cpp
       tracks/playabletrack/wavetrack/ui/SpectrumView.h
+      tracks/playabletrack/wavetrack/ui/WaveClipTrimHandle.h
+      tracks/playabletrack/wavetrack/ui/WaveClipTrimHandle.cpp
+      tracks/playabletrack/wavetrack/ui/WaveClipUtilities.cpp
+      tracks/playabletrack/wavetrack/ui/WaveClipUtilities.h
+      tracks/playabletrack/wavetrack/ui/WaveTrackAffordanceControls.cpp
+      tracks/playabletrack/wavetrack/ui/WaveTrackAffordanceControls.h
+      tracks/playabletrack/wavetrack/ui/WaveTrackAffordanceHandle.cpp
+      tracks/playabletrack/wavetrack/ui/WaveTrackAffordanceHandle.h
       tracks/playabletrack/wavetrack/ui/WaveTrackControls.cpp
       tracks/playabletrack/wavetrack/ui/WaveTrackControls.h
+      tracks/playabletrack/wavetrack/ui/WaveTrackMenuItems.cpp
+      tracks/playabletrack/wavetrack/ui/WaveTrackShifter.cpp
       tracks/playabletrack/wavetrack/ui/WaveTrackSliderHandles.cpp
       tracks/playabletrack/wavetrack/ui/WaveTrackSliderHandles.h
       tracks/playabletrack/wavetrack/ui/WaveTrackVRulerControls.cpp
@@ -862,19 +936,30 @@ list( APPEND SOURCES
       tracks/playabletrack/wavetrack/ui/WaveformVRulerControls.h
       tracks/playabletrack/wavetrack/ui/WaveformVZoomHandle.cpp
       tracks/playabletrack/wavetrack/ui/WaveformVZoomHandle.h
+      tracks/playabletrack/wavetrack/ui/WaveformCache.cpp
+      tracks/playabletrack/wavetrack/ui/WaveformCache.h
       tracks/playabletrack/wavetrack/ui/WaveformView.cpp
       tracks/playabletrack/wavetrack/ui/WaveformView.h
+      tracks/playabletrack/wavetrack/WaveTrackUtils.cpp
+      tracks/playabletrack/wavetrack/WaveTrackUtils.h
       tracks/timetrack/ui/TimeTrackControls.cpp
       tracks/timetrack/ui/TimeTrackControls.h
+      tracks/timetrack/ui/TimeTrackMenuItems.cpp
       tracks/timetrack/ui/TimeTrackVRulerControls.cpp
       tracks/timetrack/ui/TimeTrackVRulerControls.h
+      tracks/timetrack/ui/TimeTrackVZoomHandle.cpp
+      tracks/timetrack/ui/TimeTrackVZoomHandle.h
       tracks/timetrack/ui/TimeTrackView.cpp
       tracks/timetrack/ui/TimeTrackView.h
 
       # Tracks UI
 
+      tracks/ui/AffordanceHandle.cpp
+      tracks/ui/AffordanceHandle.h
       tracks/ui/BackgroundCell.cpp
       tracks/ui/BackgroundCell.h
+      tracks/ui/BrushHandle.cpp
+      tracks/ui/BrushHandle.h
       tracks/ui/ButtonHandle.cpp
       tracks/ui/ButtonHandle.h
       tracks/ui/CommonTrackControls.cpp
@@ -897,6 +982,8 @@ list( APPEND SOURCES
       tracks/ui/SelectHandle.h
       tracks/ui/SliderHandle.cpp
       tracks/ui/SliderHandle.h
+      tracks/ui/TextEditHelper.cpp
+      tracks/ui/TextEditHelper.h
       tracks/ui/TimeShiftHandle.cpp
       tracks/ui/TimeShiftHandle.h
       tracks/ui/TrackButtonHandles.cpp
@@ -912,6 +999,10 @@ list( APPEND SOURCES
       tracks/ui/ZoomHandle.cpp
       tracks/ui/ZoomHandle.h
 
+      # ui helpers
+      ui/AccessibleLinksFormatter.h
+      ui/AccessibleLinksFormatter.cpp
+
       # Widgets
 
       widgets/AButton.cpp
@@ -922,8 +1013,12 @@ list( APPEND SOURCES
       widgets/AttachableScrollBar.h
       widgets/AudacityMessageBox.cpp
       widgets/AudacityMessageBox.h
+      widgets/AudacityTextEntryDialog.cpp
+      widgets/AudacityTextEntryDialog.h
       widgets/BackedPanel.cpp
       widgets/BackedPanel.h
+      widgets/BasicMenu.cpp
+      widgets/BasicMenu.h
       widgets/ErrorDialog.cpp
       widgets/ErrorDialog.h
       widgets/ExpandingToolBar.cpp
@@ -931,16 +1026,16 @@ list( APPEND SOURCES
       widgets/FileDialog/FileDialog.cpp
       widgets/FileDialog/FileDialog.h
       $<$<BOOL:${wxIS_WIN}>:
-	widgets/FileDialog/win/FileDialogPrivate.cpp
-	widgets/FileDialog/win/FileDialogPrivate.h
+         widgets/FileDialog/win/FileDialogPrivate.cpp
+         widgets/FileDialog/win/FileDialogPrivate.h
       >
       $<$<BOOL:${wxIS_MAC}>:
-	widgets/FileDialog/mac/FileDialogPrivate.mm
-	widgets/FileDialog/mac/FileDialogPrivate.h
+         widgets/FileDialog/mac/FileDialogPrivate.mm
+         widgets/FileDialog/mac/FileDialogPrivate.h
       >
       $<$<BOOL:${wxIS_GTK}>:
-	widgets/FileDialog/gtk/FileDialogPrivate.cpp
-	widgets/FileDialog/gtk/FileDialogPrivate.h
+         widgets/FileDialog/gtk/FileDialogPrivate.cpp
+         widgets/FileDialog/gtk/FileDialogPrivate.h
       >
       widgets/FileHistory.cpp
       widgets/FileHistory.h
@@ -956,8 +1051,8 @@ list( APPEND SOURCES
       widgets/ImageRoll.h
       widgets/KeyView.cpp
       widgets/KeyView.h
-      widgets/Meter.cpp
-      widgets/Meter.h
+      widgets/MeterPanel.cpp
+      widgets/MeterPanel.h
       widgets/MeterPanelBase.cpp
       widgets/MeterPanelBase.h
       widgets/MultiDialog.cpp
@@ -972,41 +1067,82 @@ list( APPEND SOURCES
       widgets/PopupMenuTable.h
       widgets/ProgressDialog.cpp
       widgets/ProgressDialog.h
+      widgets/ReadOnlyText.h
       widgets/Ruler.cpp
       widgets/Ruler.h
+      $<$<BOOL:${${_OPT}has_sentry_reporting}>:
+         widgets/ErrorReportDialog.cpp
+         widgets/ErrorReportDialog.h
+      >
+      widgets/UnwritableLocationErrorDialog.cpp
+      widgets/UnwritableLocationErrorDialog.h
+      widgets/VetoDialogHook.h
       widgets/Warning.cpp
       widgets/Warning.h
       widgets/WindowAccessible.cpp
       widgets/WindowAccessible.h
+      widgets/auStaticText.cpp
+      widgets/auStaticText.h
       widgets/numformatter.cpp
       widgets/numformatter.h
       widgets/valnum.cpp
       widgets/valnum.h
       widgets/wxPanelWrapper.cpp
       widgets/wxPanelWrapper.h
+      widgets/wxTextCtrlWrapper.h
+      widgets/wxWidgetsBasicUI.cpp
+      widgets/wxWidgetsBasicUI.h
+      widgets/wxWidgetsWindowPlacement.cpp
+      widgets/wxWidgetsWindowPlacement.h
 
-      # XML handling
-      xml/XMLFileReader.cpp
-      xml/XMLFileReader.h
-      xml/XMLTagHandler.cpp
-      xml/XMLTagHandler.h
-      xml/XMLWriter.cpp
-      xml/XMLWriter.h
-      xml/audacityproject.dtd
+      # Update version
+      $<$<BOOL:${${_OPT}has_updates_check}>:
+          update/VersionId.h
+          update/VersionId.cpp
+          update/VersionPatch.h
+          update/UpdateDataParser.h
+          update/UpdateDataParser.cpp
+          update/UpdateManager.h
+          update/UpdateManager.cpp
+          update/UpdateNoticeDialog.h
+          update/UpdateNoticeDialog.cpp
+          update/UpdatePopupDialog.h
+          update/UpdatePopupDialog.cpp
+          prefs/ApplicationPrefs.h
+          prefs/ApplicationPrefs.cpp
+          update/NoUpdatesAvailableDialog.h
+          update/NoUpdatesAvailableDialog.cpp
+      >
+
+      # Audio.com
+      $<$<BOOL:${${_OPT}has_audiocom_upload}>:
+         cloud/ShareAudioToolbar.cpp
+         cloud/ShareAudioToolbar.h
+         cloud/audiocom/AuthorizationHandler.cpp
+         cloud/audiocom/AuthorizationHandler.h
+         cloud/audiocom/LinkAccountDialog.cpp
+         cloud/audiocom/LinkAccountDialog.h
+         cloud/audiocom/LinkFailedDialog.cpp
+         cloud/audiocom/LinkFailedDialog.h
+         cloud/audiocom/LinkSucceededDialog.cpp
+         cloud/audiocom/LinkSucceededDialog.h
+         cloud/audiocom/ShareAudioDialog.cpp
+         cloud/audiocom/ShareAudioDialog.h
+         cloud/audiocom/UserImage.cpp
+         cloud/audiocom/UserImage.h
+      >
+
+      $<$<AND:$<BOOL:${${_OPT}has_audiocom_upload}>,$<BOOL:${${_OPT}has_url_schemes_support}>>:
+         cloud/audiocom/LinkUrlHandler.cpp
+      >
+      Experimental.cmake
 )
 
 #
 #
 #
 list( APPEND HEADERS
-   ../include/audacity/EffectInterface.h
    ../include/audacity/Types.h
-   ../include/audacity/ConfigInterface.h
-   ../include/audacity/ModuleInterface.h
-   ../include/audacity/PluginInterface.h
-   ../include/audacity/ComponentInterface.h
-   ../include/audacity/EffectAutomationParameters.h
-   ../include/audacity/ImporterInterface.h
 )
 
 #
@@ -1023,7 +1159,7 @@ list( APPEND INCLUDES
 # Define resources
 #
 list( APPEND RESOURCES
-   ../presets/EQDefaultCurves.xml
+   ${topdir}/resources/EffectsMenuDefaults.xml
 )
 
 #
@@ -1032,7 +1168,6 @@ list( APPEND RESOURCES
 list( APPEND DEFINES
    PRIVATE
       BUILDING_AUDACITY
-      WXINTL_NO_GETTEXT_MACRO
       WXUSINGDLL
       CMAKE
       $<$<BOOL:${HAVE_LRINT}>:
@@ -1044,50 +1179,73 @@ list( APPEND DEFINES
       $<$<BOOL:${HAVE_MLOCK}>:
          HAVE_MLOCK
       >
+      $<$<PLATFORM_ID:CYGWIN>:
+         _GNU_SOURCE=1
+      >
       $<$<PLATFORM_ID:Windows>:
          _CRT_SECURE_NO_WARNINGS
          __STDC_CONSTANT_MACROS
          STRICT
       >
+      $<$<BOOL:${${_OPT}has_updates_check}>:
+          HAVE_UPDATES_CHECK
+      >
 )
 
-list( APPEND OPTIONS
-   PRIVATE
-      $<$<CXX_COMPILER_ID:MSVC>:/permissive->
-      $<$<CXX_COMPILER_ID:AppleClang,Clang>:-Wno-underaligned-exception-object>
-#      $<$<CXX_COMPILER_ID:GNU>:-Wl,-rpath -Wl,${_RPATH}>
-)
+# If we have cmake 3.16 or higher, we can use precompiled headers, but
+# only use them if ccache is not available and the user hasn't disabled
+# it.
+if( CMAKE_VERSION VERSION_GREATER_EQUAL "3.16" AND NOT CCACHE_PROGRAM )
+   cmd_option(
+      ${_OPT}use_pch
+      "Use precompiled headers [yes, no]"
+      YES
+   )
+endif()
+
+audacity_append_common_compiler_options( OPTIONS "${${_OPT}use_pch}" )
 
 list( APPEND LDFLAGS
    PRIVATE
       $<$<CXX_COMPILER_ID:MSVC>:/MANIFEST:NO>
+      $<$<CXX_COMPILER_ID:GNU>:-Wl,--disable-new-dtags>
 )
 
 #
 #
 #
 list( APPEND LIBRARIES
-   PRIVATE
+   PUBLIC
       ${CMAKE_REQUIRED_LIBRARIES}
-      wxWidgets
-      expat
-      lame
-      libsndfile
-      libsoxr
-      portaudio-v19
-      $<$<BOOL:${USE_FFMPEG}>:ffmpeg>
-      $<$<BOOL:${USE_LIBID3TAG}>:libid3tag>
-      $<$<BOOL:${USE_LIBFLAC}>:libflac>
-      $<$<BOOL:${USE_LIBMAD}>:libmad>
-      $<$<BOOL:${USE_LIBOGG}>:libogg>
-      $<$<BOOL:${USE_LIBVORBIS}>:libvorbis>
+      ZLIB::ZLIB
+      wxwidgets::wxwidgets
+      libmp3lame::libmp3lame
+      SndFile::sndfile
+      PortAudio::PortAudio
+      sqlite
+      $<$<BOOL:${${_OPT}has_crashreports}>:crashreports>
+      $<$<BOOL:${${_OPT}has_vst3}>:vst3sdk::base>
+      $<$<BOOL:${${_OPT}has_vst3}>:vst3sdk::pluginterfaces>
+      $<$<BOOL:${${_OPT}has_vst3}>:vst3sdk::sdk_hosting>
+      $<$<BOOL:${${_OPT}has_vst3}>:vst3sdk::sdk_common>
+      $<$<BOOL:${USE_LIBID3TAG}>:libid3tag::libid3tag>
+      $<$<BOOL:${USE_LIBFLAC}>:FLAC::FLAC>
+      $<$<BOOL:${USE_LIBFLAC}>:FLAC::FLAC++>
+      $<$<BOOL:${USE_LIBMAD}>:libmad::libmad>
+      $<$<BOOL:${USE_LIBMPG123}>:MPG123::libmpg123>
+      $<$<BOOL:${USE_WAVPACK}>:WavPack::WavPack>
+      $<$<BOOL:${USE_LIBOGG}>:Ogg::ogg>
+      $<$<BOOL:${USE_LIBVORBIS}>:Vorbis::vorbis>
+      $<$<BOOL:${USE_LIBVORBIS}>:Vorbis::vorbisfile>
+      $<$<BOOL:${USE_LIBVORBIS}>:Vorbis::vorbisenc>
+      $<$<BOOL:${USE_LIBOPUS}>:Opus::opus>
       $<$<BOOL:${USE_LIBTWOLAME}>:twolame>
       $<$<BOOL:${USE_LV2}>:lv2>
-      $<$<BOOL:${USE_MIDI}>:portmidi>
+      $<$<BOOL:${USE_MIDI}>:PortMidi::PortMidi>
       $<$<BOOL:${USE_MIDI}>:portsmf>
       $<$<BOOL:${USE_NYQUIST}>:libnyquist>
       $<$<BOOL:${USE_PORTMIXER}>:portmixer>
-      $<$<BOOL:${USE_SBSMS}>:sbsms>
+      $<$<BOOL:${USE_SBSMS}>:libsbsms>
       $<$<BOOL:${USE_SOUNDTOUCH}>:soundtouch>
       $<$<BOOL:${USE_VAMP}>:libvamp>
       $<$<PLATFORM_ID:Linux,FreeBSD,OpenBSD,NetBSD,CYGWIN>:PkgConfig::GLIB>
@@ -1097,9 +1255,8 @@ list( APPEND LIBRARIES
 )
 
 set( BUILDING_AUDACITY YES )
-set( INSTALL_PREFIX "${_PREFIX}" )
-set( PKGLIBDIR "${_LIBDIR}" )
-set( LIBDIR "${_LIBDIR}" )
+set( PKGLIBDIR "${_PKGLIBDIR}" )
+set( LIBDIR "${CMAKE_INSTALL_FULL_LIBDIR}" )
 set( HAVE_GTK ${GTK_FOUND} )
 
 # Do not define these for Windows or Mac until further testing
@@ -1116,60 +1273,31 @@ if( NOT CMAKE_SYSTEM_NAME MATCHES "Windows|Darwin" )
 endif()
 
 if( CMAKE_SYSTEM_NAME MATCHES "Windows" )
-   set_target_properties(
-      ${TARGET}
-      PROPERTIES
-         # Make sure we're a GUI application and not a console tool
-         WIN32_EXECUTABLE ON
-   )
-
    # Define the Windows specific resources
    list( APPEND WIN_RESOURCES
       ../win/audacity.rc
    )
 
-   # Create the config file
-   configure_file( audacity_config.h.in private/configwin.h )
-
-   # Copy over the wxWidgets DLLs
-   if( ${_OPT}use_wxwidgets STREQUAL "system" )
-      set( wxlibs "$ENV{WXWIN}" )
-   else()
-      set( wxlibs "${CMAKE_BINARY_DIR}" )
-   endif()
-
-   # Convert the paths to native
-   file( TO_NATIVE_PATH "${_INTDIR}/dlls" dlls )
-   file( TO_NATIVE_PATH "${wxWidgets_LIB_DIR}" libdir )
-   file( TO_NATIVE_PATH "${_EXEDIR}" exedir )
-
-   # And create the script to copy the WX libs to the exeutable directory
-   file( WRITE "${_INTDIR}/copy_libs.bat"
-      "@ECHO OFF
-      IF NOT %1 EQU xyzzy (
-         IF EXIST \"${dlls}\" DEL \"${dlls}\"
-         CALL %0 xyzzy \"%1\" %2
-         FOR /F \"delims=\" %%c IN ('SORT \"${dlls}\"') DO (
-            IF NOT EXIST \"%1\"\\%%c (
-               xcopy \"${libdir}\"\\%%c \"%1\"
-            )
-         )
-         DEL ${dlls}
-      )
-      IF %1 EQU xyzzy (
-         FOR /F %%i IN ('DUMPBIN /DEPENDENTS \"%2\"\\%3 ^| findstr /B \"/C:    wx\"') DO (
-            ECHO %%i >>\"${dlls}\"
-            CALL %0 xyzzy \"${libdir}\" %%i
-         )
-      )"
+   set_target_properties(
+      ${TARGET}
+      PROPERTIES
+         # Make sure we're a GUI application and not a console tool
+         WIN32_EXECUTABLE ON
+         # Add the resources
+         RESOURCE "${WIN_RESOURCES}"
    )
 
-   # Add it to the build
+   # Copy over the wxWidgets DLLs
+
+   # Copy the required wxWidgets libs into the bundle
    add_custom_command(
       TARGET
          ${TARGET}
       COMMAND
-         ${_INTDIR}/copy_libs.bat ${exedir} ${AUDACITY_NAME}.exe
+         ${CMAKE_COMMAND} -D SRC="${_EXEDIR}/Audacity.exe"
+                          -D DST="${_EXEDIR}"
+                          -D WXWIN="${_SHARED_PROXY_BASE_PATH}/$<CONFIG>/"
+                          -P ${AUDACITY_MODULE_PATH}/CopyLibs.cmake
       POST_BUILD
    )
 
@@ -1181,6 +1309,15 @@ if( CMAKE_SYSTEM_NAME MATCHES "Windows" )
          ${CMAKE_COMMAND} -E copy ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} ${_DEST}
       POST_BUILD
    )
+
+   # Copy resource files into build folder
+   add_custom_command(
+      TARGET
+         ${TARGET}
+      COMMAND
+         ${CMAKE_COMMAND} -E copy ${RESOURCES} ${_DEST}
+      POST_BUILD
+   )
 elseif( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
    # Bug 2400 workaround
    #
@@ -1190,7 +1327,7 @@ elseif( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
    if( PLATFORM_VERSION_SUPPORTED )
       list( APPEND LDFLAGS
          PRIVATE
-            -Wl,-platform_version,macos,10.7,10.13
+            -Wl,-platform_version,macos,${MIN_MACOS_VERSION},${TARGET_MACOS_VERSION}
       )
    else()
       list( APPEND LDFLAGS
@@ -1223,6 +1360,7 @@ elseif( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
    # These sources must be compiled as Objective C++ and excluded
    # from precompiled header usage
    set_source_files_properties(
+      AudacityApp.mm
       KeyboardCapture.cpp
       effects/EffectUI.cpp
       effects/VST/VSTControlOSX.mm
@@ -1233,6 +1371,20 @@ elseif( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
          COMPILE_FLAGS "-x objective-c++"
          SKIP_PRECOMPILE_HEADERS YES
    )
+   if(${_OPT}has_vst3 AND ${wxIS_MAC})
+      set_source_files_properties(
+         effects/VST3/module_mac.mm
+         PROPERTIES
+            COMPILE_FLAGS "-fobjc-arc"
+            SKIP_PRECOMPILE_HEADERS YES
+      )
+
+      set_source_files_properties(
+         effects/VST/VSTControlOSX.mm
+         PROPERTIES
+            SKIP_PRECOMPILE_HEADERS YES
+      )
+   endif()
 
    # Add our required frameworks
    list( APPEND LIBRARIES
@@ -1242,45 +1394,57 @@ elseif( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
          "-framework CoreAudioKit"
    )
 
-   # Use the Aqua theme
-   set( USE_AQUA_THEME 1 )
-
-   # Create the config file
-   set( HAVE_VISIBILITY 1 )
-   configure_file( audacity_config.h.in private/configmac.h )
-
-   # Copy the wxWidgets libraries into the bundle
-   if( "${CMAKE_GENERATOR}" MATCHES "Xcode" )
-      add_custom_command(
-         TARGET
-            ${TARGET}
-         COMMAND
-            sh -c "TARGET_BUILD_DIR=${_DEST} EXECUTABLE_PATH=MacOS/${AUDACITY_NAME} FRAMEWORKS_FOLDER_PATH=Frameworks ${topdir}/mac/scripts/install_wxlibs.sh"
-         POST_BUILD
-      )
-   endif()
+   # Copy the required wxWidgets libs into the bundle
+   add_custom_command(
+      TARGET
+         ${TARGET}
+      COMMAND
+         ${CMAKE_COMMAND} -D SRC="${_EXEDIR}/Audacity"
+                          -D DST="${_PKGLIB}"
+                          -D WXWIN="${_SHARED_PROXY_BASE_PATH}/$<CONFIG>"
+                          -P ${AUDACITY_MODULE_PATH}/CopyLibs.cmake
+      POST_BUILD
+   )
 
    # Define the Wrapper target
+   if( CMAKE_CONFIGURATION_TYPES )
+      set( WRAPPER_EXEDIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/../Wrapper/${CMAKE_CFG_INTDIR}" )
+   else()
+      set( WRAPPER_EXEDIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/../Wrapper/${CMAKE_BUILD_TYPE}" )
+   endif()
+
    set( WRAPPER_ROOT "${TARGET_ROOT}/../mac" )
    set( WRAPPER_SOURCES "${WRAPPER_ROOT}/Wrapper.c" )
 
    add_executable( Wrapper "${WRAPPER_SOURCES}" )
-   add_dependencies( "${TARGET}" Wrapper )
+   add_dependencies( ${TARGET} Wrapper )
 
-   set_target_property_all( "Wrapper" RUNTIME_OUTPUT_DIRECTORY "${_EXEDIR}" )
+   set_target_property_all( Wrapper RUNTIME_OUTPUT_DIRECTORY "${WRAPPER_EXEDIR}" )
    organize_source( "${WRAPPER_ROOT}" "mac" "${WRAPPER_SOURCES}" )
 
+   add_custom_command(
+      TARGET
+         ${TARGET}
+      COMMAND
+         ${CMAKE_COMMAND} -E copy $<TARGET_FILE:Wrapper> "${_EXEDIR}/Wrapper"
+      POST_BUILD
+   )
 else()
-   set_target_property_all( ${TARGET} RUNTIME_OUTPUT_DIRECTORY "${_DESTDIR}" )
-
-   # Create the config file
-   set( HAVE_VISIBILITY 1 )
-   configure_file( audacity_config.h.in private/configunix.h )
+   set_target_properties(
+      ${TARGET}
+      PROPERTIES
+         # Add the resources
+         RESOURCE "${RESOURCES}"
+   )
+   set_target_property_all( ${TARGET} RUNTIME_OUTPUT_DIRECTORY "${_DEST}" )
 
    # Build the list of mimetypes
    #
    # (Don't use generator expressions since it will leave null/empty
    # entries in the list.)
+   set( MIMETYPES
+      application/x-audacity-project
+   )
    if( USE_FFMPEG )
       list( APPEND MIMETYPES
          audio/aac
@@ -1296,7 +1460,7 @@ else()
          audio/x-flac
       )
    endif()
-   if( USE_LIBMAD )
+   if( USE_LIBMAD OR USE_LIBMPG123)
       list( APPEND MIMETYPES
          audio/mpeg
       )
@@ -1318,34 +1482,35 @@ else()
    # Create the desktop file
    configure_file( audacity.desktop.in ${_INTDIR}/audacity.desktop )
 
-   # Create the script to copy required wxWidgets libraries
-   if( ${_OPT}use_wxwidgets STREQUAL "local" )
-      file( WRITE "${_INTDIR}/copy_libs.sh"
-         "for lib in \$(ldd ${_EXEDIR}/${AUDACITY_NAME} | awk '/libwx/{print \$1}')
-          do
-             echo \${lib}
-             ldd ${WXWIN}/lib/\${lib} | awk '/libwx/{print \$1}'
-          done | sort -u | xargs cp -n -H -t ${_LIBDIR}
-          rm \${0}"
-      )
+   # Copy the required wxWidgets libs into the bundle
+   add_custom_command(
+      TARGET
+         ${TARGET}
+      COMMAND
+         ${CMAKE_COMMAND} -D SRC="${_EXEDIR}/audacity"
+                          -D DST="${_DEST}/${_PKGLIB}"
+                          -D WXWIN="${_SHARED_PROXY_BASE_PATH}/$<CONFIG>"
+                          -P ${AUDACITY_MODULE_PATH}/CopyLibs.cmake
+      POST_BUILD
+   )
 
-      # And run it after the build
-      add_custom_command(
-         TARGET
-            ${TARGET}
-         COMMAND
-            sh "${_INTDIR}/copy_libs.sh"
-         WORKING_DIRECTORY
-            ${WXWIN}/lib
-         POST_BUILD
-      )
-   endif()
+   add_executable(findlib ../linux/findlib.c)
+   target_link_libraries(findlib ${CMAKE_DL_LIBS})
+   set_target_property_all( findlib SKIP_BUILD_RPATH On )
+endif()
+
+if(CRASH_REPORT_URL)
+    list(APPEND DEFINES PRIVATE -DCRASH_REPORT_URL="${CRASH_REPORT_URL}")
+endif()
+
+if(SHOW_WHATS_NEW_SECTION)
+   list(APPEND DEFINES PRIVATE HAS_WHATS_NEW )
 endif()
 
 set_target_property_all( ${TARGET} RUNTIME_OUTPUT_NAME ${AUDACITY_NAME} )
 
 organize_source( "${TARGET_ROOT}/.." "include" "${HEADERS}" )
-organize_source( "${TARGET_ROOT}/../presets" "presets" "${RESOURCES}" )
+organize_source( "${TARGET_ROOT}/../resources" "resources" "${RESOURCES}" )
 organize_source( "${TARGET_ROOT}" "src" "${SOURCES}" )
 organize_source( "${TARGET_ROOT}/../mac/Resources" "mac" "${MAC_RESOURCES}" )
 organize_source( "${TARGET_ROOT}/../win" "win" "${WIN_RESOURCES}" )
@@ -1363,52 +1528,129 @@ source_group(
         ${_INTDIR}/CMakeFiles/Audacity.dir/cmake_pch.hxx
 )
 
+# Define AUDACITY_DLL_API
+import_symbol_define( import_symbol AUDACITY_DLL )
+export_symbol_define( export_symbol AUDACITY_DLL )
+list( APPEND DEFINES PRIVATE "${export_symbol}" INTERFACE "${import_symbol}" )
+
+# see AudioIO.cpp
+check_function_exists(clock_gettime HAVE_CLOCK_GETTIME)
+if(HAVE_CLOCK_GETTIME)
+   list( APPEND DEFINES HAVE_CLOCK_GETTIME )
+endif()
+
+set( AUDACITY_LIBRARIES
+# A sub-sequence of what is in libraries/CMakeLists.txt :
+   lib-string-utils-interface
+   lib-uuid-interface
+   lib-project-rate-interface
+   lib-theme-resources-interface
+   lib-sample-track-interface
+   lib-module-manager-interface
+   lib-project-history-interface
+   lib-graphics-interface
+   lib-audio-graph
+)
+
+if (${_OPT}use_ffmpeg)
+   list( APPEND AUDACITY_LIBRARIES
+      lib-ffmpeg-support-interface
+   )
+endif()
+
+if ( ${_OPT}has_networking )
+   list( APPEND AUDACITY_LIBRARIES
+      lib-network-manager-interface
+   )
+endif()
+
+if( ${_OPT}has_url_schemes_support )
+   list( APPEND AUDACITY_LIBRARIES
+      lib-url-schemes-interface
+   )
+endif()
+
+if( ${_OPT}has_audiocom_upload )
+   list( APPEND AUDACITY_LIBRARIES
+      lib-cloud-audiocom-interface
+   )
+endif()
+
+list( APPEND AUDACITY_LIBRARIES
+   # If Sentry reporting is enabled, this library depends on
+   # lib-network-manager
+   # If Sentry reporting is disabled, an INTERFACE library
+   # will be defined
+   lib-sentry-reporting
+)
+
 target_sources( ${TARGET} PRIVATE ${HEADERS} ${SOURCES} ${RESOURCES} ${MAC_RESOURCES} ${WIN_RESOURCES} )
 target_compile_definitions( ${TARGET} PRIVATE ${DEFINES} )
 target_compile_options( ${TARGET} PRIVATE ${OPTIONS} )
 target_include_directories( ${TARGET} PRIVATE ${INCLUDES} )
 target_link_options( ${TARGET} PRIVATE ${LDFLAGS} )
-target_link_libraries( ${TARGET} PRIVATE ${LIBRARIES} )
+target_link_libraries( ${TARGET} PUBLIC ${AUDACITY_LIBRARIES} )
+target_link_libraries( ${TARGET} ${LIBRARIES} )
 
-# If was have cmake 3.16 or higher, we can use precompiled headers, but
-# only use them if ccache is not available and the user hasn't disabled
-# it.
 if( CMAKE_VERSION VERSION_GREATER_EQUAL "3.16" AND NOT CCACHE_PROGRAM )
-   cmd_option(
-      ${_OPT}use_pch
-      "Use precompiled headers [yes, no]"
-      YES
-   )
-
    if( ${_OPT}use_pch )
       message( STATUS "Using precompiled headers" )
-      target_precompile_headers( ${TARGET} PRIVATE AudacityHeaders.h )
+      target_precompile_headers( ${TARGET} PRIVATE
+         $<$<PLATFORM_ID:Windows>:${CMAKE_BINARY_DIR}/src/private/configwin.h>
+         $<$<PLATFORM_ID:Darwin>:${CMAKE_BINARY_DIR}/src/private/configmac.h>
+         $<$<NOT:$<PLATFORM_ID:Windows,Darwin>>:${CMAKE_BINARY_DIR}/src/private/configunix.h>
+         AudacityHeaders.h
+      )
    else()
       message( STATUS "Not using precompiled headers" )
    endif()
 endif()
 
-if( NOT "${CMAKE_GENERATOR}" MATCHES "Xcode|Visual Studio*" )
+if( "${CMAKE_GENERATOR}" MATCHES "Xcode|Visual Studio*" )
+   install(
+      DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>/"
+      DESTINATION "."
+      USE_SOURCE_PERMISSIONS
+      PATTERN "*.pdb" EXCLUDE
+      PATTERN "*.ilk" EXCLUDE
+      PATTERN "*.dSYM" EXCLUDE
+   )
+else()
    if( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
-      install( FILES "${_DEST}/Info.plist"
-               DESTINATION "${CMAKE_INSTALL_BINDIR}/Audacity.app/Contents" )
-      install( PROGRAMS "${_EXEDIR}/${AUDACITY_NAME}" "${_EXEDIR}/Wrapper"
-               DESTINATION "${CMAKE_INSTALL_BINDIR}/Audacity.app/Contents/MacOS" )
+      install( TARGETS ${TARGET}
+               DESTINATION "."
+               RESOURCE DESTINATION "${_APPDIR}/Resources" )
    else()
-      install( PROGRAMS "${_EXEDIR}/${AUDACITY_NAME}"
-               TYPE BIN )
-      install( DIRECTORY "${_DESTDIR}/${_LIBDIR}/"
+
+      install( TARGETS ${TARGET} RUNTIME )
+
+      install( DIRECTORY "${_DEST}/${_LIBDIR}/"
                DESTINATION "${_LIBDIR}"
                USE_SOURCE_PERMISSIONS
-               FILES_MATCHING PATTERN "*.so" )
+               FILES_MATCHING PATTERN "*.so*" )
+
+      install( CODE "set( _LIBDIR \"${_LIBDIR}\")" )
+      install( SCRIPT "${CMAKE_SOURCE_DIR}/scripts/build/linux/fix_rpath.cmake" )
+
       install( FILES "${_INTDIR}/audacity.desktop"
                DESTINATION "${_DATADIR}/applications" )
       install( FILES "${topdir}/LICENSE.txt" "${topdir}/README.txt"
                DESTINATION "${_DATADIR}/doc/${AUDACITY_NAME}" )
       install( FILES "${_SRCDIR}/audacity.xml"
                DESTINATION "${_DATADIR}/mime/packages" )
-      install( FILES "${topdir}/presets/EQDefaultCurves.xml"
-               DESTINATION "${_PKGDATA}" )
+      install( TARGETS ${TARGET}
+               RESOURCE DESTINATION "${_PKGDATA}" )
    endif()
 endif()
 
+# collect dependency information for third party libraries
+list( APPEND GRAPH_EDGES "Audacity [shape=house]" )
+foreach( LIBRARY ${LIBRARIES} ${AUDACITY_LIBRARIES} )
+   if (NOT LIBRARY MATCHES "PUBLIC|PRIVATE|INTERFACE")
+      canonicalize_node_name(LIBRARY "${LIBRARY}")
+      list( APPEND GRAPH_EDGES "\"${TARGET}\" -> \"${LIBRARY}\"" )
+   endif()
+endforeach()
+
+#propagate collected edgets to root CMakeLists.txt
+set( GRAPH_EDGES "${GRAPH_EDGES}" PARENT_SCOPE )

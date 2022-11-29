@@ -15,7 +15,7 @@
   and return the tracks that were imported.  This function just
   figures out which one to call; the actual importers are in
   ImportPCM, ImportMP3, ImportOGG, ImportRawData, ImportLOF,
-  ImportQT and ImportFLAC.
+  ImportQT, ImportFLAC and ImportAUP.
 
 *//***************************************************************//**
 
@@ -28,14 +28,14 @@ It's defined in Import.h
 
 \class Importer
 \brief Class which actually imports the auido, using functions defined
-in ImportPCM.cpp, ImportMP3.cpp, ImportOGG.cpp, ImportRawData.cpp,
-and ImportLOF.cpp.
+in ImportPCM.cpp, ImportMP3_*.cpp, ImportOGG.cpp, ImportRawData.cpp,
+ImportLOF.cpp, and ImportAUP.cpp.
 
 *//******************************************************************/
 
 
 
-#include "../Audacity.h" // for USE_* macros
+
 #include "Import.h"
 
 #include "ImportPlugin.h"
@@ -49,12 +49,13 @@ and ImportLOF.cpp.
 #include <wx/listbox.h>
 #include <wx/log.h>
 #include <wx/sizer.h>         //for wxBoxSizer
-#include "../FileNames.h"
+#include "../FFmpeg.h"
+#include "FileNames.h"
 #include "../ShuttleGui.h"
-#include "../Project.h"
+#include "Project.h"
 #include "../WaveTrack.h"
 
-#include "../Prefs.h"
+#include "Prefs.h"
 
 #include "../widgets/ProgressDialog.h"
 
@@ -137,11 +138,11 @@ bool Importer::Initialize()
    using namespace Registry;
    static OrderingPreferenceInitializer init{
       PathStart,
-      { {wxT(""), wxT("PCM,OGG,FLAC,MP3,LOF,FFmpeg") } }
+      { {wxT(""), wxT("AUP,PCM,OGG,FLAC,MP3,LOF,WavPack,FFmpeg") } }
       // QT and GStreamer are only conditionally compiled and would get
       // placed at the end if present
    };
-   
+
    static struct MyVisitor final : Visitor {
       MyVisitor()
       {
@@ -181,21 +182,28 @@ Importer::GetFileTypes( const FileNames::FileType &extraType )
    FileNames::FileTypes fileTypes{
       FileNames::AllFiles,
       // Will fill in the list of extensions later:
-      { XO("All supported files"), {} }
+      { XO("All supported files"), {} },
+      FileNames::AudacityProjects
    };
 
    if ( !extraType.extensions.empty() )
       fileTypes.push_back( extraType );
-   
+
    FileNames::FileTypes l;
    for(const auto &importPlugin : sImportPluginList())
    {
       l.emplace_back(importPlugin->GetPluginFormatDescription(),
                                importPlugin->GetSupportedExtensions());
    }
-   
+
+   FileExtensions extraExtensions = FileNames::AudacityProjects.extensions;
+   extraExtensions.insert(extraExtensions.end(),
+                          extraType.extensions.begin(),
+                          extraType.extensions.end());
+
    using ExtensionSet = std::unordered_set< FileExtension >;
-   FileExtensions allList = extraType.extensions, newList;
+   FileExtensions allList = FileNames::AudacityProjects.extensions, newList;
+   allList.insert(allList.end(), extraType.extensions.begin(), extraType.extensions.end());
    ExtensionSet allSet{ allList.begin(), allList.end() }, newSet;
    for ( const auto &format : l ) {
       newList.clear();
@@ -448,7 +456,7 @@ std::unique_ptr<ExtImportItem> Importer::CreateDefaultImportItem()
 // returns number of tracks imported
 bool Importer::Import( AudacityProject &project,
                      const FilePath &fName,
-                     TrackFactory *trackFactory,
+                     WaveTrackFactory *trackFactory,
                      TrackHolders &tracks,
                      Tags *tags,
                      TranslatableString &errorMessage)
@@ -468,6 +476,14 @@ bool Importer::Import( AudacityProject &project,
       return false;
    }
 #endif
+
+   // Bug #2647: Peter has a Word 2000 .doc file that is recognized and imported by FFmpeg.
+   if (wxFileName(fName).GetExt() == wxT("doc")) {
+      errorMessage =
+         XO("\"%s\" \nis a not an audio file. \nAudacity cannot open this type of file.")
+         .Format( fName );
+      return false;
+   }
 
    using ImportPluginPtrs = std::vector< ImportPlugin* >;
 
@@ -562,16 +578,6 @@ bool Importer::Import( AudacityProject &project,
    }
 
    // Add all plugins that support the extension
-
-   // Here we rely on the fact that the first plugin in sImportPluginList() is libsndfile.
-   // We want to save this for later insertion ahead of libmad, if libmad supports the extension.
-   // The order of plugins in sImportPluginList() is determined by the Importer constructor alone and
-   // is not changed by user selection overrides or any other mechanism, but we include an assert
-   // in case subsequent code revisions to the constructor should break this assumption that
-   // libsndfile is first.
-   ImportPlugin *libsndfilePlugin = *sImportPluginList().begin();
-   wxASSERT(libsndfilePlugin->GetPluginStringID() == wxT("libsndfile"));
-
    for (const auto &plugin : sImportPluginList())
    {
       // Make sure its not already in the list
@@ -586,10 +592,7 @@ bool Importer::Import( AudacityProject &project,
       }
    }
 
-   // Add remaining plugins, except for libmad, which should not be used as a fallback for anything.
-   // Otherwise, if FFmpeg (libav) has not been installed, libmad will still be there near the
-   // end of the preference list importPlugins, where it will claim success importing FFmpeg file
-   // formats unsuitable for it, and produce distorted results.
+   // Add remaining plugins
    for (const auto &plugin : sImportPluginList())
    {
       // Make sure its not already in the list
@@ -634,6 +637,12 @@ bool Importer::Import( AudacityProject &project,
                return true;
             }
 
+            // AUP ("legacy projects") have different semantics
+            if (extension.IsSameAs(wxT("aup"), false))
+            {
+               return true;
+            }
+
             auto end = tracks.end();
             auto iter = std::remove_if( tracks.begin(), end,
                std::mem_fn( &NewChannelGroup::empty ) );
@@ -650,10 +659,8 @@ bool Importer::Import( AudacityProject &project,
             }
          }
 
-         if (res == ProgressResult::Cancelled || res == ProgressResult::Failed)
-         {
+         if (res == ProgressResult::Cancelled)
             return false;
-         }
 
          // We could exit here since we had a match on the file extension,
          // but there may be another plug-in that can import the file and
@@ -784,15 +791,6 @@ bool Importer::Import( AudacityProject &project,
          return false;
       }
 
-      // Audacity project
-      if (extension.IsSameAs(wxT("aup"), false)) {
-         errorMessage = XO(
-/* i18n-hint: %s will be the filename */
-"\"%s\" is an Audacity Project file. \nUse the 'File > Open' command to open Audacity Projects.")
-            .Format( fName );
-         return false;
-      }
-
       if( !wxFileExists(fName)){
          errorMessage = XO( "File \"%s\" not found.").Format( fName );
          return false;
@@ -801,8 +799,13 @@ bool Importer::Import( AudacityProject &project,
       // we were not able to recognize the file type
       errorMessage = XO(
 /* i18n-hint: %s will be the filename */
-"Audacity did not recognize the type of the file '%s'.\nTry installing FFmpeg. For uncompressed files, also try File > Import > Raw Data.")
-         .Format( fName );
+"Audacity did not recognize the type of the file '%s'.\n\n%sFor uncompressed files, also try File > Import > Raw Data.")
+         .Format( fName,
+#if defined(USE_FFMPEG)
+               !FFmpegFunctions::Load()
+                  ? XO("Try installing FFmpeg.\n\n") :
+#endif
+                  Verbatim("") );
    }
    else
    {
@@ -888,3 +891,5 @@ void ImportStreamDialog::OnCancel(wxCommandEvent & WXUNUSED(event))
 {
    EndModal( wxID_CANCEL );
 }
+
+BoolSetting NewImportingSession{ L"/NewImportingSession", false };

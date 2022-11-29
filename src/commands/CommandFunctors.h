@@ -9,11 +9,14 @@
 #ifndef __AUDACITY_COMMAND_FUNCTORS__
 #define __AUDACITY_COMMAND_FUNCTORS__
 
-#include "Command.h"
-
 class AudacityProject;
 class AudacityApp;
-class wxEvtHandler;
+class CommandContext;
+
+// Forward-declaring this type before including wx/event.h causes strange
+// compilation failures with MSVC.
+// class wxEvtHandler;
+#include <wx/event.h>
 
 // Base class for objects, to whose member functions, the CommandManager will
 // dispatch.

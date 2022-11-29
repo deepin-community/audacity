@@ -11,26 +11,26 @@ Paul Licameli split from TrackPanel.cpp
 #include "TimeTrackView.h"
 #include "../../../TimeTrack.h"
 
-#include "../../../Experimental.h"
-
 #include "TimeTrackControls.h"
 
 #include "TimeTrackVRulerControls.h"
-#include "../../../AColor.h"
-#include "../../../AllThemeResources.h"
-#include "../../../Envelope.h"
+#include "AColor.h"
+#include "AllThemeResources.h"
+#include "Envelope.h"
 #include "../../../EnvelopeEditor.h"
 #include "../../../HitTestResult.h"
-#include "../../../Theme.h"
+#include "Theme.h"
 #include "../../../TrackArtist.h"
 #include "../../../TrackPanelDrawingContext.h"
 #include "../../../TrackPanelMouseEvent.h"
-#include "../../../ViewInfo.h"
+#include "ViewInfo.h"
 #include "../../../widgets/Ruler.h"
 
 #include "../../ui/EnvelopeHandle.h"
 
 #include <wx/dc.h>
+
+using Doubles = ArrayOf<double>;
 
 TimeTrackView::TimeTrackView( const std::shared_ptr<Track> &pTrack )
    : CommonTrackView{ pTrack }
@@ -55,12 +55,11 @@ std::vector<UIHandlePtr> TimeTrackView::DetailedHitTest
 }
 
 using DoGetTimeTrackView = DoGetView::Override< TimeTrack >;
-template<> template<> auto DoGetTimeTrackView::Implementation() -> Function {
+DEFINE_ATTACHED_VIRTUAL_OVERRIDE(DoGetTimeTrackView) {
    return [](TimeTrack &track) {
       return std::make_shared<TimeTrackView>( track.SharedPointer() );
    };
 }
-static DoGetTimeTrackView registerDoGetTimeTrackView;
 
 std::shared_ptr<TrackVRulerControls> TimeTrackView::DoGetVRulerControls()
 {
@@ -106,7 +105,7 @@ void DrawHorzRulerAndCurve
    ruler.Draw(dc, track.GetEnvelope());
    
    Doubles envValues{ size_t(mid.width) };
-   Envelope::GetValues( *track.GetEnvelope(),
+   CommonTrackView::GetEnvelopeValues( *track.GetEnvelope(),
     0, 0, envValues.get(), mid.width, 0, zoomInfo );
    
    wxPen &pen = highlight ? AColor::uglyPen : AColor::envelopePen;

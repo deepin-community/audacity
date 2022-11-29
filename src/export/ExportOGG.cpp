@@ -9,13 +9,9 @@
   This program is distributed under the GNU General Public License, version 2.
   A copy of this license is included with this source.
 
-  Portions from vorbis-tools, copyright 2000-2002 Michael Smith
-  <msmith@labyrinth.net.au>; Vorbize, Kenneth Arnold <kcarnold@yahoo.com>;
-  and libvorbis examples, Monty <monty@xiph.org>
-
 **********************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 
 #ifdef USE_LIBVORBIS
 
@@ -27,14 +23,14 @@
  
 #include <vorbis/vorbisenc.h>
 
-#include "../FileIO.h"
-#include "../ProjectSettings.h"
-#include "../Mix.h"
-#include "../Prefs.h"
+#include "FileIO.h"
+#include "ProjectRate.h"
+#include "Mix.h"
+#include "Prefs.h"
 #include "../ShuttleGui.h"
 
 #include "../Tags.h"
-#include "../Track.h"
+#include "Track.h"
 #include "../widgets/AudacityMessageBox.h"
 #include "../widgets/ProgressDialog.h"
 
@@ -134,7 +130,7 @@ public:
    void OptionsCreate(ShuttleGui &S, int format) override;
 
    ProgressResult Export(AudacityProject *project,
-               std::unique_ptr<ProgressDialog> &pDialog,
+               std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                unsigned channels,
                const wxFileNameWrapper &fName,
                bool selectedOnly,
@@ -161,7 +157,7 @@ ExportOGG::ExportOGG()
 }
 
 ProgressResult ExportOGG::Export(AudacityProject *project,
-                       std::unique_ptr<ProgressDialog> &pDialog,
+                       std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                        unsigned numChannels,
                        const wxFileNameWrapper &fName,
                        bool selectionOnly,
@@ -171,7 +167,7 @@ ProgressResult ExportOGG::Export(AudacityProject *project,
                        const Tags *metadata,
                        int WXUNUSED(subformat))
 {
-   double    rate    = ProjectSettings::Get( *project ).GetRate();
+   double    rate    = ProjectRate::Get( *project ).GetRate();
    const auto &tracks = TrackList::Get( *project );
    double    quality = (gPrefs->Read(wxT("/FileFormats/OggExportQuality"), 50)/(float)100.0);
 
@@ -249,7 +245,7 @@ ProgressResult ExportOGG::Export(AudacityProject *project,
    //    3. The bitstream codebook.
    //
    // After we create those our responsibility is complete, libvorbis will
-   // take care of any other ogg bistream constraints (again, according
+   // take care of any other ogg bitstream constraints (again, according
    // to the example encoder source)
    ogg_packet bitstream_header;
    ogg_packet comment_header;
@@ -279,7 +275,7 @@ ProgressResult ExportOGG::Export(AudacityProject *project,
       auto mixer = CreateMixer(tracks, selectionOnly,
          t0, t1,
          numChannels, SAMPLES_PER_RUN, false,
-         rate, floatSample, true, mixerSpec);
+         rate, floatSample, mixerSpec);
 
       InitProgress( pDialog, fName,
          selectionOnly
@@ -289,8 +285,7 @@ ProgressResult ExportOGG::Export(AudacityProject *project,
 
       while (updateResult == ProgressResult::Success && !eos) {
          float **vorbis_buffer = vorbis_analysis_buffer(&dsp, SAMPLES_PER_RUN);
-         auto samplesThisRun = mixer->Process(SAMPLES_PER_RUN);
-
+         auto samplesThisRun = mixer->Process();
          int err;
          if (samplesThisRun == 0) {
             // Tell the library that we wrote 0 bytes - signalling the end.
@@ -338,7 +333,7 @@ ProgressResult ExportOGG::Export(AudacityProject *project,
                   if ( outFile.Write(page.header, page.header_len).GetLastError() ||
                        outFile.Write(page.body, page.body_len).GetLastError()) {
                      // TODO: more precise message
-                     AudacityMessageBox( XO("Unable to export") );
+                     ShowDiskFullExportErrorDialog(fName);
                      return ProgressResult::Cancelled;
                   }
 
@@ -352,18 +347,18 @@ ProgressResult ExportOGG::Export(AudacityProject *project,
          if (err) {
             updateResult = ProgressResult::Cancelled;
             // TODO: more precise message
-            AudacityMessageBox( XO("Unable to export") );
+            ShowExportErrorDialog("OGG:355");
             break;
          }
 
-         updateResult = progress.Update(mixer->MixGetCurrentTime() - t0, t1 - t0);
+         updateResult = progress.Poll(mixer->MixGetCurrentTime() - t0, t1 - t0);
       }
    }
 
    if ( !outFile.Close() ) {
       updateResult = ProgressResult::Cancelled;
       // TODO: more precise message
-      AudacityMessageBox( XO("Unable to export") );
+      ShowExportErrorDialog("OGG:366");
    }
 
    return updateResult;

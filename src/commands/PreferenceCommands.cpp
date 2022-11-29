@@ -15,11 +15,11 @@ SetPreferenceCommand classes
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "PreferenceCommands.h"
 
 #include "LoadCommands.h"
-#include "../Prefs.h"
+#include "Prefs.h"
 #include "../Shuttle.h"
 #include "../ShuttleGui.h"
 #include "../commands/CommandContext.h"
@@ -30,10 +30,17 @@ const ComponentInterfaceSymbol GetPreferenceCommand::Symbol
 
 namespace{ BuiltinCommandsModule::Registration< GetPreferenceCommand > reg; }
 
-bool GetPreferenceCommand::DefineParams( ShuttleParams & S ){
-   S.Define( mName, wxT("Name"),   wxT("") );
+template<bool Const>
+bool GetPreferenceCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   S.Define( mName, wxT("Name"),   wxString{} );
    return true;
 }
+
+bool GetPreferenceCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool GetPreferenceCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void GetPreferenceCommand::PopulateOrExchange(ShuttleGui & S)
 {
@@ -62,12 +69,19 @@ const ComponentInterfaceSymbol SetPreferenceCommand::Symbol
 
 namespace{ BuiltinCommandsModule::Registration< SetPreferenceCommand > reg2; }
 
-bool SetPreferenceCommand::DefineParams( ShuttleParams & S ){
-   S.Define(    mName,   wxT("Name"),    wxT("") );
-   S.Define(   mValue,   wxT("Value"),   wxT("") );
+template<bool Const>
+bool SetPreferenceCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   S.Define(    mName,   wxT("Name"),    wxString{} );
+   S.Define(   mValue,   wxT("Value"),   wxString{} );
    S.Define( mbReload,   wxT("Reload"),  false );
    return true;
 }
+
+bool SetPreferenceCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool SetPreferenceCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void SetPreferenceCommand::PopulateOrExchange(ShuttleGui & S)
 {

@@ -13,9 +13,11 @@
 #ifndef __AUDACITY_AUDIO_IO_LISTENER__
 #define __AUDACITY_AUDIO_IO_LISTENER__
 
-#include "Audacity.h"
 
-class AutoSaveFile;
+
+class WaveTrack;
+using WaveTrackArray =
+   std::vector < std::shared_ptr < WaveTrack > >;
 
 class AUDACITY_DLL_API AudioIOListener /* not final */ {
 public:
@@ -27,7 +29,7 @@ public:
 
    virtual void OnAudioIOStartRecording() = 0;
    virtual void OnAudioIOStopRecording() = 0;
-   virtual void OnAudioIONewBlockFiles(const AutoSaveFile & blockFileLog) = 0;
+   virtual void OnAudioIONewBlocks(const WaveTrackArray *tracks) = 0;
 
    // Commit the addition of temporary recording tracks into the project
    virtual void OnCommitRecording() = 0;

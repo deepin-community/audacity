@@ -1,18 +1,25 @@
-Description: The playback cursor doesn't move with wayland.
- As a workaround we use X11 to start audacity.
-Author: Dennis Braun <d_braun@kabelmail.de>
-Forwarded: not-needed
+From: Dennis Braun <d_braun@kabelmail.de>
+Date: Sun, 18 Apr 2021 15:47:34 +0200
+Subject: The playback cursor doesn't move with wayland.
 
-Index: audacity/src/audacity.desktop.in
-===================================================================
---- audacity.orig/src/audacity.desktop.in
-+++ audacity/src/audacity.desktop.in
-@@ -48,7 +48,7 @@ Icon=@AUDACITY_NAME@
- Type=Application
- Categories=AudioVideo;Audio;AudioVideoEditing;
+As a workaround we use X11 to start audacity.
+
+Closes: #950150
+Forwarded: not-needed
+---
+ src/audacity.desktop.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/audacity.desktop.in b/src/audacity.desktop.in
+index 34934bd..2344edd 100644
+--- a/src/audacity.desktop.in
++++ b/src/audacity.desktop.in
+@@ -61,7 +61,7 @@ Categories=AudioVideo;Audio;AudioVideoEditing;
  
--Exec=env UBUNTU_MENUPROXY=0 @AUDACITY_NAME@ %F
-+Exec=env UBUNTU_MENUPROXY=0 GDK_BACKEND=x11 @AUDACITY_NAME@ %F
+ Keywords=sound;music editing;voice channel;frequency;modulation;audio trim;clipping;noise reduction;multi track audio editor;edit;mixing;WAV;AIFF;FLAC;MP2;MP3;
+ 
+-Exec=@AUDACITY_NAME@ %F
++Exec=env GDK_BACKEND=x11 @AUDACITY_NAME@ %F
  StartupNotify=false
  Terminal=false
- MimeType=application/x-audacity-project;@MIMETYPES@
+ MimeType=@MIMETYPES@;

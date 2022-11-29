@@ -32,7 +32,7 @@
 
 */
 
-#include "../Audacity.h"// for USE_* macros
+
 
 #ifdef USE_LIBTWOLAME
 
@@ -47,13 +47,13 @@
 #include <wx/stream.h>
 
 #include "Export.h"
-#include "../FileIO.h"
-#include "../Mix.h"
-#include "../Prefs.h"
-#include "../ProjectSettings.h"
+#include "FileIO.h"
+#include "Mix.h"
+#include "Prefs.h"
+#include "ProjectRate.h"
 #include "../ShuttleGui.h"
 #include "../Tags.h"
-#include "../Track.h"
+#include "Track.h"
 #include "../widgets/AudacityMessageBox.h"
 #include "../widgets/ProgressDialog.h"
 
@@ -156,19 +156,15 @@ ExportMP2Options::~ExportMP2Options()
 ///
 void ExportMP2Options::PopulateOrExchange(ShuttleGui & S)
 {
+   IntSetting Setting{ L"/FileFormats/MP2Bitrate", 160 };
    S.StartVerticalLay();
    {
       S.StartHorizontalLay(wxCENTER);
       {
          S.StartMultiColumn(2, wxCENTER);
          {
-            S.TieNumberAsChoice(
-               XXO("Bit Rate:"),
-               {wxT("/FileFormats/MP2Bitrate"),
-                160},
-               BitRateNames,
-               &BitRateValues
-            );
+            S.TieNumberAsChoice(XXO("Bit Rate:"), Setting,
+               BitRateNames, &BitRateValues);
          }
          S.EndMultiColumn();
       }
@@ -210,7 +206,7 @@ public:
 
    void OptionsCreate(ShuttleGui &S, int format) override;
    ProgressResult Export(AudacityProject *project,
-               std::unique_ptr<ProgressDialog> &pDialog,
+               std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                unsigned channels,
                const wxFileNameWrapper &fName,
                bool selectedOnly,
@@ -241,15 +237,14 @@ ExportMP2::ExportMP2()
 }
 
 ProgressResult ExportMP2::Export(AudacityProject *project,
-   std::unique_ptr<ProgressDialog> &pDialog,
+   std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
    unsigned channels, const wxFileNameWrapper &fName,
    bool selectionOnly, double t0, double t1, MixerSpec *mixerSpec, const Tags *metadata,
    int WXUNUSED(subformat))
 {
-   const auto &settings = ProjectSettings::Get( *project );
    bool stereo = (channels == 2);
    long bitrate = gPrefs->Read(wxT("/FileFormats/MP2Bitrate"), 160);
-   double rate = settings.GetRate();
+   double rate = ProjectRate::Get(*project).GetRate();
    const auto &tracks = TrackList::Get( *project );
 
    wxLogNull logNo;             /* temporarily disable wxWidgets error messages */
@@ -289,7 +284,7 @@ ProgressResult ExportMP2::Export(AudacityProject *project,
    if (id3len && !endOfFile) {
       if ( outFile.Write(id3buffer.get(), id3len).GetLastError() ) {
          // TODO: more precise message
-         AudacityMessageBox( XO("Unable to export") );
+         ShowExportErrorDialog("MP2:292");
          return ProgressResult::Cancelled;
       }
    }
@@ -308,7 +303,7 @@ ProgressResult ExportMP2::Export(AudacityProject *project,
       auto mixer = CreateMixer(tracks, selectionOnly,
          t0, t1,
          stereo ? 2 : 1, pcmBufferSize, true,
-         rate, int16Sample, true, mixerSpec);
+         rate, int16Sample, mixerSpec);
 
       InitProgress( pDialog, fName,
          selectionOnly
@@ -319,8 +314,7 @@ ProgressResult ExportMP2::Export(AudacityProject *project,
       auto &progress = *pDialog;
 
       while (updateResult == ProgressResult::Success) {
-         auto pcmNumSamples = mixer->Process(pcmBufferSize);
-
+         auto pcmNumSamples = mixer->Process();
          if (pcmNumSamples == 0)
             break;
 
@@ -335,18 +329,18 @@ ProgressResult ExportMP2::Export(AudacityProject *project,
 
          if (mp2BufferNumBytes < 0) {
             // TODO: more precise message
-            AudacityMessageBox( XO("Unable to export") );
+            ShowExportErrorDialog("MP2:339");
             updateResult = ProgressResult::Cancelled;
             break;
          }
 
          if ( outFile.Write(mp2Buffer.get(), mp2BufferNumBytes).GetLastError() ) {
             // TODO: more precise message
-            AudacityMessageBox( XO("Unable to export") );
+            ShowDiskFullExportErrorDialog(fName);
             return ProgressResult::Cancelled;
          }
 
-         updateResult = progress.Update(mixer->MixGetCurrentTime() - t0, t1 - t0);
+         updateResult = progress.Poll(mixer->MixGetCurrentTime() - t0, t1 - t0);
       }
    }
 
@@ -358,7 +352,7 @@ ProgressResult ExportMP2::Export(AudacityProject *project,
    if (mp2BufferNumBytes > 0)
       if ( outFile.Write(mp2Buffer.get(), mp2BufferNumBytes).GetLastError() ) {
          // TODO: more precise message
-         AudacityMessageBox( XO("Unable to export") );
+         ShowExportErrorDialog("MP2:362");
          return ProgressResult::Cancelled;
       }
 
@@ -367,13 +361,13 @@ ProgressResult ExportMP2::Export(AudacityProject *project,
    if (id3len && endOfFile)
       if ( outFile.Write(id3buffer.get(), id3len).GetLastError() ) {
          // TODO: more precise message
-         AudacityMessageBox( XO("Unable to export") );
+         ShowExportErrorDialog("MP2:371");
          return ProgressResult::Cancelled;
       }
 
    if ( !outFile.Close() ) {
       // TODO: more precise message
-      AudacityMessageBox( XO("Unable to export") );
+      ShowExportErrorDialog("MP2:377");
       return ProgressResult::Cancelled;
    }
 

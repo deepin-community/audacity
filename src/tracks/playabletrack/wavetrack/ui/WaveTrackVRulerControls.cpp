@@ -8,18 +8,16 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h"
-#include "WaveTrackVRulerControls.h"
 
-#include "../../../../Experimental.h"
+#include "WaveTrackVRulerControls.h"
 
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackPanelMouseEvent.h"
 #include "../../../../WaveTrack.h"
 
-#include "../../../../AColor.h"
-#include "../../../../AllThemeResources.h"
-#include "../../../../Theme.h"
+#include "AColor.h"
+#include "AllThemeResources.h"
+#include "Theme.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanelDrawingContext.h"
 #include "../../../../widgets/Ruler.h"

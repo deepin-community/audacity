@@ -14,7 +14,7 @@
 *//*******************************************************************/
 
 
-#include "Audacity.h"
+
 #include "Printing.h"
 
 #include <wx/defs.h>
@@ -24,9 +24,10 @@
 #include <wx/printdlg.h>
 
 #include "AColor.h"
+#include "ProjectWindows.h"
 #include "TrackArtist.h"
 #include "ViewInfo.h"
-#include "WaveTrack.h"
+#include "Track.h"
 #include "widgets/Ruler.h"
 #include "widgets/AudacityMessageBox.h"
 
@@ -47,8 +48,8 @@ class AudacityPrintout final : public wxPrintout
    AudacityPrintout(wxString title,
                     TrackList *tracks, TrackPanel &panel):
       wxPrintout(title),
-      mTracks(tracks)
-      , mPanel(panel)
+        mPanel(panel)
+      , mTracks(tracks)
    {
    }
    bool OnPrintPage(int page);
@@ -102,6 +103,9 @@ bool AudacityPrintout::OnPrintPage(int WXUNUSED(page))
       r.x = 0;
       r.y = 0;
       r.width = width;
+      // Note that the views as printed might not have the same proportional
+      // heights as displayed on the screen, because the fixed-sized separators
+      // are counted in those heights but not printed
       auto trackHeight = (int)(view.GetHeight() * scale);
       r.height = trackHeight;
 

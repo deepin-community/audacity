@@ -14,16 +14,18 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "ImportExportCommands.h"
 
 #include "LoadCommands.h"
 #include "../ProjectFileManager.h"
-#include "../ViewInfo.h"
+#include "ViewInfo.h"
 #include "../export/Export.h"
+#include "../SelectUtilities.h"
 #include "../Shuttle.h"
 #include "../ShuttleGui.h"
-#include "../wxFileNameWrapper.h"
+#include "Track.h"
+#include "wxFileNameWrapper.h"
 #include "CommandContext.h"
 
 const ComponentInterfaceSymbol ImportCommand::Symbol
@@ -31,10 +33,17 @@ const ComponentInterfaceSymbol ImportCommand::Symbol
 
 namespace{ BuiltinCommandsModule::Registration< ImportCommand > reg; }
 
-bool ImportCommand::DefineParams( ShuttleParams & S ){
-   S.Define( mFileName, wxT("Filename"),  "" );
+template<bool Const>
+bool ImportCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   S.Define( mFileName, wxT("Filename"), wxString{} );
    return true;
 }
+
+bool ImportCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool ImportCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void ImportCommand::PopulateOrExchange(ShuttleGui & S)
 {
@@ -47,19 +56,34 @@ void ImportCommand::PopulateOrExchange(ShuttleGui & S)
    S.EndMultiColumn();
 }
 
-bool ImportCommand::Apply(const CommandContext & context){
-   return ProjectFileManager::Get( context.project ).Import(mFileName);
+bool ImportCommand::Apply(const CommandContext & context)
+{
+   bool wasEmpty = TrackList::Get( context.project ).Any().empty();
+   bool success = ProjectFileManager::Get( context.project )
+      .Import(mFileName, false);
+
+   if (success && wasEmpty)
+   {
+      SelectUtilities::SelectAllIfNone( context.project );
+   }
+
+   return success;
 }
 
-
-
-bool ExportCommand::DefineParams( ShuttleParams & S ){
-   wxFileName fn = FileNames::DefaultToDocumentsFolder(wxT("/Export/Path"));
+template<bool Const>
+bool ExportCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   wxFileName fn = FileNames::FindDefaultPath(FileNames::Operation::Export);
    fn.SetName("exported.wav");
    S.Define(mFileName, wxT("Filename"), fn.GetFullPath());
    S.Define( mnChannels, wxT("NumChannels"),  1 );
    return true;
 }
+
+bool ExportCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool ExportCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 const ComponentInterfaceSymbol ExportCommand::Symbol
 { XO("Export2") };

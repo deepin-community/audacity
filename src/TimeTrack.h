@@ -21,11 +21,16 @@ class Ruler;
 class ZoomInfo;
 struct TrackPanelDrawingContext;
 
-class TimeTrack final : public Track {
+class AUDACITY_DLL_API TimeTrack final : public Track {
 
  public:
 
-   TimeTrack(const std::shared_ptr<DirManager> &projDirManager, const ZoomInfo *zoomInfo);
+   static wxString GetDefaultName();
+
+   // Construct and also build all attachments
+   static TimeTrack *New(AudacityProject &project);
+
+   explicit TimeTrack(const ZoomInfo *zoomInfo);
    /** @brief Copy-Constructor - create a NEW TimeTrack:: which is an independent copy of the original
     *
     * Calls TimeTrack::Init() to copy the track metadata, then does a bunch of manipulations on the
@@ -35,10 +40,17 @@ class TimeTrack final : public Track {
     * @param pT0 if not null, then the start of the sub-range to copy
     * @param pT1 if not null, then the end of the sub-range to copy
     */
-   TimeTrack(const TimeTrack &orig, double *pT0 = nullptr, double *pT1 = nullptr);
+   TimeTrack(const TimeTrack &orig, ProtectedCreationArg&&,
+      double *pT0 = nullptr, double *pT1 = nullptr);
 
    virtual ~TimeTrack();
 
+   const TypeInfo &GetTypeInfo() const override;
+   static const TypeInfo &ClassTypeInfo();
+
+   bool SupportsBasicEditing() const override;
+
+   Holder PasteInto( AudacityProject & ) const override;
 
    Holder Cut( double t0, double t1 ) override;
    Holder Copy( double t0, double t1, bool forClipboard ) const override;
@@ -57,9 +69,9 @@ class TimeTrack final : public Track {
 
    // XMLTagHandler callback methods for loading and saving
 
-   bool HandleXMLTag(const wxChar *tag, const wxChar **attrs) override;
-   void HandleXMLEndTag(const wxChar *tag) override;
-   XMLTagHandler *HandleXMLChild(const wxChar *tag) override;
+   bool HandleXMLTag(const std::string_view& tag, const AttributesList& attrs) override;
+   void HandleXMLEndTag(const std::string_view& tag) override;
+   XMLTagHandler *HandleXMLChild(const std::string_view& tag) override;
    void WriteXML(XMLWriter &xmlFile) const override;
 
    // Lock and unlock the track: you must lock the track before
@@ -91,8 +103,7 @@ class TimeTrack final : public Track {
    Ruler &GetRuler() const { return *mRuler; }
 
  private:
-   // Identifying the type of track
-   TrackKind GetKind() const override { return TrackKind::Time; }
+   void CleanState();
 
    const ZoomInfo  *const mZoomInfo;
    std::unique_ptr<BoundedEnvelope> mEnvelope;
@@ -111,9 +122,9 @@ class TimeTrack final : public Track {
 
 private:
    Track::Holder Clone() const override;
-
-   friend class TrackFactory;
 };
+
+ENUMERATE_TRACK_TYPE(TimeTrack);
 
 
 #endif // __AUDACITY_TIMETRACK__

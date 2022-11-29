@@ -13,8 +13,8 @@ Paul Licameli split from WaveTrackVRulerControls.cpp
 #include "WaveformVZoomHandle.h"
 #include "WaveTrackVRulerControls.h"
 
-#include "../../../../NumberScale.h"
-#include "../../../../ProjectHistory.h"
+#include "NumberScale.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackPanelMouseEvent.h"
 #include "../../../../UIHandle.h"
@@ -84,11 +84,11 @@ unsigned WaveformVRulerControls::DoHandleWheelRotation(
          return RefreshNone;
 
       WaveformSettings &settings =
-         wt->GetIndependentWaveformSettings();
+         wt->GetWaveformSettings();
       float olddBRange = settings.dBRange;
       for (auto channel : TrackList::Channels(wt)) {
          WaveformSettings &channelSettings =
-            channel->GetIndependentWaveformSettings();
+            channel->GetWaveformSettings();
          if (steps < 0)
             // Zoom out
             channelSettings.NextLowerDBRange();
@@ -332,5 +332,5 @@ void WaveformVRulerControls::DoUpdateVRuler(
       vruler->SetLabelEdges(true);
       vruler->SetLog(false);
    }
-   vruler->GetMaxSize( &wt->vrulerSize.x, &wt->vrulerSize.y );
+   vruler->GetMaxSize( &wt->vrulerSize.first, &wt->vrulerSize.second );
 }

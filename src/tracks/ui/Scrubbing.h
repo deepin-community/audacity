@@ -11,19 +11,17 @@ Paul Licameli split from TrackPanel.cpp
 #ifndef __AUDACITY_SCRUBBING__
 #define __AUDACITY_SCRUBBING__
 
-#include "../../Audacity.h"
-#include "../../Experimental.h"
-
+#include <thread>
 #include <vector>
 #include <wx/longlong.h>
 
-#include "../../AudioIOBase.h" // for ScrubbingOptions
-#include "../../ClientData.h" // to inherit
-#include "../../Prefs.h" // to inherit
+#include "../../ScrubState.h" // for ScrubbingOptions
+#include "ClientData.h" // to inherit
+#include "Prefs.h" // to inherit
 #include "../../widgets/Overlay.h" // to inherit
 #include "../../commands/CommandContext.h"
 #include "../../commands/CommandManager.h" // for MenuTable
-#include "../../../include/audacity/Types.h"
+#include "Identifier.h"
 
 class AudacityProject;
 class TranslatableString;
@@ -38,10 +36,11 @@ class TranslatableString;
 #endif
 
 // Scrub state object
-class Scrubber final
+class AUDACITY_DLL_API Scrubber final
    : public wxEvtHandler
    , public ClientData::Base
    , private PrefsListener
+   , public std::enable_shared_from_this< Scrubber >
 {
 public:   
    static Scrubber &Get( AudacityProject &project );
@@ -61,7 +60,6 @@ public:
    // Returns true iff the event should be considered consumed by this:
    // Assume xx is relative to the left edge of TrackPanel!
    bool MaybeStartScrubbing(wxCoord xx);
-   bool StartSpeedPlay(double speed, double time0, double time1);
    bool StartKeyboardScrubbing(double time0, bool backwards);
    double GetKeyboardScrubbingSpeed();
 
@@ -150,10 +148,14 @@ public:
 private:
    void UpdatePrefs() override;
 
+   //! @pre `!mThread.joinable()` (when defined(USE_SCRUB_THREAD))
    void StartPolling();
    void StopPolling();
    void DoScrub(bool seek);
    void OnActivateOrDeactivateApp(wxActivateEvent & event);
+
+   void ScrubPollerThread();
+   void JoinThread();
 
 private:
    int mScrubToken;
@@ -183,8 +185,8 @@ private:
 #ifdef USE_SCRUB_THREAD
    // Course corrections in playback are done in a helper thread, unhindered by
    // the complications of the main event dispatch loop
-   class ScrubPollerThread;
-   ScrubPollerThread *mpThread {};
+   std::thread mThread;
+   std::atomic<bool> mFinishThread{ false };
 #endif
 
    // Other periodic update of the UI must be done in the main thread,

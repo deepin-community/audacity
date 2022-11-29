@@ -2,7 +2,7 @@
 
    Audacity: A Digital Audio Editor
    Audacity(R) is copyright (c) 1999-2012 Audacity Team.
-   License: GPL v2.  See License.txt.
+   License: GPL v2 or later.  See License.txt.
 
   ChangePitch.h
   Vaughan Johnson, Dominic Mazzoni, Steve Daulton
@@ -15,7 +15,7 @@ the pitch without changing the tempo.
 
 *//*******************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 #if USE_SOUNDTOUCH
 
 #ifndef __AUDACITY_EFFECT_CHANGEPITCH__
@@ -26,6 +26,7 @@ the pitch without changing the tempo.
 #endif
 
 #include "SoundTouchEffect.h"
+#include "../ShuttleAutomation.h"
 
 class wxSlider;
 class wxChoice;
@@ -37,6 +38,8 @@ class ShuttleGui;
 class EffectChangePitch final : public EffectSoundTouch
 {
 public:
+   static inline EffectChangePitch *
+   FetchParameters(EffectChangePitch &e, EffectSettings &) { return &e; }
    static const ComponentInterfaceSymbol Symbol;
 
    EffectChangePitch();
@@ -44,29 +47,23 @@ public:
 
    // ComponentInterface implementation
 
-   ComponentInterfaceSymbol GetSymbol() override;
-   TranslatableString GetDescription() override;
-   wxString ManualPage() override;
+   ComponentInterfaceSymbol GetSymbol() const override;
+   TranslatableString GetDescription() const override;
+   ManualPageID ManualPage() const override;
 
    // EffectDefinitionInterface implementation
 
-   EffectType GetType() override;
+   EffectType GetType() const override;
+   bool LoadFactoryDefaults(EffectSettings &settings) const override;
+   bool DoLoadFactoryDefaults(EffectSettings &settings);
 
-   // EffectClientInterface implementation
-
-   bool DefineParams( ShuttleParams & S ) override;
-   bool GetAutomationParameters(CommandParameters & parms) override;
-   bool SetAutomationParameters(CommandParameters & parms) override;
-   bool LoadFactoryDefaults() override;
-
-   // Effect implementation
-
-   bool Init() override;
-   bool Process() override;
-   bool CheckWhetherSkipEffect() override;
-   void PopulateOrExchange(ShuttleGui & S) override;
-   bool TransferDataToWindow() override;
-   bool TransferDataFromWindow() override;
+   bool Process(EffectInstance &instance, EffectSettings &settings) override;
+   bool CheckWhetherSkipEffect(const EffectSettings &settings) const override;
+   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
+   override;
+   bool TransferDataToWindow(const EffectSettings &settings) override;
+   bool TransferDataFromWindow(EffectSettings &settings) override;
 
 private:
    // EffectChangePitch implementation
@@ -146,7 +143,13 @@ private:
    wxCheckBox *   mUseSBSMSCheckBox;
 #endif
 
+   const EffectParameterMethods& Parameters() const override;
    DECLARE_EVENT_TABLE()
+
+static constexpr EffectParameter Percentage{ &EffectChangePitch::m_dPercentChange,
+   L"Percentage", 0.0,  -99.0,   3000.0,  1  };
+static constexpr EffectParameter UseSBSMS{ &EffectChangePitch::mUseSBSMS,
+   L"SBSMS",     false, false,   true,    1  };
 };
 
 #endif // __AUDACITY_EFFECT_CHANGEPITCH__

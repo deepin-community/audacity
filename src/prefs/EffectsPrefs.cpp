@@ -17,17 +17,15 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
-#include "EffectsPrefs.h"
 
-#include "../Experimental.h"
+#include "EffectsPrefs.h"
 
 #include <wx/choice.h>
 #include <wx/defs.h>
 
-#include "../Languages.h"
-#include "../PluginManager.h"
-#include "../Prefs.h"
+#include "Languages.h"
+#include "PluginManager.h"
+#include "Prefs.h"
 #include "../ShuttleGui.h"
 
 EffectsPrefs::EffectsPrefs(wxWindow * parent, wxWindowID winid)
@@ -40,17 +38,17 @@ EffectsPrefs::~EffectsPrefs()
 {
 }
 
-ComponentInterfaceSymbol EffectsPrefs::GetSymbol()
+ComponentInterfaceSymbol EffectsPrefs::GetSymbol() const
 {
    return EFFECTS_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString EffectsPrefs::GetDescription()
+TranslatableString EffectsPrefs::GetDescription() const
 {
    return XO("Preferences for Effects");
 }
 
-wxString EffectsPrefs::HelpPageName()
+ManualPageID EffectsPrefs::HelpPageName()
 {
    return "Effects_Preferences";
 }
@@ -76,6 +74,7 @@ ChoiceSetting EffectsGroupBy{
          XO("Sorted by Type and Effect Name") ,
          XO("Grouped by Publisher") ,
          XO("Grouped by Type") ,
+         XO("Default")
       },
       {
          wxT("sortby:name") ,
@@ -83,9 +82,10 @@ ChoiceSetting EffectsGroupBy{
          wxT("sortby:type:name") ,
          wxT("groupby:publisher") ,
          wxT("groupby:type") ,
+         wxT("default")
       }
    },
-   0 // "sortby:name"
+   5 // "default"
 };
 
 namespace {
@@ -139,10 +139,8 @@ static const std::vector< Entry > &GetModuleData()
    struct ModuleData : public std::vector< Entry > {
       ModuleData() {
          auto &pm = PluginManager::Get();
-         for (auto plug = pm.GetFirstPlugin(PluginTypeModule);
-              plug;
-              plug = pm.GetNextPlugin(PluginTypeModule)) {
-            auto internal = plug->GetEffectFamily();
+         for (auto &plug : pm.PluginsOfType(PluginTypeModule)) {
+            auto internal = plug.GetEffectFamily();
             if ( internal.empty() )
                continue;
 
@@ -155,11 +153,11 @@ static const std::vector< Entry > &GetModuleData()
                // If there should be new modules, it is not important for them
                // to follow the " Effects" convention, but instead they can
                // have shorter msgids.
-               prompt = plug->GetSymbol().Msgid();
+               prompt = plug.GetSymbol().Msgid();
             else
                prompt = iter->second;
 
-            auto setting = pm.GetPluginEnabledSetting( *plug );
+            auto setting = pm.GetPluginEnabledSetting( plug );
 
             push_back( { prompt, setting } );
          }
@@ -217,25 +215,12 @@ void EffectsPrefs::PopulateOrExchange(ShuttleGui & S)
    }
    S.EndStatic();
 
-#ifndef EXPERIMENTAL_EFFECT_MANAGEMENT
-   S.StartStatic(XO("Plugin Options"));
-   {
-      S.TieCheckBox(XXO("Check for updated plugins when Audacity starts"),
-                     wxT("/Plugins/CheckForUpdates"),
-                     true);
-      S.TieCheckBox(XXO("Rescan plugins next time Audacity is started"),
-                     wxT("/Plugins/Rescan"),
-                     false);
-   }
-   S.EndStatic();
-#endif
-
 #ifdef EXPERIMENTAL_EQ_SSE_THREADED
    S.StartStatic(XO("Instruction Set"));
    {
       S.TieCheckBox(XXO("&Use SSE/SSE2/.../AVX"),
-                    wxT("/SSE/GUI"),
-                    true);
+                    {wxT("/SSE/GUI"),
+                    true});
    }
    S.EndStatic();
 #endif

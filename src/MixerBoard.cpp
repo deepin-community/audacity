@@ -9,19 +9,19 @@
 
 **********************************************************************/
 
-#include "Audacity.h" // for USE_* macros
+
 #include "MixerBoard.h"
 
-#include "Experimental.h"
+
 
 #include <cfloat>
 #include <math.h>
 
 #include <wx/setup.h> // for wxUSE_* macros
 
+#include <wx/app.h>
 #include <wx/bmpbuttn.h>
 #include <wx/dcclient.h>
-#include <wx/dcmemory.h>
 #include <wx/icon.h>
 #include <wx/settings.h> // for wxSystemSettings::GetColour and wxSystemSettings::GetMetric
 
@@ -35,22 +35,25 @@
 
 #include "CommonCommandFlags.h"
 #include "KeyboardCapture.h"
-#include "Prefs.h" // for RTL_WORKAROUND
+#include "prefs/GUISettings.h" // for RTL_WORKAROUND
 #include "Project.h"
 #include "ProjectAudioIO.h"
 #include "ProjectAudioManager.h"
 #include "ProjectHistory.h"
+#include "ProjectFileIO.h"
 #include "ProjectSettings.h"
 #include "ProjectWindow.h"
+#include "ProjectWindows.h"
 #include "SelectUtilities.h"
 #include "Theme.h"
-#include "TrackPanel.h" // for EVT_TRACK_PANEL_TIMER
+#include "TrackPanel.h"
 #include "TrackUtilities.h"
 #include "UndoManager.h"
 #include "WaveTrack.h"
 
 #include "widgets/AButton.h"
-#include "widgets/Meter.h"
+#include "widgets/MeterPanel.h"
+#include "widgets/auStaticText.h"
 
 
 #include "../images/MusicalInstruments.h"
@@ -61,6 +64,8 @@
 #endif
 
 #include "commands/CommandManager.h"
+
+#define AudacityMixerBoardTitle XO("Audacity Mixer%s")
 
 // class MixerTrackSlider
 
@@ -533,7 +538,7 @@ void MixerTrackCluster::UpdateMeter(const double t0, const double t1)
    // But I think it's got a good idea, of calling WaveTracks' GetMinMax and GetRMS
    // instead of passing in all the data and asking the meter to derive peak and rms.
    // May be worth revisiting as I think it should perform better, because it uses the min/max/rms
-   // stored in blockfiles, rather than calculating them, but for now, changing it to use the
+   // stored in sample blocks, rather than calculating them, but for now, changing it to use the
    // original MeterPanel::UpdateDisplay(). New code is below the previous (now commented out).
    //
    //const size_t kFramesPerBuffer = 4;
@@ -597,6 +602,9 @@ void MixerTrackCluster::UpdateMeter(const double t0, const double t1)
    //}
    //
 
+   // PRL: TODO:  don't fetch from wave tracks at calculated times, for update
+   // of the meter display, but instead consult PlaybackPolicy
+
    const auto pTrack = GetWave();
    auto startSample = (sampleCount)((pTrack->GetRate() * t0) + 0.5);
    auto scnFrames = (sampleCount)((pTrack->GetRate() * (t1 - t0)) + 0.5);
@@ -608,8 +616,8 @@ void MixerTrackCluster::UpdateMeter(const double t0, const double t1)
    Floats tempFloatsArray{ nFrames };
    decltype(tempFloatsArray) meterFloatsArray;
    // Don't throw on read error in this drawing update routine
-   bool bSuccess = pTrack->Get((samplePtr)tempFloatsArray.get(),
-      floatSample, startSample, nFrames, fillZero, false);
+   bool bSuccess = pTrack->GetFloats(tempFloatsArray.get(),
+      startSample, nFrames, fillZero, false);
    if (bSuccess)
    {
       // We always pass a stereo sample array to the meter, as it shows 2 channels.
@@ -623,8 +631,8 @@ void MixerTrackCluster::UpdateMeter(const double t0, const double t1)
 
       if (GetRight())
          // Again, don't throw
-         bSuccess = GetRight()->Get((samplePtr)tempFloatsArray.get(),
-            floatSample, startSample, nFrames, fillZero, false);
+         bSuccess = GetRight()->GetFloats(tempFloatsArray.get(),
+            startSample, nFrames, fillZero, false);
 
       if (bSuccess)
          // Interleave right channel, or duplicate same signal for "right" channel in mono case.
@@ -914,34 +922,27 @@ MixerBoard::MixerBoard(AudacityProject* pProject,
    mTracks = &TrackList::Get( *mProject );
 
    // Events from the project don't propagate directly to this other frame, so...
-   mProject->Bind(EVT_TRACK_PANEL_TIMER,
-      &MixerBoard::OnTimer,
-      this);
+   mPlaybackScrollerSubscription =
+   ProjectWindow::Get( *mProject ).GetPlaybackScroller()
+      .Subscribe(*this, &MixerBoard::OnTimer);
 
-   mTracks->Bind(EVT_TRACKLIST_SELECTION_CHANGE,
-      &MixerBoard::OnTrackChanged,
-      this);
+   mTrackPanelSubscription =
+   mTracks->Subscribe([this](const TrackListEvent &event){
+      switch (event.mType) {
+      case TrackListEvent::SELECTION_CHANGE:
+      case TrackListEvent::TRACK_DATA_CHANGE:
+         OnTrackChanged(event); break;
+      case TrackListEvent::PERMUTED:
+      case TrackListEvent::ADDITION:
+      case TrackListEvent::DELETION:
+         OnTrackSetChanged(); break;
+      default:
+         break;
+      }
+   });
 
-   mTracks->Bind(EVT_TRACKLIST_PERMUTED,
-      &MixerBoard::OnTrackSetChanged,
-      this);
-
-   mTracks->Bind(EVT_TRACKLIST_ADDITION,
-      &MixerBoard::OnTrackSetChanged,
-      this);
-
-   mTracks->Bind(EVT_TRACKLIST_DELETION,
-      &MixerBoard::OnTrackSetChanged,
-      this);
-
-   mTracks->Bind(EVT_TRACKLIST_TRACK_DATA_CHANGE,
-      &MixerBoard::OnTrackChanged,
-      this);
-
-   wxTheApp->Connect(EVT_AUDIOIO_PLAYBACK,
-      wxCommandEventHandler(MixerBoard::OnStartStop),
-      NULL,
-      this);
+   mAudioIOSubscription =
+      AudioIO::Get()->Subscribe(*this, &MixerBoard::OnStartStop);
 }
 
 
@@ -1154,6 +1155,8 @@ void MixerBoard::UpdateMeters(const double t1, const bool bLoopedPlay)
       return;
    }
 
+   // PRL:  TODO:  reexamine the assumptions below
+
    // In loopedPlay mode, at the end of the loop, mPrevT1 is set to
    // selection end, so the next t1 will be less, but we do want to
    // keep updating the meters.
@@ -1304,7 +1307,7 @@ void MixerBoard::LoadMusicalInstruments()
    wxMemoryDC dc;
 
    for (const auto &data : table) {
-      auto bmp = std::make_unique<wxBitmap>(data.bitmap,24);
+      auto bmp = std::make_unique<wxBitmap>(data.bitmap);
       dc.SelectObject(*bmp);
       AColor::Bevel(dc, false, bev);
       mMusicalInstruments.push_back(std::make_unique<MusicalInstrument>(
@@ -1335,7 +1338,7 @@ void MixerBoard::OnSize(wxSizeEvent &evt)
    this->RefreshTrackClusters(true);
 }
 
-void MixerBoard::OnTimer(wxCommandEvent &event)
+void MixerBoard::OnTimer(Observer::Message)
 {
    // PRL 12 Jul 2015:  Moved the below (with comments) out of TrackPanel::OnTimer.
 
@@ -1351,22 +1354,17 @@ void MixerBoard::OnTimer(wxCommandEvent &event)
    //    audacityAudioCallback where it calls gAudioIO->mOutputMeter->UpdateDisplay().
    if (ProjectAudioIO::Get( *mProject ).IsAudioActive())
    {
-      auto gAudioIO = AudioIOBase::Get();
+      auto gAudioIO = AudioIO::Get();
       UpdateMeters(
          gAudioIO->GetStreamTime(),
          (ProjectAudioManager::Get( *mProject ).GetLastPlayMode()
             == PlayMode::loopedPlay)
       );
    }
-
-   // Let other listeners get the notification
-   event.Skip();
 }
 
-void MixerBoard::OnTrackChanged(TrackListEvent &evt)
+void MixerBoard::OnTrackChanged(const TrackListEvent &evt)
 {
-   evt.Skip();
-
    auto pTrack = evt.mpTrack.lock();
    auto pPlayable = dynamic_cast<PlayableTrack*>( pTrack.get() );
    if ( pPlayable ) {
@@ -1377,19 +1375,17 @@ void MixerBoard::OnTrackChanged(TrackListEvent &evt)
    }
 }
 
-void MixerBoard::OnTrackSetChanged(wxEvent &evt)
+void MixerBoard::OnTrackSetChanged()
 {
-   evt.Skip();
    mUpToDate = false;
    UpdateTrackClusters();
    Refresh();
 }
 
-void MixerBoard::OnStartStop(wxCommandEvent &evt)
+void MixerBoard::OnStartStop(AudioIOEvent evt)
 {
-   evt.Skip();
-   bool start = evt.GetInt();
-   ResetMeters( start );
+   if (evt.type == AudioIOEvent::PLAYBACK)
+      ResetMeters( evt.on );
 }
 
 // class MixerBoardFrame
@@ -1406,20 +1402,19 @@ const wxSize kDefaultSize =
    wxSize(MIXER_BOARD_MIN_WIDTH, MIXER_BOARD_MIN_HEIGHT);
 
 MixerBoardFrame::MixerBoardFrame(AudacityProject* parent)
-: wxFrame( &GetProjectFrame( *parent ), -1,
-          wxString::Format(_("Audacity Mixer Board%s"),
-                           ((parent->GetProjectName().empty()) ?
-                              wxT("") :
-                              wxString::Format(wxT(" - %s"),
-                                             parent->GetProjectName()))),
+:  wxFrame( &GetProjectFrame( *parent ), -1, wxString{},
             wxDefaultPosition, kDefaultSize,
-            //vvv Bug in wxFRAME_FLOAT_ON_PARENT:
-            // If both the project frame and MixerBoardFrame are minimized and you restore MixerBoardFrame,
-            // you can't restore project frame until you close MixerBoardFrame, but then project frame and
-            // MixerBoardFrame are restored but MixerBoardFrame is unresponsive because it thinks it's not shown.
-            //    wxDEFAULT_FRAME_STYLE | wxFRAME_FLOAT_ON_PARENT)
-            wxDEFAULT_FRAME_STYLE)
+            wxDEFAULT_FRAME_STYLE | wxFRAME_FLOAT_ON_PARENT)
+   , mProject(parent)
 {
+   SetWindowTitle();
+   auto titleChanged = [&](wxCommandEvent &evt)
+   {
+      SetWindowTitle();
+      evt.Skip();
+   };
+   wxTheApp->Bind( EVT_PROJECT_TITLE_CHANGE, titleChanged );
+
    mMixerBoard = safenew MixerBoard(parent, this, wxDefaultPosition, kDefaultSize);
 
    this->SetSizeHints(MIXER_BOARD_MIN_WIDTH, MIXER_BOARD_MIN_HEIGHT);
@@ -1493,6 +1488,18 @@ void MixerBoardFrame::Recreate( AudacityProject *pProject )
    mMixerBoard->SetSize( siz );
 
    this->SetSize( siz2 );
+   SetWindowTitle();
+}
+
+void MixerBoardFrame::SetWindowTitle()
+{
+   wxString name = mProject->GetProjectName();
+   if (!name.empty())
+   {
+      name.Prepend(wxT(" - "));
+   }
+
+   SetTitle(AudacityMixerBoardTitle.Format(name).Translation());
 }
 
 // Remaining code hooks this add-on into the application
@@ -1500,8 +1507,22 @@ void MixerBoardFrame::Recreate( AudacityProject *pProject )
 
 namespace {
 
+const ReservedCommandFlag&
+   PlayableTracksExistFlag() { static ReservedCommandFlag flag{
+      [](const AudacityProject &project){
+         auto &tracks = TrackList::Get( project );
+         return
+#ifdef EXPERIMENTAL_MIDI_OUT
+            !tracks.Any<const NoteTrack>().empty()
+         ||
+#endif
+            !tracks.Any<const WaveTrack>().empty()
+         ;
+      }
+   }; return flag; }
+
 // Mixer board window attached to each project is built on demand by:
-AudacityProject::AttachedWindows::RegisteredFactory sMixerBoardKey{
+AttachedWindows::RegisteredFactory sMixerBoardKey{
    []( AudacityProject &parent ) -> wxWeakRef< wxWindow > {
       return safenew MixerBoardFrame( &parent );
    }
@@ -1513,7 +1534,7 @@ struct Handler : CommandHandlerObject {
    {
       auto &project = context.project;
 
-      auto mixerBoardFrame = &project.AttachedWindows::Get( sMixerBoardKey );
+      auto mixerBoardFrame = &GetAttachedWindows(project).Get(sMixerBoardKey);
       mixerBoardFrame->Show();
       mixerBoardFrame->Raise();
       mixerBoardFrame->SetFocus();
@@ -1532,7 +1553,7 @@ CommandHandlerObject &findCommandHandler(AudacityProject &) {
 using namespace MenuTable;
 AttachedItem sAttachment{ wxT("View/Windows"),
    ( FinderScope{ findCommandHandler },
-      Command( wxT("MixerBoard"), XXO("&Mixer Board..."), &Handler::OnMixerBoard,
+      Command( wxT("MixerBoard"), XXO("&Mixer"), &Handler::OnMixerBoard,
          PlayableTracksExistFlag()) )
 };
 

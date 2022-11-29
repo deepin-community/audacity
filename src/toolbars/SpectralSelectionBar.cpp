@@ -26,11 +26,10 @@ with changes in the SpectralSelectionBar.
 *//*******************************************************************/
 
 
-#include "../Audacity.h"
+
 #include "SpectralSelectionBar.h"
 #include "SpectralSelectionBarListener.h"
 
-#include "../Experimental.h"
 #include "ToolManager.h"
 
 #include <algorithm>
@@ -54,11 +53,11 @@ with changes in the SpectralSelectionBar.
 #endif
 #include <wx/statline.h>
 
-#include "../Prefs.h"
-#include "../Project.h"
-#include "../AllThemeResources.h"
-#include "../SelectedRegion.h"
-#include "../ViewInfo.h"
+#include "Prefs.h"
+#include "Project.h"
+#include "AllThemeResources.h"
+#include "SelectedRegion.h"
+#include "ViewInfo.h"
 
 #if wxUSE_ACCESSIBILITY
 #include "../widgets/WindowAccessible.h"
@@ -343,7 +342,12 @@ void SpectralSelectionBar::OnChoice(wxCommandEvent &)
    mHighCtrl->Show(!mbCenterAndWidth);
 
    ValuesToControls();
-   GetSizer()->Layout();   // Required so that the layout does not mess up on Windows when changing the format.
+
+   wxSize sz = GetMinSize();
+   sz.SetWidth(wxDefaultCoord);
+   SetMinSize(sz);
+   Layout();
+   Fit();
    Updated();
 }
 

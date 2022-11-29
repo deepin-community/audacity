@@ -121,13 +121,12 @@ LyricsPanel::LyricsPanel(wxWindow* parent, wxWindowID id,
 
    parent->Bind(wxEVT_SHOW, &LyricsPanel::OnShow, this);
 
-   project->Bind(EVT_UNDO_PUSHED, &LyricsPanel::UpdateLyrics, this);
-   project->Bind(EVT_UNDO_MODIFIED, &LyricsPanel::UpdateLyrics, this);
-   project->Bind(EVT_UNDO_OR_REDO, &LyricsPanel::UpdateLyrics, this);
-   project->Bind(EVT_UNDO_RESET, &LyricsPanel::UpdateLyrics, this);
+   if (project)
+      mUndoSubscription = UndoManager::Get(*project)
+         .Subscribe(*this, &LyricsPanel::UpdateLyrics);
 
-   wxTheApp->Bind(EVT_AUDIOIO_PLAYBACK, &LyricsPanel::OnStartStop, this);
-   wxTheApp->Bind(EVT_AUDIOIO_CAPTURE, &LyricsPanel::OnStartStop, this);
+   mAudioIOSubscription =
+      AudioIO::Get()->Subscribe(*this, &LyricsPanel::OnStartStop);
 }
 
 LyricsPanel::~LyricsPanel()
@@ -476,10 +475,22 @@ void LyricsPanel::Update(double t)
    }
 }
 
-void LyricsPanel::UpdateLyrics(wxEvent &e)
+void LyricsPanel::UpdateLyrics(UndoRedoMessage message)
 {
-   e.Skip();
+   switch (message.type) {
+   case UndoRedoMessage::Pushed:
+   case UndoRedoMessage::Modified:
+   case UndoRedoMessage::UndoOrRedo:
+   case UndoRedoMessage::Reset:
+      break;
+   default:
+      return;
+   }
+   DoUpdateLyrics();
+}
 
+void LyricsPanel::DoUpdateLyrics()
+{
    // It's crucial to not do that repopulating during playback.
    auto gAudioIO = AudioIOBase::Get();
    if (gAudioIO->IsStreamActive()) {
@@ -512,12 +523,13 @@ void LyricsPanel::UpdateLyrics(wxEvent &e)
    Update(selectedRegion.t0());
 }
 
-void LyricsPanel::OnStartStop(wxCommandEvent &e)
+void LyricsPanel::OnStartStop(AudioIOEvent e)
 {
-   e.Skip();
-   if ( !e.GetInt() && mDelayedUpdate ) {
+   if (e.type == AudioIOEvent::MONITOR)
+      return;
+   if ( !e.on && mDelayedUpdate ) {
       mDelayedUpdate = false;
-      UpdateLyrics( e );
+      DoUpdateLyrics();
    }
 }
 
@@ -525,7 +537,7 @@ void LyricsPanel::OnShow(wxShowEvent &e)
 {
    e.Skip();
    if (e.IsShown())
-      UpdateLyrics(e);
+      DoUpdateLyrics();
 }
 
 void LyricsPanel::OnKeyEvent(wxKeyEvent & event)
@@ -554,7 +566,7 @@ void LyricsPanel::DoPaint(wxDC &dc)
 
       #ifdef __WXMAC__
          // Mac OS X automatically double-buffers the screen for you,
-         // so our bitmap is unneccessary
+         // so our bitmap is unnecessary
          HandlePaint(dc);
       #else
          wxBitmap bitmap(mWidth, mKaraokeHeight);

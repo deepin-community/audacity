@@ -13,7 +13,7 @@
 
 *//*******************************************************************/
 
-#include "Audacity.h"
+
 #include "LabelDialog.h"
 
 #include <wx/button.h>
@@ -34,10 +34,11 @@
 #include "Prefs.h"
 #include "Project.h"
 #include "ProjectWindow.h"
+#include "SelectFile.h"
 #include "ViewInfo.h"
 #include "tracks/labeltrack/ui/LabelTrackView.h"
 #include "widgets/AudacityMessageBox.h"
-#include "widgets/ErrorDialog.h"
+#include "widgets/AudacityTextEntryDialog.h"
 #include "widgets/Grid.h"
 #include "widgets/HelpSystem.h"
 
@@ -95,7 +96,6 @@ END_EVENT_TABLE()
 
 LabelDialog::LabelDialog(wxWindow *parent,
                          AudacityProject &project,
-                         TrackFactory &factory,
                          TrackList *tracks,
                          LabelTrack *selectedTrack,
                          int index,
@@ -110,7 +110,6 @@ LabelDialog::LabelDialog(wxWindow *parent,
            wxSize(800, 600),
            wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
   , mProject{ project }
-  , mFactory(factory)
   , mTracks(tracks)
   , mSelectedTrack(selectedTrack)
   , mIndex(index)
@@ -130,8 +129,9 @@ LabelDialog::~LabelDialog()
 void LabelDialog::PopulateLabels()
 {
    // Build the initial (empty) grid
-   mGrid->CreateGrid(0, Col_Max);
+   mGrid->CreateGrid(0, Col_Max, wxGrid::wxGridSelectRows);
    mGrid->SetDefaultCellAlignment(wxALIGN_LEFT, wxALIGN_CENTER);
+   mGrid->SetRowLabelSize(0);
 
    size_t ii = 0;
    for ( const auto &label : {
@@ -286,7 +286,7 @@ void LabelDialog::PopulateOrExchange( ShuttleGui & S )
 
 void LabelDialog::OnHelp(wxCommandEvent & WXUNUSED(event))
 {
-   wxString page = GetHelpPageName();
+   const auto &page = GetHelpPageName();
    HelpSystem::ShowHelp(this, page, true);
 }
 
@@ -402,7 +402,7 @@ bool LabelDialog::TransferDataFromWindow()
       wxString name = mTrackNames[tndx + 1].AfterFirst(wxT('-')).Mid(1);
 
       // Create the NEW track and add to track list
-      auto newTrack = mFactory.NewLabelTrack();
+      auto newTrack = std::make_shared<LabelTrack>();
       newTrack->SetName(name);
       mTracks->Add( newTrack );
       tndx++;
@@ -427,7 +427,7 @@ bool LabelDialog::TransferDataFromWindow()
 
       // Add the label to it
       lt->AddLabel(rd.selectedRegion, rd.title);
-      LabelTrackView::Get( *lt ).SetSelectedIndex( -1 );
+      LabelTrackView::Get( *lt ).ResetTextSelection();
    }
 
    return true;
@@ -632,7 +632,7 @@ void LabelDialog::OnImport(wxCommandEvent & WXUNUSED(event))
 {
    // Ask user for a filename
    wxString fileName =
-       FileNames::SelectFile(FileNames::Operation::Open,
+       SelectFile(FileNames::Operation::Open,
          XO("Select a text file containing labels"),
          wxEmptyString,     // Path
          wxT(""),       // Name
@@ -654,7 +654,7 @@ void LabelDialog::OnImport(wxCommandEvent & WXUNUSED(event))
       else {
          // Create a temporary label track and load the labels
          // into it
-         auto lt = mFactory.NewLabelTrack();
+         auto lt = std::make_shared<LabelTrack>();
          lt->Import(f);
 
          // Add the labels to our collection
@@ -681,7 +681,7 @@ void LabelDialog::OnExport(wxCommandEvent & WXUNUSED(event))
    // Extract the actual name.
    wxString fName = mTrackNames[mTrackNames.size() - 1].AfterFirst(wxT('-')).Mid(1);
 
-   fName = FileNames::SelectFile(FileNames::Operation::Export,
+   fName = SelectFile(FileNames::Operation::Export,
       XO("Export Labels As:"),
       wxEmptyString,
       fName,
@@ -723,7 +723,7 @@ void LabelDialog::OnExport(wxCommandEvent & WXUNUSED(event))
    }
 
    // Transfer our collection to a temporary label track
-   auto lt = mFactory.NewLabelTrack();
+   auto lt = std::make_shared<LabelTrack>();
    int i;
 
    for (i = 0; i < cnt; i++) {
@@ -823,7 +823,7 @@ void LabelDialog::OnChangeTrack(wxGridEvent & WXUNUSED(event), int row, RowData 
          XO("Label Track").Translation());
 
       // User canceled so repopulating the grid will set the track
-      // name to the orignal value
+      // name to the original value
       if (d.ShowModal() == wxID_CANCEL) {
          TransferDataToWindow();
          return;

@@ -17,7 +17,7 @@
 *//*******************************************************************/
 
 
-#include "../Audacity.h"
+
 #include "MeterToolBar.h"
 
 // For compilers that support precompilation, includes "wx/wx.h".
@@ -33,9 +33,10 @@
 
 #include <wx/gbsizer.h>
 
-#include "../AllThemeResources.h"
+#include "AllThemeResources.h"
+#include "ToolManager.h"
 #include "../ProjectAudioIO.h"
-#include "../widgets/Meter.h"
+#include "../widgets/MeterPanel.h"
 
 IMPLEMENT_CLASS(MeterToolBar, ToolBar);
 
@@ -71,6 +72,35 @@ MeterToolBar::~MeterToolBar()
 {
 }
 
+MeterToolBars MeterToolBar::GetToolBars(AudacityProject &project)
+{
+   return MeterToolBars{
+      Get(project, true),
+      Get(project, false)
+   };
+}
+
+ConstMeterToolBars MeterToolBar::GetToolBars(const AudacityProject &project)
+{
+   return ConstMeterToolBars{
+      Get(project, true),
+      Get(project, false)
+   };
+}
+
+MeterToolBar & MeterToolBar::Get(AudacityProject &project, bool forPlayMeterToolBar)
+{
+   auto& toolManager = ToolManager::Get(project);
+   auto  toolBarID = forPlayMeterToolBar ? PlayMeterBarID : RecordMeterBarID;
+
+   return *static_cast<MeterToolBar*>(toolManager.GetToolBar(toolBarID));
+}
+
+const MeterToolBar & MeterToolBar::Get(const AudacityProject &project, bool forPlayMeterToolBar)
+{
+   return Get( const_cast<AudacityProject&>( project ), forPlayMeterToolBar );
+}
+
 void MeterToolBar::Create(wxWindow * parent)
 {
    ToolBar::Create(parent);
@@ -87,13 +117,15 @@ void MeterToolBar::ReCreateButtons()
    MeterPanel::State playState{ false }, recordState{ false };
 
    auto &projectAudioIO = ProjectAudioIO::Get( mProject );
-   if (mPlayMeter && projectAudioIO.GetPlaybackMeter() == mPlayMeter)
+   if (mPlayMeter &&
+      projectAudioIO.GetPlaybackMeter() == mPlayMeter->GetMeter())
    {
       playState = mPlayMeter->SaveState();
       projectAudioIO.SetPlaybackMeter( nullptr );
    }
 
-   if (mRecordMeter && projectAudioIO.GetCaptureMeter() == mRecordMeter)
+   if (mRecordMeter &&
+      projectAudioIO.GetCaptureMeter() == mRecordMeter->GetMeter())
    {
       recordState = mRecordMeter->SaveState();
       projectAudioIO.SetCaptureMeter( nullptr );
@@ -103,11 +135,11 @@ void MeterToolBar::ReCreateButtons()
 
    mPlayMeter->RestoreState(playState);
    if( playState.mSaved  ){
-      projectAudioIO.SetPlaybackMeter( mPlayMeter );
+      projectAudioIO.SetPlaybackMeter( mPlayMeter->GetMeter() );
    }
    mRecordMeter->RestoreState(recordState);
    if( recordState.mSaved ){
-      projectAudioIO.SetCaptureMeter( mRecordMeter );
+      projectAudioIO.SetCaptureMeter( mRecordMeter->GetMeter() );
    }
 }
 
@@ -162,6 +194,15 @@ void MeterToolBar::UpdatePrefs()
 
    // Give base class a chance
    ToolBar::UpdatePrefs();
+}
+
+void MeterToolBar::UpdateControls()
+{
+   if ( mPlayMeter )
+      mPlayMeter->UpdateSliderControl();
+
+   if ( mRecordMeter )
+      mRecordMeter->UpdateSliderControl();
 }
 
 void MeterToolBar::RegenerateTooltips()
@@ -229,23 +270,31 @@ bool MeterToolBar::Expose( bool show )
    auto &projectAudioIO = ProjectAudioIO::Get( mProject );
    if( show ) {
       if( mPlayMeter ) {
-         projectAudioIO.SetPlaybackMeter( mPlayMeter );
+         projectAudioIO.SetPlaybackMeter( mPlayMeter->GetMeter() );
       }
 
       if( mRecordMeter ) {
-         projectAudioIO.SetCaptureMeter( mRecordMeter );
+         projectAudioIO.SetCaptureMeter( mRecordMeter->GetMeter() );
       }
    } else {
-      if( mPlayMeter && projectAudioIO.GetPlaybackMeter() == mPlayMeter ) {
+      if( mPlayMeter &&
+         projectAudioIO.GetPlaybackMeter() == mPlayMeter->GetMeter() ) {
          projectAudioIO.SetPlaybackMeter( nullptr );
       }
 
-      if( mRecordMeter && projectAudioIO.GetCaptureMeter() == mRecordMeter ) {
+      if( mRecordMeter &&
+         projectAudioIO.GetCaptureMeter() == mRecordMeter->GetMeter() ) {
          projectAudioIO.SetCaptureMeter( nullptr );
       }
    }
 
    return ToolBar::Expose( show );
+}
+
+int MeterToolBar::GetInitialWidth()
+{
+   return (mWhichMeters ==
+      (kWithRecordMeter + kWithPlayMeter)) ? 338 : 290;
 }
 
 // The meter's sizing code does not take account of the resizer
@@ -254,6 +303,42 @@ bool MeterToolBar::Expose( bool show )
 void MeterToolBar::SetDocked(ToolDock *dock, bool pushed) {
    ToolBar::SetDocked(dock, pushed);
    Fit();
+}
+
+void MeterToolBar::ShowOutputGainDialog()
+{
+   mPlayMeter->ShowDialog();
+   mPlayMeter->UpdateSliderControl();
+}
+
+void MeterToolBar::ShowInputGainDialog()
+{
+   mRecordMeter->ShowDialog();
+   mRecordMeter->UpdateSliderControl();
+}
+
+void MeterToolBar::AdjustOutputGain(int adj)
+{
+   if (adj < 0) {
+      mPlayMeter->Decrease(-adj);
+   }
+   else {
+      mPlayMeter->Increase(adj);
+   }
+
+   mPlayMeter->UpdateSliderControl();
+}
+
+void MeterToolBar::AdjustInputGain(int adj)
+{
+   if (adj < 0) {
+      mRecordMeter->Decrease(-adj);
+   }
+   else {
+      mRecordMeter->Increase(adj);
+   }
+
+   mRecordMeter->UpdateSliderControl();
 }
 
 static RegisteredToolbarFactory factory1{ RecordMeterBarID,

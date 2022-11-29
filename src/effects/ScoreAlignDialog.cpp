@@ -2,7 +2,7 @@
 
    Audacity: A Digital Audio Editor
    Audacity(R) is copyright (c) 1999-2008 Audacity Team.
-   License: GPL v2.  See License.txt.
+   License: GPL v2 or later.  See License.txt.
 
    ScoreAlignDialog.cpp
    <TODO: authors>
@@ -16,10 +16,8 @@ It \TODO: description
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
-#include "ScoreAlignDialog.h"
 
-#include "../Experimental.h"
+#include "ScoreAlignDialog.h"
 
 #ifdef EXPERIMENTAL_SCOREALIGN
 
@@ -35,7 +33,6 @@ It \TODO: description
 #include <wx/button.h>
 #include <wx/choice.h>
 #include <wx/image.h>
-#include <wx/dcmemory.h>
 #include <wx/file.h>
 #include <wx/intl.h>
 #include <wx/sizer.h>
@@ -45,7 +42,7 @@ It \TODO: description
 
 #include <fstream>
 #include <wx/dialog.h>
-#include "../Prefs.h"
+#include "Prefs.h"
 #include "../ShuttleGui.h"
 #include "../lib-src/header-substitutes/allegro.h"
 #include "audioreader.h"

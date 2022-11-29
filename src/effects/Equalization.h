@@ -9,8 +9,6 @@
 
 ***********************************************************************/
 
-#include "../Experimental.h"
-
 #ifndef __AUDACITY_EFFECT_EQUALIZATION__
 #define __AUDACITY_EFFECT_EQUALIZATION__
 #define NUMBER_OF_BANDS 31
@@ -20,7 +18,10 @@
 #include <wx/setup.h> // for wxUSE_* macros
 
 #include "Effect.h"
-#include "../RealFFTf.h"
+#include "RealFFTf.h"
+#include "../ShuttleAutomation.h"
+#include "../widgets/wxPanelWrapper.h"
+#include "XMLTagHandler.h"
 
 // Flags to specialise the UI
 const int kEqOptionGraphic =1;
@@ -44,6 +45,8 @@ class Envelope;
 class EnvelopeEditor;
 class EqualizationPanel;
 class RulerPanel;
+
+using Floats = ArrayOf<float>;
 
 //
 // One point in a curve
@@ -91,10 +94,12 @@ using EQCurveArray = std::vector<EQCurve>;
 class EffectEqualization48x;
 #endif
 
-class EffectEqualization : public Effect,
+class EffectEqualization : public StatefulEffect,
                            public XMLTagHandler
 {
 public:
+   static inline EffectEqualization *
+   FetchParameters(EffectEqualization &e, EffectSettings &) { return &e; }
    static const ComponentInterfaceSymbol Symbol;
 
    EffectEqualization(int Options = kEqLegacy);
@@ -103,38 +108,38 @@ public:
 
    // ComponentInterface implementation
 
-   ComponentInterfaceSymbol GetSymbol() override;
-   TranslatableString GetDescription() override;
-   wxString ManualPage() override;
+   ComponentInterfaceSymbol GetSymbol() const override;
+   TranslatableString GetDescription() const override;
+   ManualPageID ManualPage() const override;
+   bool VisitSettings(SettingsVisitor &visitor, EffectSettings &settings)
+      override;
+   bool VisitSettings(
+      ConstSettingsVisitor &visitor, const EffectSettings &settings)
+      const override;
 
    // EffectDefinitionInterface implementation
 
-   EffectType GetType() override;
+   EffectType GetType() const override;
+   bool LoadFactoryDefaults(EffectSettings &settings) const override;
+   bool DoLoadFactoryDefaults(EffectSettings &settings);
 
-   // EffectClientInterface implementation
-
-   bool DefineParams( ShuttleParams & S ) override;
-   bool GetAutomationParameters(CommandParameters & parms) override;
-   bool SetAutomationParameters(CommandParameters & parms) override;
-   bool LoadFactoryDefaults() override;
-
-   RegistryPaths GetFactoryPresets() override;
-   bool LoadFactoryPreset(int id) override;
+   RegistryPaths GetFactoryPresets() const override;
+   bool LoadFactoryPreset(int id, EffectSettings &settings) const override;
 
    // EffectUIClientInterface implementation
 
-   bool ValidateUI() override;
+   bool ValidateUI(EffectSettings &) override;
 
    // Effect implementation
 
-   bool Startup() override;
    bool Init() override;
-   bool Process() override;
+   bool Process(EffectInstance &instance, EffectSettings &settings) override;
 
    bool CloseUI() override;
-   void PopulateOrExchange(ShuttleGui & S) override;
-   bool TransferDataToWindow() override;
-   bool TransferDataFromWindow() override;
+   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
+   override;
+   bool TransferDataToWindow(const EffectSettings &settings) override;
 
 private:
    // EffectEqualization implementation
@@ -169,11 +174,12 @@ private:
    bool GetDefaultFileName(wxFileName &fileName);
    
    // XMLTagHandler callback methods for loading and saving
-   bool HandleXMLTag(const wxChar *tag, const wxChar **attrs) override;
-   XMLTagHandler *HandleXMLChild(const wxChar *tag) override;
+   bool HandleXMLTag(const std::string_view& tag, const AttributesList &attrs) override;
+   XMLTagHandler *HandleXMLChild(const std::string_view& tag) override;
    void WriteXML(XMLWriter &xmlFile) const;
 
    void UpdateCurves();
+   void UpdateRuler();
    void UpdateDraw();
 
    //void LayoutEQSliders();
@@ -205,7 +211,6 @@ private:
    void OnBench( wxCommandEvent & event );
 #endif
 
-private:
    int mOptions;
    HFFT hFFT;
    Floats mFFTBuffer, mFilterFuncR, mFilterFuncI;
@@ -277,10 +282,39 @@ private:
    wxBoxSizer *szrM;
 #endif
 
+   const EffectParameterMethods& Parameters() const override;
+
    DECLARE_EVENT_TABLE()
 
    friend class EqualizationPanel;
    friend class EditCurvesDialog;
+
+   enum kInterpolations
+   {
+      kBspline,
+      kCosine,
+      kCubic,
+      nInterpolations
+   };
+   static const EnumValueSymbol kInterpStrings[nInterpolations];
+
+// Not all of these are visited now
+static constexpr EffectParameter FilterLength{ &EffectEqualization::mM,
+   L"FilterLength",        8191,    21,      8191,    0      };
+static constexpr EffectParameter CurveName{ &EffectEqualization::mCurveName,
+   L"CurveName",           L"unnamed", L"", L"", L""};
+static constexpr EffectParameter InterpLin{ &EffectEqualization::mLin,
+   L"InterpolateLin",      false,   false,   true,    false  };
+static constexpr EnumParameter InterpMeth{ &EffectEqualization::mInterp,
+   L"InterpolationMethod", 0,       0,       0,       0, kInterpStrings, nInterpolations      };
+static constexpr EffectParameter DrawMode{ &EffectEqualization::mDrawMode,
+   L"",                   true,    false,   true,    false  };
+static constexpr EffectParameter DrawGrid{ &EffectEqualization::mDrawGrid,
+   L"",                   true,    false,   true,    false  };
+static constexpr EffectParameter dBMin{ &EffectEqualization::mdBMin,
+   L"",                   -30.0f,   -120.0,  -10.0,   0      };
+static constexpr EffectParameter dBMax{ &EffectEqualization::mdBMax,
+   L"",                   30.0f,    0.0,     60.0,    0      };
 };
 
 class EffectEqualizationCurve final : public EffectEqualization

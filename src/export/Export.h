@@ -14,12 +14,12 @@
 #include <functional>
 #include <vector>
 #include <wx/filename.h> // member variable
-#include "audacity/Types.h"
-#include "../SampleFormat.h"
+#include "Identifier.h"
+#include "SampleFormat.h"
 #include "../widgets/wxPanelWrapper.h" // to inherit
-#include "../FileNames.h" // for FileTypes
+#include "FileNames.h" // for FileTypes
 
-#include "../Registry.h"
+#include "Registry.h"
 
 class wxArrayString;
 class FileDialogWrapper;
@@ -28,17 +28,22 @@ class wxMemoryDC;
 class wxSimplebook;
 class wxStaticText;
 class AudacityProject;
-class DirManager;
 class WaveTrack;
 class Tags;
 class TrackList;
-class MixerSpec;
+namespace MixerOptions{ class Downmix; }
+using MixerSpec = MixerOptions::Downmix;
 class ProgressDialog;
 class ShuttleGui;
 class Mixer;
 using WaveTrackConstArray = std::vector < std::shared_ptr < const WaveTrack > >;
-enum class ProgressResult : unsigned;
+namespace BasicUI{ enum class ProgressResult : unsigned; }
 class wxFileNameWrapper;
+
+namespace BasicUI
+{
+class ProgressDialog;
+}
 
 class AUDACITY_DLL_API FormatInfo
 {
@@ -65,6 +70,7 @@ class AUDACITY_DLL_API FormatInfo
 class AUDACITY_DLL_API ExportPlugin /* not final */
 {
 public:
+   using ProgressResult = BasicUI::ProgressResult;
 
    ExportPlugin();
    virtual ~ExportPlugin();
@@ -124,7 +130,7 @@ public:
     * ProgressResult::Stopped
     */
    virtual ProgressResult Export(AudacityProject *project,
-                       std::unique_ptr<ProgressDialog> &pDialog,
+                       std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                        unsigned channels,
                        const wxFileNameWrapper &fName,
                        bool selectedOnly,
@@ -140,12 +146,12 @@ protected:
          double startTime, double stopTime,
          unsigned numOutChannels, size_t outBufferSize, bool outInterleaved,
          double outRate, sampleFormat outFormat,
-         bool highQuality = true, MixerSpec *mixerSpec = NULL);
+         MixerSpec *mixerSpec);
 
    // Create or recycle a dialog.
-   static void InitProgress(std::unique_ptr<ProgressDialog> &pDialog,
+   static void InitProgress(std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
          const TranslatableString &title, const TranslatableString &message);
-   static void InitProgress(std::unique_ptr<ProgressDialog> &pDialog,
+   static void InitProgress(std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
          const wxFileNameWrapper &title, const TranslatableString &message);
 
 private:
@@ -159,7 +165,8 @@ using ExportPluginArray = std::vector < std::unique_ptr< ExportPlugin > > ;
 //----------------------------------------------------------------------------
 
 // For a file suffix change from the options.
-wxDECLARE_EVENT(AUDACITY_FILE_SUFFIX_EVENT, wxCommandEvent);
+wxDECLARE_EXPORTED_EVENT(AUDACITY_DLL_API,
+   AUDACITY_FILE_SUFFIX_EVENT, wxCommandEvent);
 
 class  AUDACITY_DLL_API Exporter final : public wxEvtHandler
 {
@@ -173,7 +180,7 @@ public:
    // Register factories, not plugin objects themselves, which allows them
    // to have some fresh state variables each time export begins again
    // and to compute translated strings for the current locale
-   struct RegisteredExportPlugin{
+   struct AUDACITY_DLL_API RegisteredExportPlugin{
       RegisteredExportPlugin(
          const Identifier &id, // an internal string naming the plug-in
          const ExportPluginFactory&,
@@ -195,6 +202,11 @@ public:
    bool Process(unsigned numChannels,
                 const FileExtension &type, const wxString & filename,
                 bool selectedOnly, double t0, double t1);
+
+   bool Process(
+      unsigned numChannels, const FileExtension& type, const wxString& filename,
+      bool selectedOnly, double t0, double t1,
+      std::unique_ptr<BasicUI::ProgressDialog>& progressDialog);
 
    void DisplayOptions(int index);
    int FindFormatIndex(int exportindex);
@@ -222,7 +234,7 @@ private:
    bool GetFilename();
    bool CheckFilename();
    bool CheckMix(bool prompt = true);
-   bool ExportTracks();
+   bool ExportTracks(std::unique_ptr<BasicUI::ProgressDialog>& progressDialog);
 
    static void CreateUserPaneCallback(wxWindow *parent, wxUIntPtr userdata);
    void CreateUserPane(wxWindow *parent);
@@ -322,4 +334,19 @@ private:
 private:
    DECLARE_EVENT_TABLE()
 };
+
+AUDACITY_DLL_API TranslatableString AudacityExportCaptionStr();
+AUDACITY_DLL_API TranslatableString AudacityExportMessageStr();
+
+/// We have many Export errors that are essentially anonymous
+/// and are distinguished only by an error code number.
+/// Rather than repeat the code, we have it just once.
+AUDACITY_DLL_API void ShowExportErrorDialog(wxString ErrorCode,
+   TranslatableString message = AudacityExportMessageStr(),
+   const TranslatableString& caption = AudacityExportCaptionStr(),
+   bool allowReporting = true);
+
+AUDACITY_DLL_API
+void ShowDiskFullExportErrorDialog(const wxFileNameWrapper &fileName);
+
 #endif

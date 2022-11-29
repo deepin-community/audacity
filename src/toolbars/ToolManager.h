@@ -20,7 +20,8 @@
 #include <wx/frame.h> // to inherit
 #include <wx/timer.h> // member variable
 
-#include "../ClientData.h"
+#include "ClientData.h"
+#include "GlobalVariable.h"
 #include "ToolDock.h"
 
 #include "../commands/CommandFunctors.h"
@@ -47,7 +48,7 @@ class ToolFrame;
 /// class ToolManager
 ////////////////////////////////////////////////////////////
 
-class ToolManager final
+class AUDACITY_DLL_API ToolManager final
    : public wxEvtHandler
    , public wxEventFilter
    , public ClientData::Base
@@ -55,8 +56,9 @@ class ToolManager final
 
  public:
    // a hook function to break dependency of ToolManager on ProjectWindow
-   using GetTopPanelHook = std::function< wxWindow*( wxWindow& ) >;
-   static GetTopPanelHook SetGetTopPanelHook( const GetTopPanelHook& );
+   struct AUDACITY_DLL_API TopPanelHook : GlobalHook<TopPanelHook,
+      wxWindow*( wxWindow& )
+   >{};
 
    static ToolManager &Get( AudacityProject &project );
    static const ToolManager &Get( const AudacityProject &project );
@@ -138,8 +140,8 @@ class ToolManager final
    bool mTransition;
 #endif
 
-   ToolDock *mTopDock;
-   ToolDock *mBotDock;
+   ToolDock *mTopDock{};
+   ToolDock *mBotDock{};
 
    ToolBar::Holder mBars[ ToolBarCount ];
 
@@ -221,7 +223,7 @@ public:
 
 // Construct a static instance of this class to add a menu item that shows and
 // hides a toolbar
-struct AttachedToolBarMenuItem : CommandHandlerObject {
+struct AUDACITY_DLL_API AttachedToolBarMenuItem : CommandHandlerObject {
    AttachedToolBarMenuItem(
       ToolBarID id, const CommandID &name, const TranslatableString &label_in,
       const Registry::OrderingHint &hint = {},

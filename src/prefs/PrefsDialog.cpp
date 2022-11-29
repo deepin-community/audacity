@@ -14,8 +14,10 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 #include "PrefsDialog.h"
+
+#include <thread>
 
 #include <wx/app.h>
 #include <wx/setup.h> // for wxUSE_* macros
@@ -34,8 +36,9 @@
 #include <wx/treebook.h>
 #include <wx/treectrl.h>
 
-#include "../AudioIOBase.h"
-#include "../Prefs.h"
+#include "AudioIOBase.h"
+#include "Prefs.h"
+#include "ProjectWindows.h"
 #include "../ShuttleGui.h"
 #include "../commands/CommandManager.h"
 
@@ -586,6 +589,8 @@ PrefsDialog::PrefsDialog(
    // Center after all that resizing, but make sure it doesn't end up
    // off-screen
    CentreOnParent();
+
+   mTransaction = std::make_unique< SettingTransaction >();
 }
 
 PrefsDialog::~PrefsDialog()
@@ -656,7 +661,7 @@ void PrefsDialog::OnPreview(wxCommandEvent & WXUNUSED(event))
 
 void PrefsDialog::OnHelp(wxCommandEvent & WXUNUSED(event))
 {
-   wxString page = GetCurrentPanel()->HelpPageName();
+   const auto &page = GetCurrentPanel()->HelpPageName();
    HelpSystem::ShowHelp(this, page, true);
 }
 
@@ -752,8 +757,10 @@ void PrefsDialog::OnOK(wxCommandEvent & WXUNUSED(event))
       if (gAudioIO->IsMonitoring())
       {
          gAudioIO->StopStream();
-         while (gAudioIO->IsBusy())
-            wxMilliSleep(100);
+         while (gAudioIO->IsBusy()) {
+            using namespace std::chrono;
+            std::this_thread::sleep_for(100ms);
+         }
       }
       gAudioIO->HandleDeviceChange();
    }
@@ -766,7 +773,9 @@ void PrefsDialog::OnOK(wxCommandEvent & WXUNUSED(event))
    //      so AudacityProject::UpdatePrefs() or any of the routines it calls must
    //      not cause MenuCreator::RebuildMenuBar() to be executed.
 
-   wxTheApp->AddPendingEvent(wxCommandEvent{ EVT_PREFS_UPDATE });
+   PrefsListener::Broadcast();
+
+   mTransaction->Commit();
 
    if( IsModal() )
       EndModal(true);
@@ -782,6 +791,11 @@ void PrefsDialog::SelectPageByName(const wxString &pageName)
       for (size_t i = 0; i < n; i++) {
          if (mCategories->GetPageText(i) == pageName) {
             mCategories->SetSelection(i);
+            // This covers the case, when ShowModal is called 
+            // after selecting the page.
+            // ShowModal will select the page previously used by 
+            // user
+            SavePreferredPage();
             return;
          }
       }
@@ -835,7 +849,7 @@ void PrefsDialog::RecordExpansionState()
 
 #include <wx/frame.h>
 #include "../Menus.h"
-#include "../Project.h"
+#include "Project.h"
 
 void DoReloadPreferences( AudacityProject &project )
 {

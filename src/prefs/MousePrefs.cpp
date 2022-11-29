@@ -32,16 +32,14 @@
 
 *//********************************************************************/
 
-#include "../Audacity.h"
-#include "MousePrefs.h"
 
-#include "../Experimental.h"
+#include "MousePrefs.h"
 
 #include <wx/defs.h>
 #include <wx/intl.h>
 #include <wx/listctrl.h>
 
-#include "../Prefs.h"
+#include "Prefs.h"
 #include "../ShuttleGui.h"
 
 // The numbers of the columns of the mList.
@@ -74,17 +72,17 @@ MousePrefs::~MousePrefs()
 {
 }
 
-ComponentInterfaceSymbol MousePrefs::GetSymbol()
+ComponentInterfaceSymbol MousePrefs::GetSymbol() const
 {
    return MOUSE_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString MousePrefs::GetDescription()
+TranslatableString MousePrefs::GetDescription() const
 {
    return XO("Preferences for Mouse");
 }
 
-wxString MousePrefs::HelpPageName()
+ManualPageID MousePrefs::HelpPageName()
 {
    return "Mouse_Preferences";
 }

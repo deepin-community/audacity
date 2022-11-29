@@ -17,17 +17,16 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
-#include "TracksPrefs.h"
 
-#include "../Experimental.h"
+#include "TracksPrefs.h"
+#include "MemoryX.h"
 
 //#include <algorithm>
 //#include <wx/defs.h>
 
-#include "../Prefs.h"
+#include "Prefs.h"
 #include "../ShuttleGui.h"
-#include "../tracks/playabletrack/wavetrack/ui/WaveTrackViewConstants.h"
+#include "../WaveTrack.h"
 
 int TracksPrefs::iPreferencePinned = -1;
 
@@ -145,7 +144,7 @@ public:
    }
 };
 
-static TracksViewModeEnumSetting viewModeSetting()
+static TracksViewModeEnumSetting ViewModeSetting()
 {
    // Do a delayed computation, so that registration of sub-view types completes
    // first
@@ -154,6 +153,11 @@ static TracksViewModeEnumSetting viewModeSetting()
       types, std::mem_fn( &WaveTrackSubViewType::name ) );
    auto ids = transform_container< std::vector< WaveTrackSubViewType::Display > >(
       types, std::mem_fn( &WaveTrackSubViewType::id ) );
+
+   // Special entry for multi
+   symbols.push_back( WaveTrackViewConstants::MultiViewSymbol );
+   ids.push_back( WaveTrackViewConstants::MultiView );
+
    return {
       key3,
       symbols,
@@ -164,7 +168,7 @@ static TracksViewModeEnumSetting viewModeSetting()
 
 WaveTrackViewConstants::Display TracksPrefs::ViewModeChoice()
 {
-   return viewModeSetting().ReadEnum();
+   return ViewModeSetting().ReadEnum();
 }
 
 WaveformSettings::ScaleTypeValues TracksPrefs::WaveformScaleChoice()
@@ -275,17 +279,17 @@ TracksPrefs::~TracksPrefs()
 {
 }
 
-ComponentInterfaceSymbol TracksPrefs::GetSymbol()
+ComponentInterfaceSymbol TracksPrefs::GetSymbol() const
 {
    return TRACKS_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString TracksPrefs::GetDescription()
+TranslatableString TracksPrefs::GetDescription() const
 {
    return XO("Preferences for Tracks");
 }
 
-wxString TracksPrefs::HelpPageName()
+ManualPageID TracksPrefs::HelpPageName()
 {
    return "Tracks_Preferences";
 }
@@ -310,6 +314,8 @@ void TracksPrefs::Populate()
 
 void TracksPrefs::PopulateOrExchange(ShuttleGui & S)
 {
+   auto viewModeSetting = ViewModeSetting();
+
    S.SetBorder(2);
    S.StartScroller();
 
@@ -349,7 +355,7 @@ void TracksPrefs::PopulateOrExchange(ShuttleGui & S)
 #endif
 
          S.TieChoice(XXO("Default &view mode:"),
-                     viewModeSetting() );
+                     viewModeSetting );
 
          S.TieChoice(XXO("Default Waveform scale:"),
                      waveformScaleSetting );
@@ -358,8 +364,7 @@ void TracksPrefs::PopulateOrExchange(ShuttleGui & S)
                      sampleDisplaySetting );
 
          S.TieTextBox(XXO("Default audio track &name:"),
-                      {wxT("/GUI/TrackNames/DefaultTrackName"),
-                       _("Audio Track")},
+                      AudioTrackNameSetting,
                       30);
       }
       S.EndMultiColumn();
@@ -416,20 +421,6 @@ void TracksPrefs::SetPinnedHeadPositionPreference(double value, bool flush)
       gPrefs->Flush();
 }
 
-wxString TracksPrefs::GetDefaultAudioTrackNamePreference()
-{
-   const auto name =
-      gPrefs->Read(wxT("/GUI/TrackNames/DefaultTrackName"), wxT(""));
-
-   if (name.empty() || ( name == "Audio Track" ))
-      // When nothing was specified,
-      // the default-default is whatever translation of...
-      /* i18n-hint: The default name for an audio track. */
-      return _("Audio Track");
-   else
-      return name;
-}
-
 bool TracksPrefs::Commit()
 {
    // Bug 1583: Clear the caching of the preference pinned state.
@@ -439,11 +430,13 @@ bool TracksPrefs::Commit()
 
    // Bug 1661: Don't store the name for new tracks if the name is the
    // default in that language.
-   if (GetDefaultAudioTrackNamePreference() == _("Audio Track")) {
-      gPrefs->DeleteEntry(wxT("/GUI/TrackNames/DefaultTrackName"));
+   if (WaveTrack::GetDefaultAudioTrackNamePreference() ==
+       AudioTrackNameSetting.GetDefault()) {
+      AudioTrackNameSetting.Delete();
       gPrefs->Flush();
    }
 
+   AudioTrackNameSetting.Invalidate();
    return true;
 }
 

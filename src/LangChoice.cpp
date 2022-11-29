@@ -15,8 +15,9 @@ of languages for Audacity.
 *//*******************************************************************/
 
 
-#include "Audacity.h"
+
 #include "LangChoice.h"
+#include "MemoryX.h"
 
 #include <wx/defs.h>
 #include <wx/button.h>
@@ -75,9 +76,10 @@ LangChoiceDialog::LangChoiceDialog(wxWindow * parent,
    wxDialogWrapper(parent, id, title)
 {
    SetName();
-   GetLanguages(mLangCodes, mLangNames);
-   int lang =
-      make_iterator_range( mLangCodes ).index( GetSystemLanguageCode() );
+   const auto &paths = FileNames::AudacityPathList();
+   Languages::GetLanguages(paths, mLangCodes, mLangNames);
+   int lang = make_iterator_range( mLangCodes )
+      .index( Languages::GetSystemLanguageCode(paths) );
 
    ShuttleGui S(this, eIsCreating);
 
@@ -105,7 +107,8 @@ void LangChoiceDialog::OnOk(wxCommandEvent & WXUNUSED(event))
    int ndx = mChoice->GetSelection();
    mLang = mLangCodes[ndx];
 
-   wxString slang = GetSystemLanguageCode();
+   auto slang =
+      Languages::GetSystemLanguageCode(FileNames::AudacityPathList());
    int sndx = make_iterator_range( mLangCodes ).index( slang );
    wxString sname;
 
@@ -123,7 +126,7 @@ void LangChoiceDialog::OnOk(wxCommandEvent & WXUNUSED(event))
       /* i18n-hint: The %s's are replaced by translated and untranslated
        * versions of language names. */
       auto msg = XO("The language you have chosen, %s (%s), is not the same as the system language, %s (%s).")
-         .Format(mLangNames[ndx].Translation(),
+         .Format(mLangNames[ndx],
                  mLang,
                  sname,
                  slang);

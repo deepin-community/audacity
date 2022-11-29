@@ -26,7 +26,7 @@
 
 *//**********************************************************************/
 
-#include "../Audacity.h"
+
 #include "ProgressDialog.h"
 
 #include <algorithm>
@@ -50,7 +50,7 @@
 #include <wx/window.h>
 #include <wx/stattext.h>
 
-#include "../Prefs.h"
+#include "Prefs.h"
 
 // This really should be a Preferences setting
 static const unsigned char beep[] =
@@ -1098,6 +1098,11 @@ void ProgressDialog::Reinit()
    wxDialogWrapper::Show(true);
 }
 
+void ProgressDialog::SetDialogTitle(const TranslatableString& title)
+{
+   SetTitle(title);
+}
+
 // Add a NEW text column each time this is called.
 void ProgressDialog::AddMessageAsColumn(wxBoxSizer * pSizer,
                                         const MessageColumn & column,
@@ -1157,7 +1162,17 @@ bool ProgressDialog::Create(const TranslatableString & title,
 {
    Init();
 
-   wxWindow *parent = GetParentForModalDialog(NULL, 0);
+   wxWindow *parent = 
+#if defined(__WXMAC__)
+      // Bug 2703: In release builds, the progress dialog will fall behind
+      // the top level dialog (like effects dialogs). This does not happen
+      // in debug builds and I was not able to track down the reason. So,
+      // this is a workaround and should be reviewed as some point, like
+      // when upgrading to the next WX version.
+      GetParentForModalDialog(mHadFocus, 0);
+#else
+      GetParentForModalDialog(nullptr, 0);
+#endif
 
    // Set this boolean to indicate if we are using the "Elapsed" labels
    m_bShowElapsedTime = !(flags & pdlgHideElapsedTime);
@@ -1478,6 +1493,13 @@ ProgressResult ProgressDialog::Update(
    }
 }
 
+ProgressResult ProgressDialog::Poll(
+   unsigned long long numerator, unsigned long long denominator,
+   const TranslatableString& message)
+{
+   return Update(numerator, denominator, message);
+}
+
 //
 // Update the time and, optionally, the message
 //
@@ -1507,8 +1529,9 @@ void ProgressDialog::SetMessage(const TranslatableString & message)
       wxClientDC dc(mMessage);
       dc.GetMultiLineTextExtent(message.Translation(), &w, &h);
 
-      bool sizeUpdated = false;
-      wxSize ds = GetClientSize();
+      auto sizeUpdated = false;
+      const auto currentSize = GetClientSize();
+      auto ds = currentSize;
 
       // TODO: make the following work in case of message tables
       if (w > mLastW)
@@ -1535,6 +1558,7 @@ void ProgressDialog::SetMessage(const TranslatableString & message)
          // to the existing dimensions.
          ds.x = wxMax(wxMax(ds.x, mLastW), wxMax(ds.y, mLastH));
          SetClientSize(ds);
+         SetPosition(GetPosition() - (ds - currentSize) / 2);
          wxDialogWrapper::Update();
       }
    }

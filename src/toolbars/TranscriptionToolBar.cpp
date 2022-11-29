@@ -14,11 +14,9 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "TranscriptionToolBar.h"
 #include "ToolManager.h"
-
-#include "../Experimental.h"
 
 // For compilers that support precompilation, includes "wx/wx.h".
 #include <wx/wxprec.h>
@@ -31,22 +29,23 @@
 #include <wx/intl.h>
 #endif // WX_PRECOMP
 
-#include "../Envelope.h"
+#include "Envelope.h"
 
-#include "../AllThemeResources.h"
+#include "AllThemeResources.h"
 #include "../AudioIO.h"
-#include "../ImageManipulation.h"
+#include "ImageManipulation.h"
 #include "../KeyboardCapture.h"
-#include "../Project.h"
+#include "NoteTrack.h"
+#include "Project.h"
+#include "../ProjectAudioIO.h"
 #include "../ProjectAudioManager.h"
-#include "../ProjectSettings.h"
-#include "../Envelope.h"
-#include "../ViewInfo.h"
+#include "Envelope.h"
+#include "ViewInfo.h"
 #include "../WaveTrack.h"
 #include "../widgets/AButton.h"
 #include "../widgets/ASlider.h"
 #include "../tracks/ui/Scrubbing.h"
-#include "../Prefs.h"
+#include "Prefs.h"
 
 #ifdef EXPERIMENTAL_VOICE_DETECTION
 #include "../VoiceKey.h"
@@ -158,7 +157,7 @@ void TranscriptionToolBar::Create(wxWindow * parent)
 void TranscriptionToolBar::SetPlaySpeed( double value )
 {
    mPlaySpeed = value;
-   ProjectSettings::Get( mProject ).SetPlaySpeed( GetPlaySpeed() );
+   ProjectAudioIO::Get( mProject ).SetPlaySpeed( GetPlaySpeed() );
 }
 
 /// This is a convenience function that allows for button creation in
@@ -208,7 +207,8 @@ void TranscriptionToolBar::Populate()
 
    AddButton(this, bmpPlay,     bmpPlayDisabled,   TTB_PlaySpeed,
       XO("Play at selected speed"));
-   MakeAlternateImages(bmpLoop, bmpLoopDisabled, TTB_PlaySpeed, 1);
+   // 3.1.0 abandoned distinct images for Shift
+   MakeAlternateImages(bmpPlay, bmpPlayDisabled, TTB_PlaySpeed, 1);
    MakeAlternateImages(bmpCutPreview, bmpCutPreviewDisabled, TTB_PlaySpeed, 2);
    mButtons[TTB_PlaySpeed]->FollowModifierKeys();
 
@@ -301,7 +301,7 @@ void TranscriptionToolBar::EnableDisableButtons()
    auto gAudioIO = AudioIO::Get();
    bool canStopAudioStream = (!gAudioIO->IsStreamActive() ||
            gAudioIO->IsMonitoring() ||
-           gAudioIO->GetOwningProject() == p );
+           gAudioIO->GetOwningProject().get() == p );
    bool recording = gAudioIO->GetNumCaptureChannels() > 0;
 
    // Only interested in audio type tracks
@@ -343,8 +343,9 @@ void TranscriptionToolBar::RegenerateTooltips()
       CommandID commandName2;
       TranslatableString untranslatedLabel2;
    } table[] = {
-      { TTB_PlaySpeed,   wxT("PlayAtSpeed"),    XO("Play-at-Speed"),
-      wxT("PlayAtSpeedLooped"),    XO("Looped-Play-at-Speed")
+      { TTB_PlaySpeed,
+         wxT("PlayAtSpeedLooped"),    XO("Play-at-Speed"),
+         wxT("PlayAtSpeed"),    XO("Play-at-Speed Once"),
       },
    };
 
@@ -473,7 +474,7 @@ void TranscriptionToolBar::GetSamples(
 #define TIMETRACK_MAX 10.0
 
 // Come here from button clicks, or commands
-void TranscriptionToolBar::PlayAtSpeed(bool looped, bool cutPreview)
+void TranscriptionToolBar::PlayAtSpeed(bool newDefault, bool cutPreview)
 {
    // Can't do anything without an active project
    AudacityProject *p = &mProject;
@@ -490,9 +491,10 @@ void TranscriptionToolBar::PlayAtSpeed(bool looped, bool cutPreview)
    if ( TrackList::Get( *p ).Any< NoteTrack >() )
       bFixedSpeedPlay = true;
 
-   // Scrubbing only supports straight through play.
-   // So if looped or cutPreview, we have to fall back to fixed speed.
-   bFixedSpeedPlay = bFixedSpeedPlay || looped || cutPreview;
+   // If cutPreview, we have to fall back to fixed speed.
+   if (newDefault)
+      cutPreview = false;
+   bFixedSpeedPlay = bFixedSpeedPlay || cutPreview;
    if (bFixedSpeedPlay)
    {
       // Create a BoundedEnvelope if we haven't done so already
@@ -525,38 +527,33 @@ void TranscriptionToolBar::PlayAtSpeed(bool looped, bool cutPreview)
    // Start playing
    if (playRegion.GetStart() < 0)
       return;
-   if (bFixedSpeedPlay)
+
    {
-      auto options = DefaultPlayOptions( *p );
-      options.playLooped = looped;
+      auto options = DefaultPlayOptions( *p, newDefault );
       // No need to set cutPreview options.
-      options.envelope = mEnvelope.get();
+      options.envelope = bFixedSpeedPlay ? mEnvelope.get() : nullptr;
+      options.variableSpeed = !bFixedSpeedPlay;
       auto mode =
          cutPreview ? PlayMode::cutPreviewPlay
-         : options.playLooped ? PlayMode::loopedPlay
+         : newDefault ? PlayMode::loopedPlay
          : PlayMode::normalPlay;
       projectAudioManager.PlayPlayRegion(
          SelectedRegion(playRegion.GetStart(), playRegion.GetEnd()),
             options,
             mode);
    }
-   else
-   {
-      auto &scrubber = Scrubber::Get( *p );
-      scrubber.StartSpeedPlay(GetPlaySpeed(),
-         playRegion.GetStart(), playRegion.GetEnd());
-   }
 }
 
 // Come here from button clicks only
-void TranscriptionToolBar::OnPlaySpeed(wxCommandEvent & WXUNUSED(event))
+void TranscriptionToolBar::OnPlaySpeed(wxCommandEvent & event)
 {
    auto button = mButtons[TTB_PlaySpeed];
 
    // Let control have precedence over shift
    const bool cutPreview = mButtons[TTB_PlaySpeed]->WasControlDown();
    const bool looped = !cutPreview &&
-      button->WasShiftDown();
+      !button->WasShiftDown();
+   OnSpeedSlider(event);
    PlayAtSpeed(looped, cutPreview);
 }
 
@@ -834,7 +831,7 @@ void TranscriptionToolBar::OnCalibrate(wxCommandEvent & WXUNUSED(event))
 }
 
 #include "../LabelTrack.h"
-#include "../ProjectHistory.h"
+#include "ProjectHistory.h"
 #include "../TrackPanel.h"
 #include "../TrackPanelAx.h"
 #include "../tracks/labeltrack/ui/LabelTrackView.h"
@@ -845,7 +842,6 @@ int DoAddLabel(
    auto &tracks = TrackList::Get( project );
    auto &trackFocus = TrackFocus::Get( project );
    auto &trackPanel = TrackPanel::Get( project );
-   auto &trackFactory = TrackFactory::Get( project );
    auto &window = ProjectWindow::Get( project );
 
    wxString title;      // of label
@@ -861,7 +857,7 @@ int DoAddLabel(
 
    // If none found, start a NEW label track and use it
    if (!lt)
-      lt = tracks.Add( trackFactory.NewLabelTrack() );
+      lt = tracks.Add( std::make_shared<LabelTrack>() );
 
 // LLL: Commented as it seemed a little forceful to remove users
 //      selection when adding the label.  This does not happen if

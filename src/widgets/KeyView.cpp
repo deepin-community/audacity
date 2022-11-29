@@ -11,7 +11,7 @@
 
 *//*********************************************************************/
 
-#include "../Audacity.h"
+
 #include "KeyView.h"
 
 #include <wx/setup.h> // for wxUSE_* macros
@@ -19,7 +19,7 @@
 #include <wx/settings.h>
 #include <wx/vlbox.h>
 
-#include "../AColor.h"
+#include "AColor.h"
 #include "../ShuttleGui.h"
 #include "../commands/CommandManager.h"
 
@@ -995,7 +995,7 @@ KeyView::RefreshLines(bool bSort)
             node.line = linecnt++;
             mLines.push_back(&node);
 
-            // If this node is not open, then skip all of its decendants
+            // If this node is not open, then skip all of its descendants
             if (!node.isopen)
             {
                bool iscat = node.iscat;

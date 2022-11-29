@@ -1,6 +1,8 @@
 Audacity(R): free, open source, cross-platform audio software for 
 multi-track recording and editing: https://www.audacityteam.org/ . 
 
+See the CHANGELOG.txt file for a list of changes. 
+
 User support is provided on Audacity Forum:
 https://forum.audacityteam.org/ .
 
@@ -8,39 +10,32 @@ We welcome feedback on Audacity, suggestions for new or improved features,
 and bug reports. Please visit 
 https://forum.audacityteam.org/viewforum.php?f=25 .
 
-Audacity is copyright (c) 1999-2019 by Audacity Team. This copyright 
+Audacity is copyright (c) 1999-2021 by Audacity Team. This copyright 
 notice applies to all documents in the Audacity source code archive, 
 except as otherwise noted (mostly in the lib-src subdirectories). 
-"Audacity" is a registered trademark of Dominic Mazzoni. 
+"Audacity" is a registered trademark. 
 
 The Audacity documentation is licensed under the Creative Commons
 Attribution 3.0 license: https://creativecommons.org/licenses/by/3.0/legalcode .
 
-Compilation instructions for Audacity are provided in the source code:
-* Windows: win\build.txt
-* macOS: mac/build.txt
-* GNU/Linux: linux/build.txt 
+Compilation instructions for Audacity are provided in the BUILDING.md file.
 
 You can ask for help with compilation problems at:
 https://forum.audacityteam.org/viewforum.php?f=19 .
 
 If you want to suggest some simple text change in our code, please submit a 
 pull request on https://github.com/audacity/audacity/pulls . It's usually 
-best to discuss functional code changes with us first on audacity-devel: 
-https://lists.sourceforge.net/lists/listinfo/audacity-devel . 
+best to discuss functional code changes with us first on the dev discord server: 
+https://discord.gg/N3XKxzTrq3
 
-Version 2.4.2
 
-Contents of this README:
+Licensing and Source Code, Libraries and Additional Copyright Information 
+follows.
 
-1.  Licensing
-2.  Changes since version 2.4.1
-3.  Known Issues at Release
-4.  Source Code, Libraries and Additional Copyright Information
 
+
+Licensing
 --------------------------------------------------------------------------------
-
-1. Licensing
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -60,50 +55,11 @@ to https://www.gnu.org/licenses/old-licenses/gpl-2.0.html or write to
   Free Software Foundation, Inc.
   59 Temple Place - Suite 330
   Boston, MA 02111-1307 USA
-
-
---------------------------------------------------------------------------------
-
-2. Changes since version 2.4.1: 
-
-
-Improvements
-
- * Audacity is now built with (our version of) the wx3.1.3 library.
-   Previously we used wx3.1.1.
- * We added a command 'Reset Configuration' to reset to default 
-   settings.
- * MP3 Audio is now exported without padding.
-
-See also: https://wiki.audacityteam.org/wiki/New_features_in_Audacity_2.4.2
-
-
-Bug Fixes
-
- Over 30 bugs in 2.4.1 fixed, including:
-
- * 2442 - Windows: Crash when importing (or editing) to a disk 
-   with insufficient disk space available
- * 2471 - Mix Stereo down to Mono fails if space at start of track.
- * 2439 - Mix and Render to New Track selects left channel of new
-   stereo track
-
-
-See also: https://wiki.audacityteam.org/wiki/Release_Notes_2.4.2
-
-
+  
+  
+  
+Source Code, Libraries and Additional Copyright Information
 -------------------------------------------------------------------------------
-
-
-3. Some Known Issues in 2.4.2:
-
-For best workarounds and other known issues in 2.4.2, please see:
-  https://wiki.audacityteam.org/wiki/Release_Notes_2.4.2/Issues 
-
-
--------------------------------------------------------------------------------
-
-4.  Source Code, Libraries and Additional Copyright Information
 
 Source code to this program is always available; for more information visit
 our web site at:
@@ -172,6 +128,10 @@ GPL-compatible license.  Specifically:
     Changes tempo without changing pitch and vice versa.
     Included in audacity
 
+  SQLite: Public Domain
+    Small and fast SQL database engine.
+    Included in audacity
+
   Twolame: LGPL
     Encodes MPEG I layer 2 audio (used in DVDs and Radio). Optional separate
     download.
@@ -190,7 +150,7 @@ Additional copyright information:
 
 Nyquist
 
-Copyright (c) 2000-2002, by Roger B. Dannenberg
+Copyright (c) 2000-2021, by Roger B. Dannenberg
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without

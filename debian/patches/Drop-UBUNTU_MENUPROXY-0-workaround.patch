@@ -1,0 +1,56 @@
+From: Benjamin Drung <benjamin.drung@canonical.com>
+Date: Tue, 27 Sep 2022 13:53:55 +0200
+Subject: Drop UBUNTU_MENUPROXY=0 workaround
+
+wxWidgets 2.6 did not show menus correct on the global menu applet in
+Unity in 2010 ([Ubuntu bug #662007](https://launchpad.net/bugs/662077)).
+The environment variable `UBUNTU_MENUPROXY` was set as workaround.
+
+Audacity 3.2.0 with wxWidgets 3.2 on Ubuntu 22.10 (kinetic) works fine
+under the Unity desktop. Therefore drop the old workaround.
+
+Forwarded: https://github.com/audacity/audacity/pull/3701
+Signed-off-by: Benjamin Drung <benjamin.drung@canonical.com>
+---
+ linux/AppImage/AppRun.sh | 1 -
+ linux/create_appimage.sh | 1 -
+ src/audacity.desktop.in  | 2 +-
+ 3 files changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/linux/AppImage/AppRun.sh b/linux/AppImage/AppRun.sh
+index e7c6912..9b19945 100644
+--- a/linux/AppImage/AppRun.sh
++++ b/linux/AppImage/AppRun.sh
+@@ -23,7 +23,6 @@ export LD_LIBRARY_PATH="${APPDIR}/lib:${LD_LIBRARY_PATH}${fallback_libs}"
+ 
+ export AUDACITY_PATH="${AUDACITY_PATH}:${APPDIR}/share/audacity"
+ export AUDACITY_MODULES_PATH="${AUDACITY_MODULES_PATH}:${APPDIR}/lib/modules"
+-export UBUNTU_MENUPROXY=0
+ 
+ function help()
+ {
+diff --git a/linux/create_appimage.sh b/linux/create_appimage.sh
+index 4935e91..d1b5d0b 100755
+--- a/linux/create_appimage.sh
++++ b/linux/create_appimage.sh
+@@ -81,7 +81,6 @@ linuxdeploy --list-plugins
+ # Create symlinks
+ #============================================================================
+ 
+-sed -i 's|env UBUNTU_MENUPROXY=0 ||' "${appdir}/share/applications/audacity.desktop"
+ ln -sf --no-dereference . "${appdir}/usr"
+ ln -sf share/applications/audacity.desktop "${appdir}/audacity.desktop"
+ ln -sf share/icons/hicolor/scalable/apps/audacity.svg "${appdir}/audacity.svg"
+diff --git a/src/audacity.desktop.in b/src/audacity.desktop.in
+index 584d244..34934bd 100644
+--- a/src/audacity.desktop.in
++++ b/src/audacity.desktop.in
+@@ -61,7 +61,7 @@ Categories=AudioVideo;Audio;AudioVideoEditing;
+ 
+ Keywords=sound;music editing;voice channel;frequency;modulation;audio trim;clipping;noise reduction;multi track audio editor;edit;mixing;WAV;AIFF;FLAC;MP2;MP3;
+ 
+-Exec=env UBUNTU_MENUPROXY=0 @AUDACITY_NAME@ %F
++Exec=@AUDACITY_NAME@ %F
+ StartupNotify=false
+ Terminal=false
+ MimeType=@MIMETYPES@;

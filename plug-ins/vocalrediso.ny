@@ -4,23 +4,20 @@ $type process
 $preview linear
 $name (_ "Vocal Reduction and Isolation")
 $manpage "Vocal_Reduction_and_Isolation"
-$action (_ "Applying Action...")
+$debugbutton false
 $author (_ "Robert Haenggi")
-$release 2.3.3
-$copyright (_ "Released under terms of the GNU General Public License version 2")
+$release 3.0.1-1
+$copyright (_ "GNU General Public License v2.0")
 
 
 ;; vocrediso.ny, based on rjh-stereo-tool.ny
-;; Released under terms of the GNU General Public License version 2:
+
+;; License: GPL v2
 ;; http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
-;;
-;; Plug-in version 1.7, May  2017
-;; added legacy Vocal Remover since V. 1.56, 06-2015
-;; Requires Audacity 2.1.1  or later, developed under Audacity 2.2.0 Alpha
-;; requires Audacity 2.2.0 for embedded help (button)
 ;;
 ;; For information about writing and modifying Nyquist plug-ins:
 ;; https://wiki.audacityteam.org/wiki/Nyquist_Plug-ins_Reference
+
 
 $control action (_ "Action") choice (
     ("RemoveToMono" (_ "Remove Vocals: to mono"))
@@ -36,6 +33,8 @@ $control strength (_ "Strength") real "" 1.0 0.0 50.0
 $control low-transition (_ "Low Cut for Vocals (Hz)") real "" 120 1 24000
 $control high-transition (_ "High Cut for Vocals (Hz)") real "" 9000 1 24000
 
+
+(setf bignum 1000000000)
 
 ;;control rotation "Rotation (Degrees)" real "" 0 -180 180
 (setf rotation 0.0)
@@ -195,7 +194,7 @@ $control high-transition (_ "High Cut for Vocals (Hz)") real "" 9000 1 24000
 
 
 ;; Make a weighted center (mono)
-;; that can be substracted from L&R
+;; that can be subtracted from L&R
 (defun steer (side obj &aux (mid (send obj :next)))
   (cond
     ((and mid side)
@@ -204,7 +203,7 @@ $control high-transition (_ "High Cut for Vocals (Hz)") real "" 9000 1 24000
                (wt-exp (s-exp   (scale strength    (diff power-dif power-sum))))
                (weight (shape wt-exp *map* 0))
                ;(weight (shape (db-to-linear power-dif)  (s-exp  (mult 2 (s-log *map2*))) 1))
-               (weight (snd-samples weight ny:all)))
+               (weight (snd-samples weight bignum)))  ;Fix for bug 2706
           (do ((i low-transition (+ i 2)))
               ((>= i high-transition))
             (setf (: out i) (: weight (/ (1+ i) 2)))
@@ -274,7 +273,7 @@ $control high-transition (_ "High Cut for Vocals (Hz)") real "" 9000 1 24000
 
 *track* ;Return original audio if something goes wrong
 
-;;;  we start with some variable assignements
+;;;  we start with some variable assignments
 (setf *sr* *sound-srate*)
 
 ;; hard coded STFT parameters

@@ -13,16 +13,16 @@ Paul Licameli
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "WaveformPrefs.h"
 
 #include "GUIPrefs.h"
-#include "GUISettings.h"
+#include "Decibels.h"
 
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 
-#include "../Project.h"
+#include "Project.h"
 
 #include "../TrackPanel.h"
 #include "../ShuttleGui.h"
@@ -56,17 +56,17 @@ WaveformPrefs::~WaveformPrefs()
 {
 }
 
-ComponentInterfaceSymbol WaveformPrefs::GetSymbol()
+ComponentInterfaceSymbol WaveformPrefs::GetSymbol() const
 {
    return WAVEFORM_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString WaveformPrefs::GetDescription()
+TranslatableString WaveformPrefs::GetDescription() const
 {
    return XO("Preferences for Waveforms");
 }
 
-wxString WaveformPrefs::HelpPageName()
+ManualPageID WaveformPrefs::HelpPageName()
 {
    return "Waveform_Preferences";
 }
@@ -171,7 +171,7 @@ bool WaveformPrefs::Commit()
             channel->SetWaveformSettings({});
          else {
             WaveformSettings &settings =
-               channel->GetIndependentWaveformSettings();
+               channel->GetWaveformSettings();
             settings = mTempSettings;
          }
       }

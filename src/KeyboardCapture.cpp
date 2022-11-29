@@ -11,6 +11,7 @@
 #include "KeyboardCapture.h"
 
 #if defined(__WXMAC__)
+#include "CFResources.h"
 #include <wx/textctrl.h>
 #include <AppKit/AppKit.h>
 #include <wx/osx/core/private.h>
@@ -19,6 +20,7 @@
 #include <gtk/gtk.h>
 #endif
 
+#include <wx/app.h>
 #include <wx/button.h>
 #include <wx/eventfilter.h>
 #include <wx/toplevel.h>
@@ -38,16 +40,6 @@ wxWindowRef &sHandler()
 {
    static wxWindowRef theHandler;
    return theHandler;
-}
-KeyboardCapture::FilterFunction &sPreFilter()
-{
-   static KeyboardCapture::FilterFunction theFilter;
-   return theFilter;
-}
-KeyboardCapture::FilterFunction &sPostFilter()
-{
-   static KeyboardCapture::FilterFunction theFilter;
-   return theFilter;
 }
 
 }
@@ -77,20 +69,6 @@ void Release(wxWindow *handler)
    sHandler() = nullptr;
 }
 
-FilterFunction SetPreFilter( const FilterFunction &function )
-{
-   auto result = sPreFilter();
-   sPreFilter() = function;
-   return result;
-}
-
-FilterFunction SetPostFilter( const FilterFunction &function )
-{
-   auto result = sPostFilter();
-   sPostFilter() = function;
-   return result;
-}
-
 void OnFocus( wxWindow &window, wxFocusEvent &event )
 {
    if (event.GetEventType() == wxEVT_KILL_FOCUS)
@@ -112,7 +90,7 @@ public:
    :  wxEventFilter()
    {
 #if defined(__WXMAC__)
-      // In wx3, the menu accelerators take precendence over key event processing
+      // In wx3, the menu accelerators take precedence over key event processing
       // so we won't get wxEVT_CHAR_HOOK events for combinations assigned to menus.
       // Since we only support OS X 10.6 or greater, we can use an event monitor
       // to capture the key event before it gets to the normal wx3 processing.
@@ -191,7 +169,7 @@ public:
 
          wxKeyEvent key = static_cast<wxKeyEvent &>( event );
 
-         if ( !( sPreFilter() && sPreFilter()( key ) ) )
+         if ( !( KeyboardCapture::PreFilter::Call(key) ) )
             return Event_Skip;
 
 #ifdef __WXMAC__
@@ -212,6 +190,7 @@ public:
                   if ( auto button =
                      dynamic_cast<wxButton*>( top->GetDefaultItem() ) ) {
                      wxCommandEvent newEvent{ wxEVT_BUTTON, button->GetId() };
+                     newEvent.SetEventObject( button );
                      button->GetEventHandler()->AddPendingEvent( newEvent );
                      return Event_Processed;
                   }
@@ -234,12 +213,24 @@ public:
             return Event_Processed;
          }
 
-         if ( sPostFilter() && sPostFilter()( key ) )
+         if ( KeyboardCapture::PostFilter::Call( key ) )
             return Event_Processed;
 
          // Give it back to WX for normal processing.
          return Event_Skip;
-      }, MakeSimpleGuard( Event_Skip ) );
+      },
+      // Immediate handler invokes the same high level catch-all as for
+      // unhandled exceptions, which will also do its own delayed handling
+      [](AudacityException *pEx){
+         if (pEx)
+            wxTheApp->OnExceptionInMainLoop();
+         else
+            throw;
+         return Event_Processed;
+      },
+      // So don't duplicate delayed handling:
+      [](auto){}
+      );
    }
 
 private:
@@ -341,8 +332,9 @@ private:
          // as in the combo box case of bug 1252.  We can't compute it!
          // This makes a difference only when there is a capture handler.
          // It's never the case yet that there is one.
-         wxASSERT(false);
-         return chars;
+
+         // Return just a one-character string.
+         return event.GetUnicodeKey();
       }
 
       NSString *c = [mEvent charactersIgnoringModifiers];
@@ -358,13 +350,12 @@ private:
       c = [mEvent characters];
       chars = [c UTF8String];
 
-      TISInputSourceRef currentKeyboard = TISCopyCurrentKeyboardInputSource();
-      CFDataRef uchr = (CFDataRef)TISGetInputSourceProperty(currentKeyboard, kTISPropertyUnicodeKeyLayoutData);
-      CFRelease(currentKeyboard);
-      if (uchr == NULL)
-      {
+      auto uchr = static_cast<CFDataRef>(TISGetInputSourceProperty(
+         CF_ptr<TISInputSourceRef>{ TISCopyCurrentKeyboardInputSource() }
+            .get(),
+         kTISPropertyUnicodeKeyLayoutData));
+      if (!uchr)
          return chars;
-      }
 
       const UCKeyboardLayout *keyboardLayout = (const UCKeyboardLayout*)CFDataGetBytePtr(uchr);
       if (keyboardLayout == NULL)

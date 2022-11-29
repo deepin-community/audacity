@@ -11,17 +11,19 @@
 \brief Internal module to auto register all built in effects.  
 *****************************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 #include "LoadEffects.h"
 
-#include "../Prefs.h"
+#include "Prefs.h"
 
 #include "Effect.h"
+#include "ModuleManager.h"
+#include "PluginManager.h"
 
 static bool sInitialized = false;
 
 struct BuiltinEffectsModule::Entry {
-   wxString name;
+   ComponentInterfaceSymbol name;
    BuiltinEffectsModule::Factory factory;
    bool excluded;
 
@@ -37,7 +39,7 @@ void BuiltinEffectsModule::DoRegistration(
    const ComponentInterfaceSymbol &name, const Factory &factory, bool excluded )
 {
    wxASSERT( !sInitialized );
-   Entry::Registry().emplace_back( Entry{ name.Internal(), factory, excluded } );
+   Entry::Registry().emplace_back( Entry{ name, factory, excluded } );
 }
 
 // ============================================================================
@@ -49,17 +51,17 @@ void BuiltinEffectsModule::DoRegistration(
 // When the module is builtin to Audacity, we use the same function, but it is
 // declared static so as not to clash with other builtin modules.
 // ============================================================================
-DECLARE_MODULE_ENTRY(AudacityModule)
+DECLARE_PROVIDER_ENTRY(AudacityModule)
 {
    // Create and register the importer
    // Trust the module manager not to leak this
-   return safenew BuiltinEffectsModule(path);
+   return std::make_unique<BuiltinEffectsModule>();
 }
 
 // ============================================================================
 // Register this as a builtin module
 // ============================================================================
-DECLARE_BUILTIN_MODULE(BuiltinsEffectBuiltin);
+DECLARE_BUILTIN_PROVIDER(BuiltinsEffectBuiltin);
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -67,57 +69,52 @@ DECLARE_BUILTIN_MODULE(BuiltinsEffectBuiltin);
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-BuiltinEffectsModule::BuiltinEffectsModule(const wxString *path)
+BuiltinEffectsModule::BuiltinEffectsModule()
 {
-   if (path)
-   {
-      mPath = *path;
-   }
 }
 
 BuiltinEffectsModule::~BuiltinEffectsModule()
 {
-   mPath.clear();
 }
 
 // ============================================================================
 // ComponentInterface implementation
 // ============================================================================
 
-PluginPath BuiltinEffectsModule::GetPath()
+PluginPath BuiltinEffectsModule::GetPath() const
 {
-   return mPath;
+   return {};
 }
 
-ComponentInterfaceSymbol BuiltinEffectsModule::GetSymbol()
+ComponentInterfaceSymbol BuiltinEffectsModule::GetSymbol() const
 {
    return XO("Builtin Effects");
 }
 
-VendorSymbol BuiltinEffectsModule::GetVendor()
+VendorSymbol BuiltinEffectsModule::GetVendor() const
 {
    return XO("The Audacity Team");
 }
 
-wxString BuiltinEffectsModule::GetVersion()
+wxString BuiltinEffectsModule::GetVersion() const
 {
    // This "may" be different if this were to be maintained as a separate DLL
    return AUDACITY_VERSION_STRING;
 }
 
-TranslatableString BuiltinEffectsModule::GetDescription()
+TranslatableString BuiltinEffectsModule::GetDescription() const
 {
    return XO("Provides builtin effects to Audacity");
 }
 
 // ============================================================================
-// ModuleInterface implementation
+// PluginProvider implementation
 // ============================================================================
 
 bool BuiltinEffectsModule::Initialize()
 {
    for ( const auto &entry : Entry::Registry() ) {
-      auto path = wxString(BUILTIN_EFFECT_PREFIX) + entry.name;
+      auto path = wxString(BUILTIN_EFFECT_PREFIX) + entry.name.Internal();
       mEffects[ path ] = &entry;
    }
    sInitialized = true;
@@ -143,28 +140,32 @@ const FileExtensions &BuiltinEffectsModule::GetFileExtensions()
    return empty;
 }
 
-bool BuiltinEffectsModule::AutoRegisterPlugins(PluginManagerInterface & pm)
+void BuiltinEffectsModule::AutoRegisterPlugins(PluginManagerInterface & pm)
 {
+   // Assume initial PluginManager::Save is not yet done
+
+   // The set of built-in functions that are realtime capable may differ with
+   // the plugin registry version
+   bool rediscoverAll = !Regver_eq(pm.GetRegistryVersion(), REGVERCUR);
+
    TranslatableString ignoredErrMsg;
-   for (const auto &pair : mEffects)
-   {
-      if ( pair.second->excluded )
-         continue;
+   for (const auto &pair : mEffects) {
       const auto &path = pair.first;
-      if (!pm.IsPluginRegistered(path))
-      {
+      if (rediscoverAll ||
+         !pm.IsPluginRegistered(path, &pair.second->name.Msgid())
+      ){
+         if ( pair.second->excluded )
+            continue;
          // No checking of error ?
          DiscoverPluginsAtPath(path, ignoredErrMsg,
             PluginManagerInterface::DefaultRegistrationCallback);
       }
    }
-
-   // We still want to be called during the normal registration process
-   return false;
 }
 
-PluginPaths BuiltinEffectsModule::FindPluginPaths(PluginManagerInterface & WXUNUSED(pm))
+PluginPaths BuiltinEffectsModule::FindModulePaths(PluginManagerInterface &)
 {
+   // Not really libraries
    PluginPaths names;
    for ( const auto &pair : mEffects )
       names.push_back( pair.first );
@@ -175,6 +176,7 @@ unsigned BuiltinEffectsModule::DiscoverPluginsAtPath(
    const PluginPath & path, TranslatableString &errMsg,
    const RegistrationCallback &callback)
 {
+   // At most one
    errMsg = {};
    auto effect = Instantiate(path);
    if (effect)
@@ -188,26 +190,16 @@ unsigned BuiltinEffectsModule::DiscoverPluginsAtPath(
    return 0;
 }
 
-bool BuiltinEffectsModule::IsPluginValid(const PluginPath & path, bool bFast)
-{
-   // bFast is unused as checking in the list is fast.
-   static_cast<void>(bFast);
-   return mEffects.find( path ) != mEffects.end();
-}
-
-ComponentInterface *BuiltinEffectsModule::CreateInstance(const PluginPath & path)
+std::unique_ptr<ComponentInterface>
+BuiltinEffectsModule::LoadPlugin(const PluginPath & path)
 {
    // Acquires a resource for the application.
-   // Safety of this depends on complementary calls to DeleteInstance on the module manager side.
-   return Instantiate(path).release();
+   return Instantiate(path);
 }
 
-void BuiltinEffectsModule::DeleteInstance(ComponentInterface *instance)
+bool BuiltinEffectsModule::CheckPluginExist(const PluginPath& path) const
 {
-   // Releases the resource.
-   std::unique_ptr < Effect > {
-      dynamic_cast<Effect *>(instance)
-   };
+   return mEffects.find( path ) != mEffects.end();
 }
 
 // ============================================================================

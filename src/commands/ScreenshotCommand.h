@@ -2,7 +2,7 @@
 
    Audacity - A Digital Audio Editor
    Copyright 1999-2018 Audacity Team
-   License: GPL v2 - see LICENSE.txt
+   License: GPL v2 or later - see LICENSE.txt
 
    Dominic Mazzoni
    Dan Horgan
@@ -28,7 +28,7 @@ class AdornedRulerPanel;
 class AudacityProject;
 class CommandContext;
 
-class ScreenshotCommand : public AudacityCommand
+class AUDACITY_DLL_API ScreenshotCommand : public AudacityCommand
 {
 public:
    enum kBackgrounds
@@ -54,7 +54,6 @@ public:
       ktimer,
       ktools,
       ktransport,
-      kmixer,
       kmeter,
       kplaymeter,
       krecordmeter,
@@ -81,13 +80,15 @@ public:
 
    ScreenshotCommand();
    // ComponentInterface overrides
-   ComponentInterfaceSymbol GetSymbol() override {return Symbol;};
-   TranslatableString GetDescription() override {return XO("Takes screenshots.");};
-   bool DefineParams( ShuttleParams & S ) override;
+   ComponentInterfaceSymbol GetSymbol() const override {return Symbol;};
+   TranslatableString GetDescription() const override {return XO("Takes screenshots.");};
+   template<bool Const> bool VisitSettings( SettingsVisitorBase<Const> &S );
+   bool VisitSettings( SettingsVisitor & S ) override;
+   bool VisitSettings( ConstSettingsVisitor & S ) override;
    void PopulateOrExchange(ShuttleGui & S) override;
 
    // AudacityCommand overrides
-   wxString ManualPage() override {return wxT("Extra_Menu:_Scriptables_II#screenshot_short_format");};
+   ManualPageID ManualPage() override {return L"Extra_Menu:_Scriptables_II#screenshot_short_format";}
 
 private:
    int mWhat;

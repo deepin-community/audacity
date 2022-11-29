@@ -28,9 +28,10 @@
 
 *//********************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 #include "Export.h"
 
+#include <wx/bmpbuttn.h>
 #include <wx/dcclient.h>
 #include <wx/file.h>
 #include <wx/filectrl.h>
@@ -48,29 +49,31 @@
 
 #include "sndfile.h"
 
-#include "../widgets/FileDialog/FileDialog.h"
+#include "widgets/FileDialog/FileDialog.h"
 
-#include "../DirManager.h"
-#include "../FileFormats.h"
-#include "../Mix.h"
-#include "../Prefs.h"
+#include "AllThemeResources.h"
+#include "BasicUI.h"
+#include "Mix.h"
+#include "MixAndRender.h"
+#include "Prefs.h"
 #include "../prefs/ImportExportPrefs.h"
-#include "../Project.h"
-#include "../ProjectHistory.h"
+#include "Project.h"
+#include "ProjectHistory.h"
 #include "../ProjectSettings.h"
 #include "../ProjectWindow.h"
+#include "../ProjectWindows.h"
 #include "../ShuttleGui.h"
-#include "../Tags.h"
-#include "../TimeTrack.h"
+#include "../TagsEditor.h"
+#include "Theme.h"
 #include "../WaveTrack.h"
 #include "../widgets/AudacityMessageBox.h"
 #include "../widgets/Warning.h"
 #include "../widgets/HelpSystem.h"
-#include "../AColor.h"
-#include "../Dependencies.h"
-#include "../FileNames.h"
-#include "../widgets/HelpSystem.h"
-#include "../widgets/ProgressDialog.h"
+#include "AColor.h"
+#include "FileNames.h"
+#include "widgets/HelpSystem.h"
+#include "widgets/ProgressDialog.h"
+#include "wxFileNameWrapper.h"
 
 //----------------------------------------------------------------------------
 // ExportPlugin
@@ -223,9 +226,9 @@ std::unique_ptr<Mixer> ExportPlugin::CreateMixer(const TrackList &tracks,
          double startTime, double stopTime,
          unsigned numOutChannels, size_t outBufferSize, bool outInterleaved,
          double outRate, sampleFormat outFormat,
-         bool highQuality, MixerSpec *mixerSpec)
+         MixerSpec *mixerSpec)
 {
-   WaveTrackConstArray inputTracks;
+   Mixer::Inputs inputs;
 
    bool anySolo = !(( tracks.Any<const WaveTrack>() + &WaveTrack::GetSolo ).empty());
 
@@ -233,34 +236,37 @@ std::unique_ptr<Mixer> ExportPlugin::CreateMixer(const TrackList &tracks,
       + (selectionOnly ? &Track::IsSelected : &Track::Any )
       - ( anySolo ? &WaveTrack::GetNotSolo : &WaveTrack::GetMute);
    for (auto pTrack: range)
-      inputTracks.push_back(
-         pTrack->SharedPointer< const WaveTrack >() );
-   const auto timeTrack = *tracks.Any<const TimeTrack>().begin();
-   auto envelope = timeTrack ? timeTrack->GetEnvelope() : nullptr;
+      inputs.emplace_back(
+         pTrack->SharedPointer<const SampleTrack>(), GetEffectStages(*pTrack));
    // MB: the stop time should not be warped, this was a bug.
-   return std::make_unique<Mixer>(inputTracks,
+   return std::make_unique<Mixer>(move(inputs),
                   // Throw, to stop exporting, if read fails:
                   true,
-                  Mixer::WarpOptions(envelope),
+                  Mixer::WarpOptions{tracks},
                   startTime, stopTime,
                   numOutChannels, outBufferSize, outInterleaved,
                   outRate, outFormat,
-                  highQuality, mixerSpec);
+                  true, mixerSpec);
 }
 
-void ExportPlugin::InitProgress(std::unique_ptr<ProgressDialog> &pDialog,
+void ExportPlugin::InitProgress(std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
    const TranslatableString &title, const TranslatableString &message)
 {
    if (!pDialog)
       pDialog = std::make_unique<ProgressDialog>( title, message );
-   else {
-      pDialog->SetTitle( title );
-      pDialog->SetMessage( message );
-      pDialog->Reinit();
+   else
+   {
+      if (auto pd = dynamic_cast<ProgressDialog*>(pDialog.get()))
+      {
+         pd->SetTitle(title);
+         pd->Reinit();
+      }
+
+      pDialog->SetMessage(message);
    }
 }
 
-void ExportPlugin::InitProgress(std::unique_ptr<ProgressDialog> &pDialog,
+void ExportPlugin::InitProgress(std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
    const wxFileNameWrapper &title, const TranslatableString &message)
 {
    return InitProgress(
@@ -368,7 +374,7 @@ void Exporter::OnExtensionChanged(wxCommandEvent &evt)
 void Exporter::OnHelp(wxCommandEvent& WXUNUSED(evt))
 {
    wxWindow * pWin = FindProjectFrame( mProject );
-   HelpSystem::ShowHelp(pWin, wxT("File_Export_Dialog"), true);
+   HelpSystem::ShowHelp(pWin, L"File_Export_Dialog", true);
 }
 
 void Exporter::SetFileDialogTitle( const TranslatableString & DialogTitle )
@@ -410,7 +416,8 @@ bool Exporter::DoEditMetadata(AudacityProject &project,
    // BEFORE doing any editing of it!
    auto newTags = tags.Duplicate();
 
-   if (newTags->ShowEditDialog(&GetProjectFrame( project ), title, force)) {
+   if (TagsEditorDialog::ShowEditDialog(
+      *newTags, &GetProjectFrame( project ), title, force)) {
       if (tags != *newTags) {
          // Commit the change to project state only now.
          Tags::Set( project, newTags );
@@ -462,10 +469,19 @@ bool Exporter::Process(bool selectedOnly, double t0, double t1)
    }
 
    // Export the tracks
-   bool success = ExportTracks();
+   std::unique_ptr<BasicUI::ProgressDialog> pDialog;
+   bool success = ExportTracks(pDialog);
 
    // Get rid of mixerspec
    mMixerSpec.reset();
+
+   if (success) {
+      if (mFormatName.empty()) {
+         gPrefs->Write(wxT("/Export/Format"), mPlugins[mFormat]->GetFormat(mSubFormat));
+      }
+
+      FileNames::UpdateDefaultPath(FileNames::Operation::Export, mFilename.GetPath());
+   }
 
    return success;
 }
@@ -473,6 +489,15 @@ bool Exporter::Process(bool selectedOnly, double t0, double t1)
 bool Exporter::Process(unsigned numChannels,
                        const FileExtension &type, const wxString & filename,
                        bool selectedOnly, double t0, double t1)
+{
+   std::unique_ptr<BasicUI::ProgressDialog> pDialog;
+   return Process(numChannels, type, filename, selectedOnly, t0, t1, pDialog);
+}
+
+bool Exporter::Process(
+   unsigned numChannels, const FileExtension& type, const wxString& filename,
+   bool selectedOnly, double t0, double t1,
+   std::unique_ptr<BasicUI::ProgressDialog>& progressDialog)
 {
    // Save parms
    mChannels = numChannels;
@@ -483,7 +508,8 @@ bool Exporter::Process(unsigned numChannels,
    mActualName = mFilename;
 
    int i = -1;
-   for (const auto &pPlugin : mPlugins) {
+   for (const auto& pPlugin : mPlugins)
+   {
       ++i;
       for (int j = 0; j < pPlugin->GetFormatCount(); j++)
       {
@@ -491,11 +517,11 @@ bool Exporter::Process(unsigned numChannels,
          {
             mFormat = i;
             mSubFormat = j;
-            return CheckFilename() && ExportTracks();
+            return CheckFilename() && ExportTracks(progressDialog);
          }
       }
    }
-
+   
    return false;
 }
 
@@ -565,10 +591,9 @@ bool Exporter::ExamineTracks()
          message = XO("All selected audio is muted.");
       else
          message = XO("All audio is muted.");
-      AudacityMessageBox(
-         message,
-         XO("Unable to export"),
-         wxOK | wxICON_INFORMATION);
+      ShowExportErrorDialog(
+         ":576",
+         message, AudacityExportCaptionStr(), false);
       return false;
    }
 
@@ -632,7 +657,7 @@ bool Exporter::GetFilename()
    wxString defext = mPlugins[mFormat]->GetExtension(mSubFormat).Lower();
 
    //Bug 1304: Set a default path if none was given.  For Export.
-   mFilename = FileNames::DefaultToDocumentsFolder(wxT("/Export/Path"));
+   mFilename.SetPath(FileNames::FindDefaultPath(FileNames::Operation::Export));
    mFilename.SetName(mProject->GetProjectName());
    if (mFilename.GetName().empty())
       mFilename.SetName(_("untitled"));
@@ -745,31 +770,6 @@ bool Exporter::GetFilename()
          continue;
       }
 
-      // Check to see if we are writing to a path that a missing aliased file existed at.
-      // This causes problems for the exporter, so we don't allow it.
-      // Overwritting non-missing aliased files is okay.
-      // Also, this can only happen for uncompressed audio.
-      bool overwritingMissingAliasFiles;
-      overwritingMissingAliasFiles = false;
-      for (auto pProject : AllProjects{}) {
-         AliasedFileArray aliasedFiles;
-         FindDependencies(pProject.get(), aliasedFiles);
-         for (const auto &aliasedFile : aliasedFiles) {
-            if (mFilename.GetFullPath() == aliasedFile.mFileName.GetFullPath() &&
-                !mFilename.FileExists()) {
-               // Warn and return to the dialog
-               AudacityMessageBox(XO(
-"You are attempting to overwrite an aliased file that is missing.\n\
-The file cannot be written because the path is needed to restore the original audio to the project.\n\
-Choose Help > Diagnostics > Check Dependencies to view the locations of all missing files.\n\
-If you still wish to export, please choose a different filename or folder."));
-               overwritingMissingAliasFiles = true;
-            }
-         }
-      }
-      if (overwritingMissingAliasFiles)
-         continue;
-
 // For Mac, it's handled by the FileDialog
 #if !defined(__WXMAC__)
       if (mFilename.FileExists()) {
@@ -800,21 +800,6 @@ If you still wish to export, please choose a different filename or folder."));
 //
 bool Exporter::CheckFilename()
 {
-   //
-   // Ensure that exporting a file by this name doesn't overwrite
-   // one of the existing files in the project.  (If it would
-   // overwrite an existing file, DirManager tries to rename the
-   // existing file.)
-   //
-
-   if (!DirManager::Get( *mProject ).EnsureSafeFilename(mFilename))
-      return false;
-
-   if( mFormatName.empty() )
-      gPrefs->Write(wxT("/Export/Format"), mPlugins[mFormat]->GetFormat(mSubFormat));
-   gPrefs->Write(wxT("/Export/Path"), mFilename.GetPath());
-   gPrefs->Flush();
-
    //
    // To be even safer, return a temporary file name based
    // on this one...
@@ -867,7 +852,7 @@ bool Exporter::CheckMix(bool prompt /*= true*/ )
    // Clean up ... should never happen
    mMixerSpec.reset();
 
-   // Detemine if exported file will be stereo or mono or multichannel,
+   // Determine if exported file will be stereo or mono or multichannel,
    // and if mixing will occur.
 
    auto downMix = ImportExportPrefs::ExportDownMixSetting.ReadEnum();
@@ -941,7 +926,8 @@ bool Exporter::CheckMix(bool prompt /*= true*/ )
    return true;
 }
 
-bool Exporter::ExportTracks()
+bool Exporter::ExportTracks(
+   std::unique_ptr<BasicUI::ProgressDialog>& progressDialog)
 {
    // Keep original in case of failure
    if (mActualName != mFilename) {
@@ -960,6 +946,8 @@ bool Exporter::ExportTracks()
             ::wxRemoveFile(mActualName.GetFullPath());
             ::wxRenameFile(mFilename.GetFullPath(), mActualName.GetFullPath());
          }
+         // Restore filename
+         mFilename = mActualName;
       }
       else {
          if ( ! success )
@@ -968,9 +956,8 @@ bool Exporter::ExportTracks()
       }
    } );
 
-   std::unique_ptr<ProgressDialog> pDialog;
    auto result = mPlugins[mFormat]->Export(mProject,
-                                       pDialog,
+                                       progressDialog,
                                        mChannels,
                                        mActualName.GetFullPath(),
                                        mSelectedOnly,
@@ -999,38 +986,35 @@ void Exporter::CreateUserPane(wxWindow *parent)
 {
    ShuttleGui S(parent, eIsCreating);
 
-   S.StartVerticalLay();
+   S.StartStatic(XO("Format Options"), 1);
    {
       S.StartHorizontalLay(wxEXPAND);
       {
-         S.StartStatic(XO("Format Options"), 1);
+         mBook = S.Position(wxEXPAND).StartSimplebook();
          {
-            mBook = S.Position(wxEXPAND)
-               .StartSimplebook();
-
             for (const auto &pPlugin : mPlugins)
             {
                for (int j = 0; j < pPlugin->GetFormatCount(); j++)
                {
                   // Name of simple book page is not displayed
                   S.StartNotebookPage( {} );
-                  pPlugin->OptionsCreate(S, j);
+                  {
+                     pPlugin->OptionsCreate(S, j);
+                  }
                   S.EndNotebookPage();
                }
             }
-
-            S.EndSimplebook();
          }
-         S.EndStatic();
+         S.EndSimplebook();
+
+         auto b = safenew wxBitmapButton(S.GetParent(), wxID_HELP, theTheme.Bitmap( bmpHelpIcon ));
+         b->SetToolTip( XO("Help").Translation() );
+         b->SetLabel(XO("Help").Translation());       // for screen readers
+         S.Position(wxALIGN_BOTTOM | wxRIGHT | wxBOTTOM).AddWindow(b);
       }
       S.EndHorizontalLay();
    }
-   S.StartHorizontalLay(wxALIGN_RIGHT, 0);
-   {
-      S.AddStandardButtons(eHelpButton);
-   }
-   S.EndHorizontalLay();
-   S.EndVerticalLay();
+   S.EndStatic();
 
    return;
 }
@@ -1108,7 +1092,8 @@ bool Exporter::ProcessFromTimerRecording(bool selectedOnly,
    }
 
    // Export the tracks
-   bool success = ExportTracks();
+   std::unique_ptr<BasicUI::ProgressDialog> pDialog;
+   bool success = ExportTracks(pDialog);
 
    // Get rid of mixerspec
    mMixerSpec.reset();
@@ -1325,7 +1310,7 @@ double ExportMixerPanel::Distance( wxPoint &a, wxPoint &b )
    return sqrt( pow( a.x - b.x, 2.0 ) + pow( a.y - b.y, 2.0 ) );
 }
 
-//checks if p is on the line connecting la, lb with tolerence
+//checks if p is on the line connecting la, lb with tolerance
 bool ExportMixerPanel::IsOnLine( wxPoint p, wxPoint la, wxPoint lb )
 {
    return Distance( p, la ) + Distance( p, lb ) - Distance( la, lb ) < 0.1;
@@ -1529,6 +1514,47 @@ void ExportMixerDialog::OnCancel(wxCommandEvent & WXUNUSED(event))
 
 void ExportMixerDialog::OnMixerPanelHelp(wxCommandEvent & WXUNUSED(event))
 {
-   HelpSystem::ShowHelp(this, wxT("Advanced_Mixing_Options"), true);
+   HelpSystem::ShowHelp(this, L"Advanced_Mixing_Options", true);
 }
+
+
+TranslatableString AudacityExportCaptionStr()
+{
+   return XO("Warning");
+}
+TranslatableString AudacityExportMessageStr()
+{
+   return XO("Unable to export.\nError %s");
+}
+
+
+// This creates a generic export error dialog
+// Untranslated ErrorCodes like "MP3:1882" are used since we don't yet have
+// a good user facing error message.  They allow us to 
+// distinguish where the error occurred, and we can update the landing
+// page as we learn more about when (if ever) these errors actually happen.
+// The number happens to at one time have been a line number, but all
+// we need from them is that they be distinct.
+void ShowExportErrorDialog(wxString ErrorCode,
+   TranslatableString message,
+   const TranslatableString& caption,
+   bool allowReporting)
+{
+   using namespace BasicUI;
+   ShowErrorDialog( {},
+      caption,
+      message.Format( ErrorCode ),
+      "Error:_Unable_to_export", // URL.
+      ErrorDialogOptions { allowReporting ? ErrorDialogType::ModalErrorReport : ErrorDialogType::ModalError });
+}
+
+void ShowDiskFullExportErrorDialog(const wxFileNameWrapper &fileName)
+{
+   BasicUI::ShowErrorDialog( {},
+      XO("Warning"),
+      FileException::WriteFailureMessage(fileName),
+      "Error:_Disk_full_or_not_writable"
+   );
+}
+
 

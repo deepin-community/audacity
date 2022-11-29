@@ -17,25 +17,22 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "GUIPrefs.h"
 
-#include "../Experimental.h"
-
-#include <wx/app.h>
 #include <wx/defs.h>
 
-#include "../FileNames.h"
-#include "../Languages.h"
-#include "../Theme.h"
-#include "../Prefs.h"
+#include "FileNames.h"
+#include "Languages.h"
+#include "Theme.h"
+#include "Prefs.h"
 #include "../ShuttleGui.h"
 
-#include "GUISettings.h"
+#include "Decibels.h"
 
 #include "ThemePrefs.h"
-#include "../AColor.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "AColor.h"
+#include "GUISettings.h"
 
 GUIPrefs::GUIPrefs(wxWindow * parent, wxWindowID winid)
 /* i18n-hint: refers to Audacity's user interface settings */
@@ -48,17 +45,17 @@ GUIPrefs::~GUIPrefs()
 {
 }
 
-ComponentInterfaceSymbol GUIPrefs::GetSymbol()
+ComponentInterfaceSymbol GUIPrefs::GetSymbol() const
 {
    return GUI_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString GUIPrefs::GetDescription()
+TranslatableString GUIPrefs::GetDescription() const
 {
    return XO("Preferences for GUI");
 }
 
-wxString GUIPrefs::HelpPageName()
+ManualPageID GUIPrefs::HelpPageName()
 {
    return "Interface_Preferences";
 }
@@ -103,7 +100,8 @@ void GUIPrefs::GetRangeChoices(
 void GUIPrefs::Populate()
 {
    // First any pre-processing for constructing the GUI.
-   GetLanguages(mLangCodes, mLangNames);
+   Languages::GetLanguages(
+      FileNames::AudacityPathList(), mLangCodes, mLangNames);
 
    GetRangeChoices(&mRangeChoices, &mRangeCodes, &mDefaultRangeIndex);
 
@@ -136,11 +134,19 @@ ChoiceSetting GUIManualLocation{
       { XO("Local") ,  XO("From Internet") , },
       { wxT("Local") , wxT("FromInternet") , }
    },
-   0 // "Local"
+   1 // "FromInternet"
 };
 
 void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
 {
+   ChoiceSetting LanguageSetting{ wxT("/Locale/Language"),
+      { ByColumns, mLangNames, mLangCodes }
+   };
+   ChoiceSetting DBSetting{ DecibelScaleCutoff,
+      { ByColumns, mRangeChoices, mRangeCodes },
+      mDefaultRangeIndex
+   };
+
    S.SetBorder(2);
    S.StartScroller();
 
@@ -148,33 +154,12 @@ void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
    {
       S.StartMultiColumn(2);
       {
-
-         S.TieChoice( XXO("&Language:"),
-            {
-               wxT("/Locale/Language"),
-               { ByColumns, mLangNames, mLangCodes }
-            }
-         );
-
-         S.TieChoice( XXO("Location of &Manual:"), GUIManualLocation);
-
-         S.TieChoice( XXO("Th&eme:"), GUITheme);
-
-         S.TieChoice( XXO("Meter dB &range:"),
-            {
-               ENV_DB_KEY,
-               { ByColumns, mRangeChoices, mRangeCodes },
-               mDefaultRangeIndex
-            }
-         );
+         S.TieChoice( XXO("&Language:"), LanguageSetting);
+         // S.TieChoice( XXO("Location of &Manual:"), GUIManualLocation);
+         S.TieChoice( XXO("Th&eme:"), GUITheme());
+         S.TieChoice( XXO("Meter dB &range:"), DBSetting);
       }
       S.EndMultiColumn();
-//      S.AddSpace(10);
-// JKC: This is a silly preference.  Kept here as a reminder that we may
-// later want to have configurable button order.
-//      S.TieCheckBox(XXO("&Ergonomic order of Transport Toolbar buttons"),
-//                    wxT("/GUI/ErgonomicTransportButtons"),
-//                    true);
 
    }
    S.EndStatic();
@@ -189,7 +174,7 @@ void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
                     {wxT("/GUI/ShowExtraMenus"),
                      false});
 #ifdef EXPERIMENTAL_THEME_PREFS
-      // We do not want to make this option mainstream.  It's a 
+      // We do not want to make this option mainstream.  It's a
       // convenience for developers.
       S.TieCheckBox(XXO("Show alternative &styling (Mac vs PC)"),
                     {wxT("/GUI/ShowMac"),
@@ -202,13 +187,17 @@ void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
                     {wxT("/GUI/RetainLabels"),
                      false});
       S.TieCheckBox(XXO("B&lend system and Audacity theme"),
-                    {wxT("/GUI/BlendThemes"),
-                     true});
+                     GUIBlendThemes);
 #ifndef __WXMAC__
       /* i18n-hint: RTL stands for 'Right to Left'  */
       S.TieCheckBox(XXO("Use mostly Left-to-Right layouts in RTL languages"),
          {"/GUI/RtlWorkaround",
           true});
+#endif
+#ifdef EXPERIMENTAL_CEE_NUMBERS_OPTION
+      S.TieCheckBox(XXO("Never use comma as decimal point"),
+                    {wxT("/Locale/CeeNumberFormat"),
+                     false});
 #endif
    }
    S.EndStatic();
@@ -234,117 +223,33 @@ bool GUIPrefs::Commit()
 
    // If language has changed, we want to change it now, not on the next reboot.
    wxString lang = gPrefs->Read(wxT("/Locale/Language"), wxT(""));
-   wxString usedLang = SetLang(lang);
+   wxString usedLang = GUISettings::SetLang(lang);
    // Bug 1523: Previously didn't check no-language (=System Language)
-   if (!(lang.empty()) && (lang != usedLang)) {
+   if (!(lang.empty() || lang == L"System") && (lang != usedLang)) {
       // lang was not usable and is not system language.  We got overridden.
       gPrefs->Write(wxT("/Locale/Language"), usedLang);
       gPrefs->Flush();
    }
 
    // Reads preference GUITheme
-   theTheme.LoadPreferredTheme();
-   ThemePrefs::ApplyUpdatedImages();
+   {
+      wxBusyCursor busy;
+      theTheme.LoadPreferredTheme();
+      theTheme.DeleteUnusedThemes();
+   }
+   AColor::ApplyUpdatedImages();
 
+   GUIBlendThemes.Invalidate();
    return true;
 }
 
-wxString GUIPrefs::InitLang( wxString langCode )
-{
-   if ( langCode.empty() )
-      langCode = gPrefs->Read(wxT("/Locale/Language"), wxEmptyString);
-
-   // Use the system default language if one wasn't specified or if the user selected System.
-   if (langCode.empty())
-   {
-      langCode = GetSystemLanguageCode();
-   }
-
-   // Initialize the language
-   return SetLang(langCode);
-}
-
-static std::unique_ptr<wxLocale> sLocale;
-
-wxString GUIPrefs::SetLang( const wxString & lang )
-{
-   wxString result = lang;
-
-   sLocale.reset();
-
-#if defined(__WXMAC__)
-   // This should be reviewed again during the wx3 conversion.
-
-   // On OSX, if the LANG environment variable isn't set when
-   // using a language like Japanese, an assertion will trigger
-   // because conversion to Japanese from "?" doesn't return a
-   // valid length, so make OSX happy by defining/overriding
-   // the LANG environment variable with U.S. English for now.
-   wxSetEnv(wxT("LANG"), wxT("en_US.UTF-8"));
-#endif
-
-   const wxLanguageInfo *info = NULL;
-   if (!lang.empty() && lang != wxT("System")) {
-      info = wxLocale::FindLanguageInfo(lang);
-      if (!info)
-         ::AudacityMessageBox(
-            XO("Language \"%s\" is unknown").Format( lang ) );
-   }
-   if (!info)
-   {
-      result = GetSystemLanguageCode();
-      info = wxLocale::FindLanguageInfo(result);
-      if (!info)
-         return result;
-   }
-   sLocale = std::make_unique<wxLocale>(info->Language);
-
-   for( const auto &path : FileNames::AudacityPathList() )
-      sLocale->AddCatalogLookupPathPrefix( path );
-
-   // LL:  Must add the wxWidgets catalog manually since the search
-   //      paths were not set up when mLocale was created.  The
-   //      catalogs are search in LIFO order, so add wxstd first.
-   sLocale->AddCatalog(wxT("wxstd"));
-
-   // Must match TranslationExists() in Languages.cpp
-   sLocale->AddCatalog("audacity");
-
-   // Initialize internationalisation (number formats etc.)
-   //
-   // This must go _after_ creating the wxLocale instance because
-   // creating the wxLocale instance sets the application-wide locale.
-
-   Internat::Init();
-
-   // Unused strings that we want to be translated, even though
-   // we're not using them yet...
-   using future1 = decltype( XO("Master Gain Control") );
-
-#ifdef __WXMAC__
-      wxApp::s_macHelpMenuTitleName = _("&Help");
-#endif
-
-   return result;
-}
-
-wxString GUIPrefs::GetLang()
-{
-   if (sLocale)
-      return sLocale->GetSysName();
-   else
-      return {};
-}
-
-wxString GUIPrefs::GetLangShort()
-{
-   if (sLocale)
-      return sLocale->GetName();
-   else
-      return {};
-}
-
 int ShowClippingPrefsID()
+{
+   static int value = wxNewId();
+   return value;
+}
+
+int ShowTrackNameInWaveformPrefsID()
 {
    static int value = wxNewId();
    return value;

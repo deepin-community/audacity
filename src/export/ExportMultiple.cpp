@@ -15,7 +15,7 @@
 
 *//********************************************************************/
 
-#include "../Audacity.h"
+
 #include "ExportMultiple.h"
 
 #include <wx/defs.h>
@@ -29,6 +29,7 @@
 #include <wx/filefn.h>
 #include <wx/filename.h>
 #include <wx/intl.h>
+#include <wx/log.h>
 #include <wx/radiobut.h>
 #include <wx/simplebook.h>
 #include <wx/sizer.h>
@@ -37,21 +38,20 @@
 #include <wx/textctrl.h>
 #include <wx/textdlg.h>
 
-#include "../DirManager.h"
-#include "../FileFormats.h"
-#include "../FileNames.h"
-#include "../LabelTrack.h"
-#include "../Project.h"
-#include "../ProjectSettings.h"
-#include "../ProjectWindow.h"
-#include "../Prefs.h"
+#include "FileNames.h"
+#include "LabelTrack.h"
+#include "Project.h"
+#include "ProjectSettings.h"
+#include "ProjectWindow.h"
+#include "ProjectWindows.h"
+#include "Prefs.h"
 #include "../SelectionState.h"
 #include "../ShuttleGui.h"
-#include "../Tags.h"
+#include "../TagsEditor.h"
 #include "../WaveTrack.h"
 #include "../widgets/HelpSystem.h"
 #include "../widgets/AudacityMessageBox.h"
-#include "../widgets/ErrorDialog.h"
+#include "../widgets/AudacityTextEntryDialog.h"
 #include "../widgets/ProgressDialog.h"
 
 
@@ -219,11 +219,28 @@ int ExportMultipleDialog::ShowModal()
 
    EnableControls();
 
+   // This is a work around for issue #2909, and ensures that
+   // when the dialog opens, the first control is the focus.
+   // The work around is only needed on Windows.
+#if defined(__WXMSW__)
+   mDir->SetFocus();
+#endif
+
    return wxDialogWrapper::ShowModal();
 }
 
 void ExportMultipleDialog::PopulateOrExchange(ShuttleGui& S)
 {
+   ChoiceSetting NumberingSetting{
+      wxT("/Export/TrackNameWithOrWithoutNumbers"),
+      {
+         { wxT("labelTrack"), XXO("Using Label/Track Name") },
+         { wxT("numberBefore"), XXO("Numbering before Label/Track Name") },
+         { wxT("numberAfter"), XXO("Numbering after File name prefix") },
+      },
+      0 // labelTrack
+   };
+
    wxString name = mProject->GetProjectName();
    wxString defaultFormat = gPrefs->Read(wxT("/Export/Format"), wxT("WAV"));
 
@@ -254,10 +271,17 @@ void ExportMultipleDialog::PopulateOrExchange(ShuttleGui& S)
       }
    }
 
+   ChoiceSetting FormatSetting{ wxT("/Export/MultipleFormat"),
+      {
+         ByColumns,
+         visibleFormats,
+         formats
+      },
+      mFilterIndex
+   };
 
    // Bug 1304: Set the default file path.  It's used if none stored in config.
-   auto filename = FileNames::DefaultToDocumentsFolder(wxT("/Export/Path"));
-   wxString DefaultPath = filename.GetPath();
+   auto DefaultPath = FileNames::FindDefaultPath(FileNames::Operation::Export);
 
    if (mPluginIndex == -1)
    {
@@ -275,24 +299,15 @@ void ExportMultipleDialog::PopulateOrExchange(ShuttleGui& S)
          S.StartMultiColumn(4, true);
          {
             mDir = S.Id(DirID)
-               .TieTextBox(XXO("Folder:"),
-                           {wxT("/Export/MultiplePath"),
-                            DefaultPath},
+               .AddTextBox(XXO("Folder:"),
+                           DefaultPath,
                            64);
             S.Id(ChooseID).AddButton(XXO("Choose..."));
             S.Id(CreateID).AddButton(XXO("Create"));
 
             mFormat = S.Id(FormatID)
                .TieChoice( XXO("Format:"),
-               {
-                  wxT("/Export/MultipleFormat"),
-                  {
-                     ByColumns,
-                     visibleFormats,
-                     formats
-                  },
-                  mFilterIndex
-               }
+               FormatSetting
             );
             S.AddVariableText( {}, false);
             S.AddVariableText( {}, false);
@@ -333,15 +348,22 @@ void ExportMultipleDialog::PopulateOrExchange(ShuttleGui& S)
       {
          // Row 1
          S.SetBorder(1);
-         mTrack = S.Id(TrackID)
-            .AddRadioButton(XXO("Tracks"));
 
-         // Row 2
-         S.SetBorder(1);
-         mLabel = S.Id(LabelID)
-            .AddRadioButtonToGroup(XXO("Labels"));
+         // Bug 2692: Place button group in panel so tabbing will work and,
+         // on the Mac, VoiceOver will announce as radio buttons.
+         S.StartPanel();
+         {
+            mTrack = S.Id(TrackID)
+               .AddRadioButton(XXO("Tracks"));
+
+            // Row 2
+            S.SetBorder(1);
+            mLabel = S.Id(LabelID)
+               .AddRadioButtonToGroup(XXO("Labels"));
+         }
+         S.EndPanel();
+
          S.SetBorder(3);
-
          S.StartMultiColumn(2, wxEXPAND);
          S.SetStretchyCol(1);
          {
@@ -376,23 +398,22 @@ void ExportMultipleDialog::PopulateOrExchange(ShuttleGui& S)
       S.StartStatic(XO("Name files:"), 1);
       {
          S.SetBorder(2);
-         S.StartRadioButtonGroup({
-            wxT("/Export/TrackNameWithOrWithoutNumbers"),
-            {
-               { wxT("labelTrack"), XXO("Using Label/Track Name") },
-               { wxT("numberBefore"), XXO("Numbering before Label/Track Name") },
-               { wxT("numberAfter"), XXO("Numbering after File name prefix") },
-            },
-            0 // labelTrack
-         });
+
+         // Bug 2692: Place button group in panel so tabbing will work and,
+         // on the Mac, VoiceOver will announce as radio buttons.
+         S.StartPanel();
          {
-            mByName = S.Id(ByNameID).TieRadioButton();
+            S.StartRadioButtonGroup(NumberingSetting);
+            {
+               mByName = S.Id(ByNameID).TieRadioButton();
 
-            mByNumberAndName = S.Id(ByNameAndNumberID).TieRadioButton();
+               mByNumberAndName = S.Id(ByNameAndNumberID).TieRadioButton();
 
-            mByNumber = S.Id(ByNumberID).TieRadioButton();
+               mByNumber = S.Id(ByNumberID).TieRadioButton();
+            }
+            S.EndRadioButtonGroup();
          }
-         S.EndRadioButtonGroup();
+         S.EndPanel();
 
          S.StartMultiColumn(3, wxEXPAND);
          S.SetStretchyCol(2);
@@ -564,7 +585,7 @@ void ExportMultipleDialog::OnCancel(wxCommandEvent& WXUNUSED(event))
 
 void ExportMultipleDialog::OnHelp(wxCommandEvent& WXUNUSED(event))
 {
-   HelpSystem::ShowHelp(this, wxT("Export_Multiple"), true);
+   HelpSystem::ShowHelp(this, L"Export_Multiple", true);
 }
 
 void ExportMultipleDialog::OnExport(wxCommandEvent& WXUNUSED(event))
@@ -573,6 +594,8 @@ void ExportMultipleDialog::OnExport(wxCommandEvent& WXUNUSED(event))
    PopulateOrExchange(S);
 
    gPrefs->Flush();
+
+   FileNames::UpdateDefaultPath(FileNames::Operation::Export, mDir->GetValue());
 
    // Make sure the output directory is in good shape
    if (!DirOk()) {
@@ -836,7 +859,7 @@ ProgressResult ExportMultipleDialog::ExportMultipleByLabel(bool byName,
          bShowTagsDialog = bShowTagsDialog && mPlugins[mPluginIndex]->GetCanMetaData(mSubFormatIndex);
 
          if( bShowTagsDialog ){
-            bool bCancelled = !setting.filetags.ShowEditDialog(
+            bool bCancelled = !TagsEditorDialog::ShowEditDialog(setting.filetags,
                ProjectWindow::Find( mProject ),
                XO("Edit Metadata Tags"), bShowTagsDialog);
             gPrefs->Read(wxT("/AudioFiles/ShowId3Dialog"), &bShowTagsDialog, true);
@@ -857,7 +880,7 @@ ProgressResult ExportMultipleDialog::ExportMultipleByLabel(bool byName,
    ExportKit activeSetting;  // pointer to the settings in use for this export
    /* Go round again and do the exporting (so this run is slow but
     * non-interactive) */
-   std::unique_ptr<ProgressDialog> pDialog;
+   std::unique_ptr<BasicUI::ProgressDialog> pDialog;
    for (count = 0; count < numFiles; count++) {
       /* get the settings to use for the export from the array */
       activeSetting = exportSettings[count];
@@ -980,7 +1003,7 @@ ProgressResult ExportMultipleDialog::ExportMultipleByTrack(bool byName,
          bShowTagsDialog = bShowTagsDialog && mPlugins[mPluginIndex]->GetCanMetaData(mSubFormatIndex);
 
          if( bShowTagsDialog ){
-            bool bCancelled = !setting.filetags.ShowEditDialog(
+            bool bCancelled = !TagsEditorDialog::ShowEditDialog(setting.filetags,
                ProjectWindow::Find( mProject ),
                XO("Edit Metadata Tags"), bShowTagsDialog);
             gPrefs->Read(wxT("/AudioFiles/ShowId3Dialog"), &bShowTagsDialog, true);
@@ -998,7 +1021,7 @@ ProgressResult ExportMultipleDialog::ExportMultipleByTrack(bool byName,
    // loop
    int count = 0; // count the number of successful runs
    ExportKit activeSetting;  // pointer to the settings in use for this export
-   std::unique_ptr<ProgressDialog> pDialog;
+   std::unique_ptr<BasicUI::ProgressDialog> pDialog;
 
    for (auto tr : mTracks->Leaders<WaveTrack>() - 
       (anySolo ? &WaveTrack::GetNotSolo : &WaveTrack::GetMute)) {
@@ -1043,7 +1066,7 @@ ProgressResult ExportMultipleDialog::ExportMultipleByTrack(bool byName,
    return ok ;
 }
 
-ProgressResult ExportMultipleDialog::DoExport(std::unique_ptr<ProgressDialog> &pDialog,
+ProgressResult ExportMultipleDialog::DoExport(std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                               unsigned channels,
                               const wxFileName &inName,
                               bool selectedOnly,
@@ -1062,10 +1085,6 @@ ProgressResult ExportMultipleDialog::DoExport(std::unique_ptr<ProgressDialog> &p
 
    wxFileName backup;
    if (mOverwrite->GetValue()) {
-      // Make sure we don't overwrite (corrupt) alias files
-      if (!DirManager::Get( *mProject ).EnsureSafeFilename(inName)) {
-         return ProgressResult::Cancelled;
-      }
       name = inName;
       backup.Assign(name);
 
@@ -1144,17 +1163,17 @@ wxString ExportMultipleDialog::MakeFileName(const wxString &input)
    {  // need to get user to fix file name
       // build the dialog
       TranslatableString msg;
-      wxString excluded = ::wxJoin( Internat::GetExcludedCharacters(), wxChar(' ') );
-      // TODO: For Russian langauge we should have separate cases for 2 and more than 2 letters.
+      wxString excluded = ::wxJoin( Internat::GetExcludedCharacters(), wxT(' '), wxT('\0') );
+      // TODO: For Russian language we should have separate cases for 2 and more than 2 letters.
       if( excluded.length() > 1 ){
          msg = XO(
 // i18n-hint: The second %s gives some letters that can't be used.
-"Label or track \"%s\" is not a legal file name. You cannot use any of: %s\nUse...")
+"Label or track \"%s\" is not a legal file name.\nYou cannot use any of these characters:\n\n%s\n\nSuggested replacement:")
             .Format( input, excluded );
       } else {
          msg = XO(
 // i18n-hint: The second %s gives a letter that can't be used.
-"Label or track \"%s\" is not a legal file name. You cannot use \"%s\".\nUse...")
+"Label or track \"%s\" is not a legal file name. You cannot use \"%s\".\n\nSuggested replacement:")
             .Format( input, excluded );
       }
 

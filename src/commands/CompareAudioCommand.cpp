@@ -18,11 +18,11 @@ threshold of difference in two selected tracks
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "CompareAudioCommand.h"
 
 #include "LoadCommands.h"
-#include "../ViewInfo.h"
+#include "ViewInfo.h"
 #include "../WaveTrack.h"
 
 
@@ -47,10 +47,16 @@ extern void RegisterCompareAudio( Registrar & R){
 
 }
 
-bool CompareAudioCommand::DefineParams( ShuttleParams & S ){
+template<bool Const>
+bool CompareAudioCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
    S.Define( errorThreshold,  wxT("Threshold"),   0.0f,  0.0f,    0.01f,    1.0f );
    return true;
 }
+bool CompareAudioCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool CompareAudioCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
 
 void CompareAudioCommand::PopulateOrExchange(ShuttleGui & S)
 {
@@ -138,8 +144,8 @@ bool CompareAudioCommand::Apply(const CommandContext & context)
       auto block = limitSampleBufferSize(
          mTrack0->GetBestBlockSize(position), s1 - position
       );
-      mTrack0->Get((samplePtr)buff0.get(), floatSample, position, block);
-      mTrack1->Get((samplePtr)buff1.get(), floatSample, position, block);
+      mTrack0->GetFloats(buff0.get(), position, block);
+      mTrack1->GetFloats(buff1.get(), position, block);
 
       for (decltype(block) buffPos = 0; buffPos < block; ++buffPos)
       {

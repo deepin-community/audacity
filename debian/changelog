@@ -1,8 +1,51 @@
-audacity (2.4.2~dfsg0-5) UNRELEASED; urgency=medium
+audacity (3.2.0+dfsg-1) unstable; urgency=medium
 
-  * update
+  [ Dennis Braun ]
+  * New upstream version (LP: #1924841)
+    + Fix track volume and panning slider's pop-up visibility (Closes: #946167)
+    + Support Italian language (Closes: #962077)
+    + Fix FTBFS with ffmpeg 5.0 (Closes: #1004598, LP: #1983862)
+    + Fix AAC (m4a) file support (LP: #1978405)
+    + Fix export to .opus (Closes: #1005082)
+    + Fix length and position of selection is not shown correctly
+      (Closes: #1010892, LP: #1973052)
+    + Build against wxwidgets 3.2 (Closes: #1019831)
+    + Exclude libs from lib-src, we want to use system libs
+  * d/patches:
+    + Refresh patchset
+    + Fix build with wxwidgets 3.2 and portsmf system lib
+    + Remove obsolete patches
+  * d/control:
+    + Update and sort B-Ds
+    + Bump Standards-Version to 4.6.1
+    + Fix order of uploaders
+  * d/copyright:
+    + Add comment why we exclude files
+    + Update entries and licenses
+  * Refresh lintian-overrides
+  * d/not-installed: Do not install usr/audacity
+  * d/rules:
+    + Update configure options
+    + Remove obsolete commands after dh auto install
+    + Do not override dh_auto_test anymore
+  * Add salsa CI config
 
- -- Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>  Wed, 25 May 2022 11:02:59 +0800
+  [ Benjamin Drung ]
+  * d/rules: Set audacity_has_networking explicitly to Off (Closes: #990737)
+  * Use gbp-pq to format patches
+  * Fix rpath for private libraries on Linux
+  * d/rules: Set cmake build type to RelWithDebInfo
+  * Disable vst3sdk support (not packaged yet)
+  * Add new build dependency libwavpack-dev
+  * Replace build dependency libmad0-dev by libmpg123-dev
+  * Drop git from build dependencies
+  * Drop anchient UBUNTU_MENUPROXY=0 workaround
+  * Update debian/copyright
+  * Use lame.pc from libmp3lame-dev 3.100-5
+  * Add mime type for 'aup3' file extension
+  * Add support for cross compiling
+
+ -- Benjamin Drung <bdrung@debian.org>  Thu, 29 Sep 2022 13:18:00 +0200
 
 audacity (2.4.2~dfsg0-5) unstable; urgency=medium
 

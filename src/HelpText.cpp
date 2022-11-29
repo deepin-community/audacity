@@ -12,11 +12,10 @@
 \brief Given a key, returns some html.
 *//********************************************************************/
 
-#include "Audacity.h" // for USE_* macros
+
 #include "HelpText.h"
 
-#include "Experimental.h"
-
+#include <wx/colour.h>
 #include <wx/string.h>
 #include <wx/intl.h>
 #include <wx/sstream.h>
@@ -27,6 +26,14 @@
 #include "AllThemeResources.h"
 #include "Theme.h"
 
+#ifdef HAS_WHATS_NEW
+
+namespace
+{
+const char* WhatsNewURL = "https://audacityteam.org/3.2.0-video";
+}
+
+#endif
 
 wxString HtmlColourOfIndex( int i ){
    wxColour c =  theTheme.Colour(i);
@@ -259,8 +266,15 @@ static wxString HelpTextBuiltIn( const wxString & Key )
          << wxT(" [[https://forum.audacityteam.org/|Forum]] - for large knowledge base on using Audacity.")
          << wxT("</li></ul>")
 #else
-         << wxT("<center><h3>Audacity ")
-         << AUDACITY_VERSION_STRING
+         << wxT("<center><h3>")
+#ifndef HAS_WHATS_NEW
+         << wxT("Audacity ") << AUDACITY_VERSION_STRING
+#else
+         /* i18n-hint: %s is replaced with Audacity version */
+         << XO("What's new in Audacity %s").Format(AUDACITY_VERSION_STRING)
+         << wxT(R"(<p><a href=")") << WhatsNewURL << wxT(R"(">)")
+         << wxT(R"(<img src="memory:whats_new_btn.jpeg" width="263" height="148" /></a></p>)")
+#endif
          << wxT("</h3><h3>")
          << XO("How to get help")
          << wxT("</h3></center>")
@@ -387,12 +401,13 @@ const wxString VerCheckArgs(){
 }
 
 // Text of hyperlink to check versions.
-const wxString VerCheckHtml(){
+const wxString VerCheckHtml()
+{
    wxStringOutputStream o;
    wxTextOutputStream s(o);
    s
       << "<center>[["
-      << VerCheckUrl()
+      << VerCheckUrl().GET()
       << "|"
       << XO("Check Online")
       << "]]</center>\n";
@@ -400,7 +415,8 @@ const wxString VerCheckHtml(){
 }
 
 // Url with Version check args attached.
-const wxString VerCheckUrl(){
+const URLString VerCheckUrl()
+{
    //The version we intend to use for live Audacity.
 #define VER_CHECK_URL "https://www.audacityteam.org/download/?"
 //For testing of our scriptlet.

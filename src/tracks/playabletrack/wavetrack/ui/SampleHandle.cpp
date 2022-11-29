@@ -8,24 +8,23 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h"
-#include "SampleHandle.h"
 
-#include "../../../../Experimental.h"
+#include "SampleHandle.h"
 
 #include <algorithm>
 #include <wx/gdicmn.h>
 
-#include "../../../../Envelope.h"
+#include "Envelope.h"
 #include "../../../../HitTestResult.h"
 #include "../../../../prefs/WaveformSettings.h"
 #include "../../../../ProjectAudioIO.h"
-#include "../../../../ProjectHistory.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
+#include "../../../../TrackArt.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanelMouseEvent.h"
-#include "../../../../UndoManager.h"
-#include "../../../../ViewInfo.h"
+#include "UndoManager.h"
+#include "ViewInfo.h"
 #include "../../../../WaveTrack.h"
 #include "../../../../../images/Cursors.h"
 #include "../../../../widgets/AudacityMessageBox.h"
@@ -119,9 +118,9 @@ UIHandlePtr SampleHandle::HitTest
    /// method that tells us if the mouse event landed on an
    /// editable sample
    const auto wavetrack = pTrack.get();
+   const auto time = viewInfo.PositionToTime(state.m_x, rect.x);
 
-   const double tt =
-      adjustTime(wavetrack, viewInfo.PositionToTime(state.m_x, rect.x));
+   const double tt = adjustTime(wavetrack, time);
    if (!SampleResolutionTest(viewInfo, wavetrack, tt, rect.width))
       return {};
 
@@ -129,7 +128,7 @@ UIHandlePtr SampleHandle::HitTest
    float oneSample;
    const double rate = wavetrack->GetRate();
    const auto s0 = (sampleCount)(tt * rate + 0.5);
-   if (! wavetrack->Get((samplePtr)&oneSample, floatSample, s0, 1, fillZero,
+   if (! wavetrack->GetFloats(&oneSample, s0, 1, fillZero,
          // Do not propagate exception but return a failure value
          false) )
       return {};
@@ -140,7 +139,7 @@ UIHandlePtr SampleHandle::HitTest
    wavetrack->GetDisplayBounds(&zoomMin, &zoomMax);
 
    double envValue = 1.0;
-   Envelope* env = wavetrack->GetEnvelopeAtX(state.GetX());
+   Envelope* env = wavetrack->GetEnvelopeAtTime(time);
    if (env)
       // Calculate sample as it would be rendered, so quantize time
       envValue = env->GetValue( tt, 1.0 / wavetrack->GetRate() );
@@ -240,7 +239,7 @@ UIHandle::Result SampleHandle::Click
       Floats newSampleRegion{ 1 + 2 * (size_t)SMOOTHING_BRUSH_RADIUS };
 
       //Get a sample  from the track to do some tricks on.
-      mClickedTrack->Get((samplePtr)sampleRegion.get(), floatSample,
+      mClickedTrack->GetFloats(sampleRegion.get(),
          mClickedStartSample - SMOOTHING_KERNEL_RADIUS - SMOOTHING_BRUSH_RADIUS,
          sampleRegionSize);
 
@@ -422,7 +421,7 @@ UIHandle::Result SampleHandle::Release
    mClickedTrack.reset();       //Set this to NULL so it will catch improper drag events.
    ProjectHistory::Get( *pProject ).PushState(XO("Moved Samples"),
       XO("Sample Edit"),
-      UndoPush::CONSOLIDATE | UndoPush::AUTOSAVE);
+      UndoPush::CONSOLIDATE);
 
    // No change to draw since last drag
    return RefreshCode::RefreshNone;
@@ -430,13 +429,13 @@ UIHandle::Result SampleHandle::Release
 
 UIHandle::Result SampleHandle::Cancel(AudacityProject *pProject)
 {
-   ProjectHistory::Get( *pProject ).RollbackState();
    mClickedTrack.reset();
+   ProjectHistory::Get( *pProject ).RollbackState();
    return RefreshCode::RefreshCell;
 }
 
 float SampleHandle::FindSampleEditingLevel
-   (const wxMouseEvent &event, const ViewInfo &, double t0)
+   (const wxMouseEvent &event, const ViewInfo &viewInfo, double t0)
 {
    // Calculate where the mouse is located vertically (between +/- 1)
    float zoomMin, zoomMax;
@@ -450,7 +449,8 @@ float SampleHandle::FindSampleEditingLevel
          mClickedTrack->GetWaveformSettings().dBRange, zoomMin, zoomMax);
 
    //Take the envelope into account
-   Envelope *const env = mClickedTrack->GetEnvelopeAtX(event.m_x);
+   const auto time = viewInfo.PositionToTime(event.m_x, mRect.x);
+   Envelope *const env = mClickedTrack->GetEnvelopeAtTime(time);
    if (env)
    {
       // Calculate sample as it would be rendered, so quantize time

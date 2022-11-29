@@ -8,17 +8,15 @@ Paul Licameli split from WaveTrackVZoomHandle.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h"
+
 #include "WaveformVZoomHandle.h"
 
 #include "WaveTrackVZoomHandle.h"
 
-#include "../../../../Experimental.h"
-
 #include "../../../../HitTestResult.h"
-#include "../../../../NumberScale.h"
-#include "../../../../Prefs.h"
-#include "../../../../ProjectHistory.h"
+#include "NumberScale.h"
+#include "Prefs.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackPanelMouseEvent.h"
 #include "../../../../WaveTrack.h"
@@ -37,6 +35,11 @@ void WaveformVZoomHandle::Enter( bool, AudacityProject* )
 #ifdef EXPERIMENTAL_TRACK_PANEL_HIGHLIGHTING
    mChangeHighlight = RefreshCode::RefreshCell;
 #endif
+}
+
+bool WaveformVZoomHandle::HandlesRightClick()
+{
+   return true;
 }
 
 UIHandle::Result WaveformVZoomHandle::Click
@@ -329,7 +332,7 @@ void WaveformVRulerMenuTable::OnWaveformScaleType(wxCommandEvent &evt)
 
    if (wt->GetWaveformSettings().scaleType != newScaleType) {
       for (auto channel : TrackList::Channels(wt)) {
-         channel->GetIndependentWaveformSettings().scaleType = newScaleType;
+         channel->GetWaveformSettings().scaleType = newScaleType;
       }
 
       AudacityProject *const project = &mpData->project;

@@ -1,29 +1,64 @@
 #!/usr/bin/make -f
 
 include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/pkg-info.mk
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-# provide custom lame.pc
-export PKG_CONFIG_PATH=$(CURDIR)/debian/pkgconfig
+
+CMAKE_FLAGS = \
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+	-DCMAKE_INSTALL_LIBDIR=lib \
+	-Daudacity_conan_enabled=Off \
+	-Daudacity_has_networking=Off \
+	-Daudacity_has_vst3=Off \
+	-Daudacity_lib_preference=system \
+	-Daudacity_use_ffmpeg=loaded \
+	-DwxBUILD_TOOLKIT=gtk3 \
+	$(NULL)
+
+ifeq (,$(findstring ~,$(DEB_VERSION_UPSTREAM)))
+# No ~ in upstream version. Assuming release version (i.e. not alhpa or beta version)
+CMAKE_FLAGS += -DAUDACITY_BUILD_LEVEL=2
+endif
+
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+CROSS_CMAKE_FLAGS = -DIMAGE_COMPILER_EXECUTABLE=$(CURDIR)/obj-$(DEB_BUILD_GNU_TYPE)/utils/image-compiler
+endif
+
+DISABLE_LIBRARIES = \
+	-Daudacity_use_libflac=off \
+	-Daudacity_use_libid3tag=off \
+	-Daudacity_use_libmad=off \
+	-Daudacity_use_libmpg123=off \
+	-Daudacity_use_libogg=off \
+	-Daudacity_use_libopus=off \
+	-Daudacity_use_libvorbis=off \
+	-Daudacity_use_lv2=off \
+	-Daudacity_use_midi=off \
+	-Daudacity_use_portsmf=off \
+	-Daudacity_use_sbsms=off \
+	-Daudacity_use_soundtouch=off \
+	-Daudacity_use_twolame=off \
+	-Daudacity_use_vamp=off \
+	-Daudacity_use_wavpack=off \
+	$(NULL)
 
 %:
 	dh $@
 
-override_dh_auto_configure:
-	sed 's/@DEB_HOST_MULTIARCH@/${DEB_HOST_MULTIARCH}/' debian/pkgconfig/lame.pc.in > debian/pkgconfig/lame.pc
-	dh_auto_configure -- \
-		-DCMAKE_INSTALL_LIBDIR=lib \
-		-Daudacity_use_sbsms=off \
-		-Daudacity_use_ffmpeg=linked
+override_dh_auto_clean:
+	dh_auto_clean
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+	rm -rf obj-$(DEB_BUILD_GNU_TYPE)
+endif
 
-# tests fails with system portaudio
-override_dh_auto_test:
+override_dh_auto_configure:
+ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+	cmake -B obj-$(DEB_BUILD_GNU_TYPE) -DCMAKE_VERBOSE_MAKEFILE=ON $(CMAKE_FLAGS) $(DISABLE_LIBRARIES)
+	cmake --build obj-$(DEB_BUILD_GNU_TYPE) --target image-compiler
+endif
+	WX_CONFIG=/usr/lib/$(DEB_HOST_GNU_TYPE)/wx/config/gtk3-unicode-3.2 dh_auto_configure -- $(CMAKE_FLAGS) $(CROSS_CMAKE_FLAGS)
 
 execute_after_dh_auto_install:
-	# Move appdata to metainfo
-	mv debian/tmp/usr/share/appdata/ debian/tmp/usr/share/metainfo/
 	# Don't package unnecessary copy of GPL
 	rm debian/tmp/usr/share/doc/audacity/LICENSE.txt
-	# Move indep plugins to usr/share
-	mkdir -p debian/tmp/usr/share/audacity
-	mv debian/tmp/usr/lib/audacity/nyquist debian/tmp/usr/lib/audacity/plug-ins debian/tmp/usr/share/audacity

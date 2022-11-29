@@ -3,18 +3,18 @@ $version 4
 $type generate
 $name (_ "Rhythm Track")
 $manpage "Rhythm_Track"
+$debugbutton false
 $preview linear
-$action (_ "Generating Rhythm...")
-$author (_ "Dominic Mazzoni")
-$release 2.3.0
-$copyright (_ "Released under terms of the GNU General Public License version 2")
+$author (_ "Dominic Mazzoni, David R. Sky and Steve Daulton")
+$release 3.0.0-1
+$copyright (_ "GNU General Public License v2.0")
 
-;; by Dominic Mazzoni, David R. Sky and Steve Daulton.
+
 ;; Drip sound generator by Paul Beach
 
 ;; TODO: add more drum sounds
 
-;; Released under terms of the GNU General Public License version 2:
+;; License: GPL v2+
 ;; http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 ;;
 ;; For information about writing and modifying Nyquist plug-ins:
@@ -174,11 +174,29 @@ $control low (_ "MIDI pitch of weak beat") int (_ "18 - 116") 80 18 116
       (simrep (x (- timesig 1))
         (at-abs (* beatlen (+ x 1 (swing-adjust x swing)))
             (cue (click click-type 0))))))) ;unaccented beat
-        
+
+(defun samplecount (total)
+  ;;; Return number of samples required to reach target
+  (defun lastsample (target)
+    (let ((required (- target total)))
+      (setf total target)
+      required))
+  (function lastsample))
+
+
+(defun get-measure (barnum)
+  (let ((end (* (1+ barnum) (* timesig beatlen)))
+        required-samples)
+    ;; Actual end time is integer samples
+    (setf end (round (* end *sound-srate*)))
+    (setf required-samples (funcall addsamples end))
+    (setf *measure* (set-logical-stop (cue *measure*)
+                                      (/ required-samples *sound-srate*))))
+  *measure*)
+
 
 (defun make-click-track (bars mdur)
-  (setf *measure* (set-logical-stop (cue *measure*) (* timesig beatlen)))
-  (seqrep (i bars) (cue *measure*)))
+  (seqrep (i bars) (cue (get-measure i))))
 
 
 ;;;;;;;;;;;;;;;;;
@@ -186,7 +204,6 @@ $control low (_ "MIDI pitch of weak beat") int (_ "18 - 116") 80 18 116
 ;;;;;;;;;;;;;;;;;
       
 
-(setq len (/ (* 60.0 *sound-srate* timesig bars) tempo))
 (setf beatlen (/ 60.0 tempo))
 
 ;call function to make one measure
@@ -204,6 +221,12 @@ $control low (_ "MIDI pitch of weak beat") int (_ "18 - 116") 80 18 116
 
 ;round up number of bars
 (setq bars (round-up bars))
+
+;; Calculate LEN for progress bar.
+(setq len (/ (* 60.0 *sound-srate* timesig bars) tempo))
+
+;; Initialize sample count
+(setf addsamples (samplecount 0))
 
 (if (< bars 1)
     (_ "Set either 'Number of bars' or

@@ -20,16 +20,15 @@ most commonly asked questions about Audacity.
 *//********************************************************************/
 
 
-#include "Audacity.h"
+
 #include "SplashDialog.h"
 
-#include "Experimental.h"
+
 
 #include <wx/dialog.h>
 #include <wx/frame.h>
 #include <wx/html/htmlwin.h>
 #include <wx/button.h>
-#include <wx/dcclient.h>
 #include <wx/sizer.h>
 #include <wx/statbmp.h>
 #include <wx/intl.h>
@@ -37,6 +36,7 @@ most commonly asked questions about Audacity.
 
 #include "FileNames.h"
 #include "Project.h"
+#include "ProjectWindows.h"
 #include "ShuttleGui.h"
 #include "widgets/AudacityMessageBox.h"
 #include "widgets/HelpSystem.h"
@@ -45,11 +45,44 @@ most commonly asked questions about Audacity.
 #include "Prefs.h"
 #include "HelpText.h"
 
-// DA: Logo for Splash Dialog (welcome dialog)
-#ifdef EXPERIMENTAL_DA
-#include "../images/DarkAudacityLogoWithName.xpm"
-#else
 #include "../images/AudacityLogoWithName.xpm"
+
+#ifdef HAS_WHATS_NEW
+
+#include "MemoryX.h"
+#include <wx/fs_mem.h>
+
+namespace
+{
+#   include "../images/WhatsNewBtn.jpeg.h"
+
+struct FSHelper final
+{
+   FSHelper()
+       : mMemoryFSHandler(std::make_unique<wxMemoryFSHandler>())
+   {
+      wxFileSystem::AddHandler(mMemoryFSHandler.get());
+
+      wxMemoryFSHandler::AddFile(
+         "whats_new_btn.jpeg", bin2c_whats_new_btn_jpeg,
+         sizeof(bin2c_whats_new_btn_jpeg));
+   }
+
+   ~FSHelper()
+   {
+      wxMemoryFSHandler::RemoveFile("whats_new_btn.jpeg");
+      wxFileSystem::RemoveHandler(mMemoryFSHandler.get());
+   }
+
+private:
+   std::unique_ptr<wxMemoryFSHandler> mMemoryFSHandler;
+};
+
+} // namespace
+
+constexpr int HTMLWindowHeight = 425;
+#else
+constexpr int HTMLWindowHeight = 280;
 #endif
 
 SplashDialog * SplashDialog::pSelf=NULL;
@@ -131,8 +164,7 @@ void SplashDialog::Populate( ShuttleGui & S )
       .AddWindow( icon );
 
    mpHtml = safenew LinkingHtmlWindow(S.GetParent(), -1,
-                                         wxDefaultPosition,
-                                         wxSize(506, 280),
+                                         wxDefaultPosition, wxSize(506, HTMLWindowHeight),
                                          wxHW_SCROLLBAR_AUTO | wxSUNKEN_BORDER );
    mpHtml->SetPage(HelpText( wxT("welcome") ));
    S.Prop(1)
@@ -171,6 +203,10 @@ void SplashDialog::OnOK(wxCommandEvent & WXUNUSED(event))
 
 void SplashDialog::Show2( wxWindow * pParent )
 {
+#ifdef HAS_WHATS_NEW
+   FSHelper helper;
+#endif // HAS_WHATS_NEW
+
    if( pSelf == NULL )
    {
       // pParent owns it

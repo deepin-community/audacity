@@ -13,49 +13,53 @@
 
 *//*******************************************************************/
 
-#include "Audacity.h"
+
 #include "TimeTrack.h"
 
-#include "Experimental.h"
-
+#include "ActiveProject.h"
 #include <cfloat>
 #include <wx/wxcrtvararg.h>
 #include <wx/dc.h>
 #include <wx/intl.h>
 #include "widgets/Ruler.h"
 #include "Envelope.h"
+#include "Mix.h"
 #include "Project.h"
-#include "ProjectSettings.h"
-#include "ProjectFileIORegistry.h"
-
-#include "tracks/ui/TrackView.h"
-#include "tracks/ui/TrackControls.h"
+#include "ProjectRate.h"
+#include "ViewInfo.h"
 
 
 //TODO-MB: are these sensible values?
 #define TIMETRACK_MIN 0.01
 #define TIMETRACK_MAX 10.0
 
-std::shared_ptr<TimeTrack> TrackFactory::NewTimeTrack()
-{
-   return std::make_shared<TimeTrack>(mDirManager, mZoomInfo);
-}
-
-static ProjectFileIORegistry::Entry registerFactory{
-   wxT( "timetrack" ),
-   []( AudacityProject &project ){
-      auto &trackFactory = TrackFactory::Get( project );
-      auto &tracks = TrackList::Get( project );
-      auto result = tracks.Add(trackFactory.NewTimeTrack());
-      TrackView::Get( *result );
-      TrackControls::Get( *result );
-      return result;
-   }
+static ProjectFileIORegistry::ObjectReaderEntry readerEntry{
+   "timetrack",
+   TimeTrack::New
 };
 
-TimeTrack::TimeTrack(const std::shared_ptr<DirManager> &projDirManager, const ZoomInfo *zoomInfo):
-   Track(projDirManager)
+wxString TimeTrack::GetDefaultName()
+{
+   return _("Time Track");
+}
+
+TimeTrack *TimeTrack::New( AudacityProject &project )
+{
+   auto &tracks = TrackList::Get( project );
+   auto &viewInfo = ViewInfo::Get( project );
+   auto result = tracks.Add(std::make_shared<TimeTrack>(&viewInfo));
+   result->AttachedTrackObjects::BuildAll();
+   return result;
+}
+
+TimeTrack::TimeTrack(const ZoomInfo *zoomInfo):
+   Track()
    , mZoomInfo(zoomInfo)
+{
+   CleanState();
+}
+
+void TimeTrack::CleanState()
 {
    mEnvelope = std::make_unique<BoundedEnvelope>(true, TIMETRACK_MIN, TIMETRACK_MAX, 1.0);
 
@@ -66,7 +70,7 @@ TimeTrack::TimeTrack(const std::shared_ptr<DirManager> &projDirManager, const Zo
    mEnvelope->SetTrackLen(DBL_MAX);
    mEnvelope->SetOffset(0);
 
-   SetDefaultName(_("Time Track"));
+   //Time track is always unique
    SetName(GetDefaultName());
 
    mRuler = std::make_unique<Ruler>();
@@ -75,8 +79,9 @@ TimeTrack::TimeTrack(const std::shared_ptr<DirManager> &projDirManager, const Zo
    mRuler->SetFormat(Ruler::TimeFormat);
 }
 
-TimeTrack::TimeTrack(const TimeTrack &orig, double *pT0, double *pT1)
-   : Track(orig)
+TimeTrack::TimeTrack(const TimeTrack &orig, ProtectedCreationArg &&a,
+   double *pT0, double *pT1
+)  : Track(orig, std::move(a))
    , mZoomInfo(orig.mZoomInfo)
 {
    Init(orig);	// this copies the TimeTrack metadata (name, range, etc)
@@ -106,7 +111,6 @@ TimeTrack::TimeTrack(const TimeTrack &orig, double *pT0, double *pT1)
 void TimeTrack::Init(const TimeTrack &orig)
 {
    Track::Init(orig);
-   SetDefaultName(orig.GetDefaultName());
    SetName(orig.GetName());
    SetDisplayLog(orig.GetDisplayLog());
 }
@@ -135,6 +139,48 @@ void TimeTrack::SetRangeUpper(double upper)
    mEnvelope->SetRangeUpper( upper );
 }
 
+static const Track::TypeInfo &typeInfo()
+{
+   static const Track::TypeInfo info{
+      { "time", "time", XO("Time Track") }, true, &Track::ClassTypeInfo() };
+   return info;
+}
+
+auto TimeTrack::GetTypeInfo() const -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+auto TimeTrack::ClassTypeInfo() -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+bool TimeTrack::SupportsBasicEditing() const
+{
+   return false;
+}
+
+Track::Holder TimeTrack::PasteInto( AudacityProject &project ) const
+{
+   // Maintain uniqueness of the time track!
+   std::shared_ptr<TimeTrack> pNewTrack;
+   if( auto pTrack = *TrackList::Get( project ).Any<TimeTrack>().begin() )
+      pNewTrack = pTrack->SharedPointer<TimeTrack>();
+   else
+      pNewTrack = std::make_shared<TimeTrack>( &ViewInfo::Get( project ) );
+
+   // Should come here only for .aup3 import, not for paste (because the
+   // track is skipped in cut/copy commands)
+   // And for import we agree to replace the track contents completely
+   pNewTrack->CleanState();
+   pNewTrack->Init(*this);
+   pNewTrack->Paste(0.0, this);
+   pNewTrack->SetRangeLower(this->GetRangeLower());
+   pNewTrack->SetRangeUpper(this->GetRangeUpper());
+   return pNewTrack;
+}
+
 Track::Holder TimeTrack::Cut( double t0, double t1 )
 {
    auto result = Copy( t0, t1, false );
@@ -144,19 +190,30 @@ Track::Holder TimeTrack::Cut( double t0, double t1 )
 
 Track::Holder TimeTrack::Copy( double t0, double t1, bool ) const
 {
-   return std::make_shared<TimeTrack>( *this, &t0, &t1 );
+   auto result = std::make_shared<TimeTrack>(*this, ProtectedCreationArg{}, &t0, &t1);
+   result->Init(*this);
+   return result;
+}
+
+namespace {
+double GetRate() {
+   auto pProject = GetActiveProject().lock();
+   return pProject
+      ? ProjectRate::Get( *pProject ).GetRate()
+      : 44100.0;
+}
 }
 
 void TimeTrack::Clear(double t0, double t1)
 {
-   auto sampleTime = 1.0 / ProjectSettings::Get( *GetActiveProject() ).GetRate();
+   auto sampleTime = 1.0 / GetRate();
    mEnvelope->CollapseRegion( t0, t1, sampleTime );
 }
 
 void TimeTrack::Paste(double t, const Track * src)
 {
    bool bOk = src && src->TypeSwitch< bool >( [&] (const TimeTrack *tt) {
-      auto sampleTime = 1.0 / ProjectSettings::Get( *GetActiveProject() ).GetRate();
+      auto sampleTime = 1.0 / GetRate();
       mEnvelope->PasteEnvelope
          (t, tt->mEnvelope.get(), sampleTime);
       return true;
@@ -178,7 +235,9 @@ void TimeTrack::InsertSilence(double t, double len)
 
 Track::Holder TimeTrack::Clone() const
 {
-   return std::make_shared<TimeTrack>(*this);
+   auto result = std::make_shared<TimeTrack>(*this, ProtectedCreationArg{});
+   result->Init(*this);
+   return result;
 }
 
 bool TimeTrack::GetInterpolateLog() const
@@ -190,40 +249,37 @@ void TimeTrack::SetInterpolateLog(bool interpolateLog) {
    mEnvelope->SetExponential(interpolateLog);
 }
 
-bool TimeTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
+bool TimeTrack::HandleXMLTag(const std::string_view& tag, const AttributesList &attrs)
 {
-   if (!wxStrcmp(tag, wxT("timetrack"))) {
+   if (tag == "timetrack") {
       mRescaleXMLValues = true; // will be set to false if upper/lower is found
+
       long nValue;
-      while(*attrs) {
-         const wxChar *attr = *attrs++;
-         const wxChar *value = *attrs++;
 
-         if (!value)
-            break;
+      for (auto pair : attrs)
+      {
+         auto attr = pair.first;
+         auto value = pair.second;
 
-         const wxString strValue = value;
-         if (this->Track::HandleCommonXMLAttribute(attr, strValue))
+         if (this->Track::HandleCommonXMLAttribute(attr, value))
             ;
-         else if (!wxStrcmp(attr, wxT("rangelower")))
+         else if (attr == "rangelower")
          {
-            SetRangeLower( Internat::CompatibleToDouble(value) );
+            SetRangeLower( value.Get(GetRangeLower()) );
             mRescaleXMLValues = false;
          }
-         else if (!wxStrcmp(attr, wxT("rangeupper")))
+         else if (attr == "rangeupper")
          {
-            SetRangeUpper( Internat::CompatibleToDouble(value) );
+            SetRangeUpper( value.Get(GetRangeUpper()) );
             mRescaleXMLValues = false;
          }
-         else if (!wxStrcmp(attr, wxT("displaylog")) &&
-                  XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue))
+         else if (attr == "displaylog" && value.TryGet(nValue))
          {
             SetDisplayLog(nValue != 0);
             //TODO-MB: This causes a graphical glitch, TrackPanel should probably be Refresh()ed after loading.
             //         I don't know where to do this though.
          }
-         else if (!wxStrcmp(attr, wxT("interpolatelog")) &&
-                  XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue))
+         else if (attr == "interpolatelog" && value.TryGet(nValue))
          {
             SetInterpolateLog(nValue != 0);
          }
@@ -237,7 +293,7 @@ bool TimeTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
    return false;
 }
 
-void TimeTrack::HandleXMLEndTag(const wxChar * WXUNUSED(tag))
+void TimeTrack::HandleXMLEndTag(const std::string_view&  WXUNUSED(tag))
 {
    if(mRescaleXMLValues)
    {
@@ -247,9 +303,9 @@ void TimeTrack::HandleXMLEndTag(const wxChar * WXUNUSED(tag))
    }
 }
 
-XMLTagHandler *TimeTrack::HandleXMLChild(const wxChar *tag)
+XMLTagHandler *TimeTrack::HandleXMLChild(const std::string_view& tag)
 {
-   if (!wxStrcmp(tag, wxT("envelope")))
+   if (tag == "envelope")
       return mEnvelope.get();
 
   return NULL;
@@ -306,3 +362,12 @@ void TimeTrack::testMe()
      }*/
 }
 
+//! Installer of the time warper
+static Mixer::WarpOptions::DefaultWarp::Scope installer{
+[](const TrackList &list) -> const BoundedEnvelope*
+{
+   if (auto pTimeTrack = *list.Any<const TimeTrack>().begin())
+      return pTimeTrack->GetEnvelope();
+   else
+      return nullptr;
+} };
