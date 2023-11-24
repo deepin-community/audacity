@@ -11,7 +11,8 @@ Paul Licameli split from class LabelTrack
 #ifndef __AUDACITY_LABEL_TRACK_VIEW__
 #define __AUDACITY_LABEL_TRACK_VIEW__
 
-#include "../../ui/CommonTrackView.h"
+#include "../../ui/CommonChannelView.h"
+#include "Observer.h"
 
 class LabelGlyphHandle;
 class LabelTextHandle;
@@ -36,7 +37,7 @@ constexpr int MAX_NUM_ROWS =80;
 
 class wxKeyEvent;
 
-class LabelTrackView final : public CommonTrackView
+class AUDACITY_DLL_API LabelTrackView final : public CommonChannelView
 {
    LabelTrackView( const LabelTrackView& ) = delete;
    LabelTrackView &operator=( const LabelTrackView& ) = delete;
@@ -44,8 +45,11 @@ class LabelTrackView final : public CommonTrackView
    void Reparent( const std::shared_ptr<Track> &parent ) override;
 
 public:
-   enum : int { DefaultFontSize = 12 };
-   
+   enum : int { DefaultFontSize = 0 }; //system preferred
+   static constexpr int TextFramePadding { 2 };
+   static constexpr int TextFrameYOffset { -1 };
+   static constexpr int LabelBarHeight { 6 }; 
+
    explicit
    LabelTrackView( const std::shared_ptr<Track> &pTrack );
    ~LabelTrackView() override;
@@ -66,7 +70,6 @@ public:
 
 private:
    void BindTo( LabelTrack *pParent );
-   void UnbindFrom( LabelTrack *pParent );
 
    std::vector<UIHandlePtr> DetailedHitTest
       (const TrackPanelMouseState &state,
@@ -85,7 +88,7 @@ private:
       (wxKeyEvent &event, ViewInfo &viewInfo, wxWindow *pParent,
       AudacityProject *project) override;
 
-   std::shared_ptr<TrackVRulerControls> DoGetVRulerControls() override;
+   std::shared_ptr<ChannelVRulerControls> DoGetVRulerControls() override;
 
    // Preserve some view state too for undo/redo purposes
    void CopyTo( Track &track ) const override;
@@ -109,11 +112,10 @@ public:
 
    void Draw( TrackPanelDrawingContext &context, const wxRect & r ) const;
 
-   int GetSelectedIndex( AudacityProject &project ) const;
-   void SetSelectedIndex( int index );
-
    bool CutSelectedText( AudacityProject &project );
    bool CopySelectedText( AudacityProject &project );
+   bool SelectAllText(AudacityProject& project);
+   
    bool PasteSelectedText(
       AudacityProject &project, double sel0, double sel1 );
 
@@ -123,20 +125,33 @@ public:
 private:
    static wxBitmap & GetGlyph( int i);
 
+   struct Index
+   {
+      Index();
+      Index(int index);
+      operator int() const;
+      Index &operator =(int index);
+      Index &operator ++();
+      Index &operator --();
+
+      bool IsModified() const;
+      void SetModified(bool modified);
+
+   private:
+      int mIndex;
+      bool mModified;
+   };
+
 public:
    struct Flags {
-      int mInitialCursorPos, mCurrentCursorPos, mSelIndex;
-      bool mDrawCursor;
+      int mInitialCursorPos, mCurrentCursorPos;
+      Index mNavigationIndex;
+      Index mTextEditIndex;
+      wxString mUndoLabel;
    };
 
    void ResetFlags();
-   Flags SaveFlags() const
-   {
-      return {
-         mInitialCursorPos, mCurrentCursorPos, mSelIndex,
-         mDrawCursor
-      };
-   }
+   Flags SaveFlags() const;
    void RestoreFlags( const Flags& flags );
 
    static int OverATextBox( const LabelTrack &track, int xx, int yy );
@@ -168,8 +183,14 @@ public:
 private:
    void OnContextMenu( AudacityProject &project, wxCommandEvent & evt);
 
-   mutable int mSelIndex{-1};  /// Keeps track of the currently selected label
-   
+   /// Keeps track of the currently selected label (not same as selection region)
+   /// used for navigation between labels
+   mutable Index mNavigationIndex{ -1 };
+   /// Index of the current label text being edited
+   mutable Index mTextEditIndex{ -1 };
+
+   mutable wxString mUndoLabel;
+
    static int mIconHeight;
    static int mIconWidth;
    static int mTextHeight;
@@ -178,31 +199,40 @@ private:
    static wxBitmap mBoundaryGlyphs[NUM_GLYPH_CONFIGS * NUM_GLYPH_HIGHLIGHTS];
 
    static int mFontHeight;
-   int mCurrentCursorPos;                      /// current cursor position
-   int mInitialCursorPos;                      /// initial cursor position
+   mutable int mCurrentCursorPos;                  /// current cursor position
+   mutable int mInitialCursorPos;                  /// initial cursor position
 
-   bool mDrawCursor;                           /// flag to tell if drawing the
-                                                  /// cursor or not
+   
    int mRestoreFocus{-2};                          /// Restore focus to this track
-                                                  /// when done editing
+                                                   /// when done editing
 
    void ComputeTextPosition(const wxRect & r, int index) const;
    void ComputeLayout(const wxRect & r, const ZoomInfo &zoomInfo) const;
    static void DrawLines( wxDC & dc, const LabelStruct &ls, const wxRect & r);
    static void DrawGlyphs( wxDC & dc, const LabelStruct &ls, const wxRect & r,
       int GlyphLeft, int GlyphRight);
+   static int GetTextFrameHeight();
    static void DrawText( wxDC & dc, const LabelStruct &ls, const wxRect & r);
    static void DrawTextBox( wxDC & dc, const LabelStruct &ls, const wxRect & r);
+   static void DrawBar(wxDC& dc, const LabelStruct& ls, const wxRect& r);
    static void DrawHighlight(
       wxDC & dc, const LabelStruct &ls, int xPos1, int xPos2, int charHeight);
 
 public:
    /// convert pixel coordinate to character position in text box
-   int FindCursorPosition(wxCoord xPos);
+   int FindCursorPosition(int labelIndex, wxCoord xPos);
    int GetCurrentCursorPosition() const { return mCurrentCursorPos; }
    void SetCurrentCursorPosition(int pos);
    int GetInitialCursorPosition() const { return mInitialCursorPos; }
-   void SetTextHighlight( int initialPosition, int currentPosition );
+
+   /// Sets the label with specified index for editing,
+   /// optionally selection may be specified with [start, end]
+   void SetTextSelection(int labelIndex, int start = 1, int end = 1);
+   int GetTextEditIndex(AudacityProject& project) const;
+   void ResetTextSelection();
+
+   void SetNavigationIndex(int index);
+   int GetNavigationIndex(AudacityProject& project) const;
 
 private:
 
@@ -213,16 +243,17 @@ private:
 
    static void calculateFontHeight(wxDC & dc);
 
-public:
-   bool HasSelection( AudacityProject &project ) const;
+   bool IsValidIndex(const Index& index, AudacityProject& project) const;
 
 private:
    void RemoveSelectedText();
 
-   void OnLabelAdded( LabelTrackEvent& );
-   void OnLabelDeleted( LabelTrackEvent& );
-   void OnLabelPermuted( LabelTrackEvent& );
-   void OnSelectionChange( LabelTrackEvent& );
+   void OnLabelAdded( const LabelTrackEvent& );
+   void OnLabelDeleted( const LabelTrackEvent& );
+   void OnLabelPermuted( const LabelTrackEvent& );
+   void OnSelectionChange( const LabelTrackEvent& );
+
+   Observer::Subscription mSubscription;
 
    std::shared_ptr<LabelTrack> FindLabelTrack();
    std::shared_ptr<const LabelTrack> FindLabelTrack() const;
@@ -231,6 +262,9 @@ private:
    std::weak_ptr<LabelTextHandle> mTextHandle;
 
    static wxFont msFont;
+
+   // Bug #2571: See explanation in ShowContextMenu()
+   int mEditIndex;
 };
 
 #endif

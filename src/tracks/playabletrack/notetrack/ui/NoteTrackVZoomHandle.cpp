@@ -8,26 +8,22 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h" // for USE_* macros
+
 #ifdef USE_MIDI
 #include "NoteTrackVZoomHandle.h"
 
-#include "../../../../Experimental.h"
-
-#include "../../../ui/TrackVRulerControls.h"
+#include "../../../ui/ChannelVRulerControls.h"
 
 #include "../../../../HitTestResult.h"
 #include "../../../../NoteTrack.h"
-#include "../../../../Project.h"
-#include "../../../../ProjectHistory.h"
+#include "Project.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanelMouseEvent.h"
 #include "../../../../widgets/PopupMenuTable.h"
 #include "../../../../../images/Cursors.h"
-#include "../../../../Prefs.h"
-
-#include <wx/event.h>
+#include "Prefs.h"
 
 namespace
 {
@@ -105,6 +101,11 @@ UIHandlePtr NoteTrackVZoomHandle::HitTest
 
 NoteTrackVZoomHandle::~NoteTrackVZoomHandle()
 {
+}
+
+bool NoteTrackVZoomHandle::HandlesRightClick()
+{
+   return true;
 }
 
 UIHandle::Result NoteTrackVZoomHandle::Click
@@ -201,11 +202,6 @@ protected:
    void OnDownOctave(wxCommandEvent&){ OnZoom( kDownOctave );};
 
 private:
-   void DestroyMenu() override
-   {
-      mpData = nullptr;
-   }
-
    void InitUserData(void *pUserData) override;
 
    void UpdatePrefs() override
@@ -314,9 +310,9 @@ UIHandle::Result NoteTrackVZoomHandle::Release
 
       PopupMenuTable *const pTable =
           (PopupMenuTable *) &NoteTrackVRulerMenuTable::Instance();
-      auto pMenu = PopupMenuTable::BuildMenu(pParent, pTable, &data);
+      auto pMenu = PopupMenuTable::BuildMenu(pTable, &data);
 
-      pParent->PopupMenu(pMenu.get(), event.m_x, event.m_y);
+      pMenu->Popup( *pParent, { event.m_x, event.m_y } );
 
       return data.result;
    }
@@ -372,8 +368,8 @@ void NoteTrackVZoomHandle::Draw(
          return;
       
       if ( IsDragZooming( mZoomStart, mZoomEnd ) )
-         TrackVRulerControls::DrawZooming
-            ( context, rect, mZoomStart, mZoomEnd );
+         ChannelVRulerControls::DrawZooming(
+            context, rect, mZoomStart, mZoomEnd);
    }
 }
 
@@ -382,7 +378,7 @@ wxRect NoteTrackVZoomHandle::DrawingArea(
    const wxRect &rect, const wxRect &panelRect, unsigned iPass )
 {
    if ( iPass == TrackArtist::PassZooming )
-      return TrackVRulerControls::ZoomingArea( rect, panelRect );
+      return ChannelVRulerControls::ZoomingArea(rect, panelRect);
    else
       return rect;
 }

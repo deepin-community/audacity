@@ -8,26 +8,27 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../Audacity.h"
+
 #include "EnvelopeHandle.h"
 
-#include "../../Experimental.h"
+#include "ChannelView.h"
 
-#include "TrackView.h"
-
-#include "../../Envelope.h"
+#include "Envelope.h"
+#include "Decibels.h"
 #include "../../EnvelopeEditor.h"
 #include "../../HitTestResult.h"
 #include "../../prefs/WaveformSettings.h"
-#include "../../ProjectAudioIO.h"
-#include "../../ProjectHistory.h"
+#include "ProjectAudioIO.h"
+#include "ProjectHistory.h"
 #include "../../RefreshCode.h"
-#include "../../TimeTrack.h"
-#include "../../TrackArtist.h"
+#include "TimeTrack.h"
+#include "../../TrackArt.h"
 #include "../../TrackPanelMouseEvent.h"
-#include "../../ViewInfo.h"
-#include "../../WaveTrack.h"
+#include "ViewInfo.h"
+#include "WaveTrack.h"
 #include "../../../images/Cursors.h"
+
+#include <wx/event.h>
 
 EnvelopeHandle::EnvelopeHandle( Envelope *pEnvelope )
    : mEnvelope{ pEnvelope }
@@ -45,9 +46,9 @@ EnvelopeHandle::~EnvelopeHandle()
 {}
 
 UIHandlePtr EnvelopeHandle::HitAnywhere
-(std::weak_ptr<EnvelopeHandle> & WXUNUSED(holder), Envelope *envelope, bool timeTrack)
+(std::weak_ptr<EnvelopeHandle> &holder, Envelope *envelope, bool timeTrack)
 {
-   auto result = std::make_shared<EnvelopeHandle>( envelope );
+   auto result = AssignUIHandlePtr(holder, std::make_shared<EnvelopeHandle>(envelope));
    result->mTimeTrack = timeTrack;
    return result;
 }
@@ -58,7 +59,7 @@ namespace {
        double &dBRange, bool &dB, float &zoomMin, float &zoomMax)
    {
       const auto &viewInfo = ViewInfo::Get( project );
-      dBRange = viewInfo.dBr;
+      dBRange = DecibelScaleCutoff.Read();
       dB = tt.GetDisplayLog();
       zoomMin = tt.GetRangeLower(), zoomMax = tt.GetRangeUpper();
       if (dB) {
@@ -93,18 +94,21 @@ UIHandlePtr EnvelopeHandle::WaveTrackHitTest
 {
    /// method that tells us if the mouse event landed on an
    /// envelope boundary.
-   Envelope *const envelope = wt->GetEnvelopeAtX(state.GetX());
+   auto &viewInfo = ViewInfo::Get(*pProject);
+   auto time = viewInfo.PositionToTime(state.m_x, rect.GetX());
+   Envelope *const envelope = wt->GetEnvelopeAtTime(time);
 
    if (!envelope)
       return {};
 
    // Get envelope point, range 0.0 to 1.0
-   const bool dB = !wt->GetWaveformSettings().isLinear();
+   const bool dB = !WaveformSettings::Get(*wt).isLinear();
 
    float zoomMin, zoomMax;
-   wt->GetDisplayBounds(&zoomMin, &zoomMax);
+   auto &cache = WaveformScale::Get(*wt);
+   cache.GetDisplayBounds(zoomMin, zoomMax);
 
-   const float dBRange = wt->GetWaveformSettings().dBRange;
+   const float dBRange = WaveformSettings::Get(*wt).dBRange;
 
    return EnvelopeHandle::HitEnvelope
        (holder, state, rect, pProject, envelope, zoomMin, zoomMax, dB, dBRange, false);
@@ -148,7 +152,9 @@ UIHandlePtr EnvelopeHandle::HitEnvelope
    // For amplification using the envelope we introduced the idea of contours.
    // The contours have the same shape as the envelope, which may be partially off-screen.
    // The contours are closer in to the center line.
-   int ContourSpacing = (int)(rect.height / (2 * (zoomMax - zoomMin)));
+   // Beware very short rectangles!  Make this at least 1
+   int ContourSpacing = std::max(1,
+      static_cast<int>(rect.height / (2 * (zoomMax - zoomMin))));
    const int MaxContours = 2;
 
    // Adding ContourSpacing/2 selects a region either side of the contour.
@@ -173,51 +179,34 @@ UIHandle::Result EnvelopeHandle::Click
 
    const wxMouseEvent &event = evt.event;
    const auto &viewInfo = ViewInfo::Get( *pProject );
-   const auto pView = std::static_pointer_cast<TrackView>(evt.pCell);
+   const auto pView = std::static_pointer_cast<ChannelView>(evt.pCell);
    const auto pTrack = pView ? pView->FindTrack().get() : nullptr;
 
-   mEnvelopeEditors.clear();
+   mpEnvelopeEditor.reset();
 
    unsigned result = Cancelled;
    if (pTrack)
       result = pTrack->TypeSwitch< decltype(RefreshNone) >(
-      [&](WaveTrack *wt) {
+      [&](WaveTrack &wt) {
          if (!mEnvelope)
             return Cancelled;
 
-         mLog = !wt->GetWaveformSettings().isLinear();
-         wt->GetDisplayBounds(&mLower, &mUpper);
-         mdBRange = wt->GetWaveformSettings().dBRange;
-         auto channels = TrackList::Channels( wt );
-         for ( auto channel : channels ) {
-            if (channel == wt)
-               mEnvelopeEditors.push_back(
-                  std::make_unique< EnvelopeEditor >( *mEnvelope, true ) );
-            else {
-               auto e2 = channel->GetEnvelopeAtX(event.GetX());
-               if (e2)
-                  mEnvelopeEditors.push_back(
-                     std::make_unique< EnvelopeEditor >( *e2, true ) );
-               else {
-                   // There isn't necessarily an envelope there; no guarantee a
-                   // linked track has the same WaveClip structure...
-                }
-            }
-         }
-
+         mLog = !WaveformSettings::Get(wt).isLinear();
+         auto &cache = WaveformScale::Get(wt);
+         cache.GetDisplayBounds(mLower, mUpper);
+         mdBRange = WaveformSettings::Get(wt).dBRange;
+         mpEnvelopeEditor = std::make_unique<EnvelopeEditor>(*mEnvelope, true);
          return RefreshNone;
       },
-      [&](TimeTrack *tt) {
+      [&](TimeTrack &tt) {
          if (!mEnvelope)
             return Cancelled;
-         GetTimeTrackData( *pProject, *tt, mdBRange, mLog, mLower, mUpper);
-         mEnvelopeEditors.push_back(
-            std::make_unique< EnvelopeEditor >( *mEnvelope, false )
-         );
+         GetTimeTrackData( *pProject, tt, mdBRange, mLog, mLower, mUpper);
+         mpEnvelopeEditor = std::make_unique<EnvelopeEditor>(*mEnvelope, false);
 
          return RefreshNone;
       },
-      [](Track *) {
+      [](Track &) {
          return Cancelled;
       }
    );
@@ -287,7 +276,7 @@ UIHandle::Result EnvelopeHandle::Release
       XO("Envelope")
    );
 
-   mEnvelopeEditors.clear();
+   mpEnvelopeEditor.reset();
 
    using namespace RefreshCode;
    return needUpdate ? RefreshCell : RefreshNone;
@@ -296,7 +285,7 @@ UIHandle::Result EnvelopeHandle::Release
 UIHandle::Result EnvelopeHandle::Cancel(AudacityProject *pProject)
 {
    ProjectHistory::Get( *pProject ).RollbackState();
-   mEnvelopeEditors.clear();
+   mpEnvelopeEditor.reset();
    return RefreshCode::RefreshCell;
 }
 
@@ -309,13 +298,6 @@ bool EnvelopeHandle::ForwardEventToEnvelopes
 
    // AS: I'm not sure why we can't let the Envelope take care of
    //  redrawing itself.  ?
-   bool needUpdate = false;
-   for (const auto &pEditor : mEnvelopeEditors) {
-      needUpdate =
-         pEditor->MouseEvent(
-            event, mRect, viewInfo, mLog, mdBRange, mLower, mUpper)
-         || needUpdate;
-   }
-
-   return needUpdate;
+   return mpEnvelopeEditor && mpEnvelopeEditor->MouseEvent(
+      event, mRect, viewInfo, mLog, mdBRange, mLower, mUpper);
 }

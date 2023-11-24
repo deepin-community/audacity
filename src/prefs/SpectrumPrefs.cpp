@@ -14,28 +14,25 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
-#include "SpectrumPrefs.h"
 
-#include "../Experimental.h"
+#include "SpectrumPrefs.h"
 
 #include <wx/choice.h>
 #include <wx/defs.h>
-#include <wx/intl.h>
 #include <wx/checkbox.h>
 #include <wx/textctrl.h>
 
-#include "../FFT.h"
-#include "../Project.h"
-#include "../ShuttleGui.h"
+#include "FFT.h"
+#include "Project.h"
+#include "ShuttleGui.h"
 
 #include "../TrackPanel.h"
-#include "../WaveTrack.h"
-#include "../tracks/playabletrack/wavetrack/ui/WaveTrackView.h"
+#include "WaveTrack.h"
+#include "../tracks/playabletrack/wavetrack/ui/WaveChannelView.h"
 
 #include <algorithm>
 
-#include "../widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 
 SpectrumPrefs::SpectrumPrefs(wxWindow * parent, wxWindowID winid,
    AudacityProject *pProject, WaveTrack *wt)
@@ -45,13 +42,13 @@ SpectrumPrefs::SpectrumPrefs(wxWindow * parent, wxWindowID winid,
 , mPopulating(false)
 {
    if (mWt) {
-      SpectrogramSettings &settings = wt->GetSpectrogramSettings();
+      auto &settings = SpectrogramSettings::Get(*wt);
       mOrigDefaulted = mDefaulted = (&SpectrogramSettings::defaults() == &settings);
       mTempSettings = mOrigSettings = settings;
-      wt->GetSpectrumBounds(&mOrigMin, &mOrigMax);
+      SpectrogramBounds::Get(*wt).GetBounds(*wt, mOrigMin, mOrigMax);
       mTempSettings.maxFreq = mOrigMax;
       mTempSettings.minFreq = mOrigMin;
-      mOrigPlacements = WaveTrackView::Get( *mWt ).SavePlacements();
+      mOrigPlacements = WaveChannelView::Get(*mWt).SavePlacements();
    }
    else  {
       mTempSettings = mOrigSettings = SpectrogramSettings::defaults();
@@ -69,17 +66,17 @@ SpectrumPrefs::~SpectrumPrefs()
       Rollback();
 }
 
-ComponentInterfaceSymbol SpectrumPrefs::GetSymbol()
+ComponentInterfaceSymbol SpectrumPrefs::GetSymbol() const
 {
    return SPECTRUM_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString SpectrumPrefs::GetDescription()
+TranslatableString SpectrumPrefs::GetDescription() const
 {
    return XO("Preferences for Spectrum");
 }
 
-wxString SpectrumPrefs::HelpPageName()
+ManualPageID SpectrumPrefs::HelpPageName()
 {
    // Currently (May2017) Spectrum Settings is the only preferences
    // we ever display in a dialog on its own without others.
@@ -93,7 +90,6 @@ wxString SpectrumPrefs::HelpPageName()
 
 enum {
    ID_WINDOW_SIZE = 10001,
-#ifdef EXPERIMENTAL_ZERO_PADDED_SPECTROGRAMS
    ID_WINDOW_TYPE,
    ID_PADDING_SIZE,
    ID_SCALE,
@@ -103,9 +99,8 @@ enum {
    ID_GAIN,
    ID_RANGE,
    ID_FREQUENCY_GAIN,
-   ID_GRAYSCALE,
+   ID_COLOR_SCHEME,
    ID_SPECTRAL_SELECTION,
-#endif
    ID_DEFAULTS,
 };
 
@@ -126,7 +121,6 @@ void SpectrumPrefs::Populate(size_t windowSize)
 
 void SpectrumPrefs::PopulatePaddingChoices(size_t windowSize)
 {
-#ifdef EXPERIMENTAL_ZERO_PADDED_SPECTROGRAMS
    mZeroPaddingChoice = 1;
 
    // The choice of window size restricts the choice of padding.
@@ -161,7 +155,6 @@ void SpectrumPrefs::PopulatePaddingChoices(size_t windowSize)
 
    if (pPaddingSizeControl)
       pPaddingSizeControl->SetSelection(mZeroPaddingChoice);
-#endif
 }
 
 void SpectrumPrefs::PopulateOrExchange(ShuttleGui & S)
@@ -225,11 +218,13 @@ void SpectrumPrefs::PopulateOrExchange(ShuttleGui & S)
                S.Id(ID_FREQUENCY_GAIN).TieNumericTextBox(XXO("High &boost (dB/dec):"),
                mTempSettings.frequencyGain,
                8);
+
+            // i18n-hint Scheme refers to a color scheme for spectrogram colors
+            S.Id(ID_COLOR_SCHEME).TieChoice(XC("Sche&me:", "spectrum prefs"),
+               (int&)mTempSettings.colorScheme,
+               Msgids( SpectrogramSettings::GetColorSchemeNames() ) );
          }
          S.EndMultiColumn();
-
-         S.Id(ID_GRAYSCALE).TieCheckBox(XXO("Gra&yscale"),
-            mTempSettings.isGrayscale);
       }
       S.EndStatic();
    }
@@ -254,7 +249,7 @@ void SpectrumPrefs::PopulateOrExchange(ShuttleGui & S)
                XO("128"),
                XO("256"),
                XO("512"),
-               XO("1024 - default"),
+               XO("1024"),
                XO("2048"),
                XO("4096"),
                XO("8192"),
@@ -267,12 +262,10 @@ void SpectrumPrefs::PopulateOrExchange(ShuttleGui & S)
             mTempSettings.windowType,
             mTypeChoices);
 
-#ifdef EXPERIMENTAL_ZERO_PADDED_SPECTROGRAMS
          mZeroPaddingChoiceCtrl =
             S.Id(ID_PADDING_SIZE).TieChoice(XXO("&Zero padding factor:"),
             mTempSettings.zeroPaddingFactor,
             mZeroPaddingChoices);
-#endif
       }
       S.EndMultiColumn();
    }
@@ -402,19 +395,14 @@ bool SpectrumPrefs::Validate()
 void SpectrumPrefs::Rollback()
 {
    if (mWt) {
-      auto channels = TrackList::Channels(mWt);
-
-      for (auto channel : channels) {
-         if (mOrigDefaulted) {
-            channel->SetSpectrogramSettings({});
-            channel->SetSpectrumBounds(-1, -1);
-         }
-         else {
-            auto &settings =
-               channel->GetIndependentSpectrogramSettings();
-            channel->SetSpectrumBounds(mOrigMin, mOrigMax);
-            settings = mOrigSettings;
-         }
+      if (mOrigDefaulted) {
+         SpectrogramSettings::Reset(*mWt);
+         SpectrogramBounds::Get(*mWt).SetBounds(-1, -1);
+      }
+      else {
+         auto &settings = SpectrogramSettings::Own(*mWt);
+         SpectrogramBounds::Get(*mWt).SetBounds(mOrigMin, mOrigMax);
+         settings = mOrigSettings;
       }
    }
 
@@ -425,9 +413,7 @@ void SpectrumPrefs::Rollback()
 
    const bool isOpenPage = this->IsShown();
    if (mWt && isOpenPage) {
-      auto channels = TrackList::Channels(mWt);
-      for (auto channel : channels)
-         WaveTrackView::Get( *channel ).RestorePlacements( mOrigPlacements );
+      WaveChannelView::Get(*mWt).RestorePlacements(mOrigPlacements);
    }
 
    if (isOpenPage) {
@@ -453,18 +439,16 @@ void SpectrumPrefs::Preview()
    mTempSettings.ConvertToActualWindowSizes();
 
    if (mWt) {
-      for (auto channel : TrackList::Channels(mWt)) {
-         if (mDefaulted) {
-            channel->SetSpectrogramSettings({});
-            // ... and so that the vertical scale also defaults:
-            channel->SetSpectrumBounds(-1, -1);
-         }
-         else {
-            SpectrogramSettings &settings =
-               channel->GetIndependentSpectrogramSettings();
-            channel->SetSpectrumBounds(mTempSettings.minFreq, mTempSettings.maxFreq);
-            settings = mTempSettings;
-         }
+      if (mDefaulted) {
+         SpectrogramSettings::Reset(*mWt);
+         // ... and so that the vertical scale also defaults:
+         SpectrogramBounds::Get(*mWt).SetBounds(-1, -1);
+      }
+      else {
+         SpectrogramSettings &settings = SpectrogramSettings::Own(*mWt);
+         SpectrogramBounds::Get(*mWt)
+            .SetBounds(mTempSettings.minFreq, mTempSettings.maxFreq);
+         settings = mTempSettings;
       }
    }
 
@@ -480,8 +464,8 @@ void SpectrumPrefs::Preview()
    /*
    if (mWt && isOpenPage) {
       for (auto channel : TrackList::Channels(mWt))
-         WaveTrackView::Get( *channel )
-            .SetDisplay( WaveTrackViewConstants::Spectrum );
+         WaveChannelView::Get(*channel)
+            .SetDisplay(WaveChannelViewConstants::Spectrum);
    }
    */
 
@@ -567,9 +551,7 @@ void SpectrumPrefs::EnableDisableSTFTOnlyControls()
    mGain->Enable(STFT);
    mRange->Enable(STFT);
    mFrequencyGain->Enable(STFT);
-#ifdef EXPERIMENTAL_ZERO_PADDED_SPECTROGRAMS
    mZeroPaddingChoiceCtrl->Enable(STFT);
-#endif
 }
 
 BEGIN_EVENT_TABLE(SpectrumPrefs, PrefsPanel)
@@ -586,7 +568,7 @@ BEGIN_EVENT_TABLE(SpectrumPrefs, PrefsPanel)
    EVT_TEXT(ID_GAIN, SpectrumPrefs::OnControl)
    EVT_TEXT(ID_RANGE, SpectrumPrefs::OnControl)
    EVT_TEXT(ID_FREQUENCY_GAIN, SpectrumPrefs::OnControl)
-   EVT_CHECKBOX(ID_GRAYSCALE, SpectrumPrefs::OnControl)
+   EVT_CHOICE(ID_COLOR_SCHEME, SpectrumPrefs::OnControl)
    EVT_CHECKBOX(ID_SPECTRAL_SELECTION, SpectrumPrefs::OnControl)
 
 END_EVENT_TABLE()

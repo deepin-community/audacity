@@ -1,17 +1,17 @@
 /**********************************************************************
- 
+
  Audacity: A Digital Audio Editor
- 
+
  TimeToolBar.cpp
- 
+
  This program is free software; you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
  the Free Software Foundation; either version 2 of the License, or
  (at your option) any later version.
- 
+
  *//*******************************************************************/
 
-#include "../Audacity.h"
+
 
 // For compilers that support precompilation, includes "wx/wx.h".
 #include <wx/wxprec.h>
@@ -19,7 +19,6 @@
 #include <wx/setup.h> // for wxUSE_* macros
 
 #ifndef WX_PRECOMP
-#include <wx/intl.h>
 #include <wx/sizer.h>
 #endif
 
@@ -27,11 +26,15 @@
 #include "SelectionBarListener.h"
 #include "ToolManager.h"
 
-#include "../AudioIO.h"
-#include "../Project.h"
-#include "../ProjectAudioIO.h"
-#include "../ProjectSettings.h"
-#include "../ViewInfo.h"
+#include "AudioIO.h"
+#include "Project.h"
+#include "ProjectAudioIO.h"
+#include "ProjectNumericFormats.h"
+#include "ProjectRate.h"
+#include "ProjectTimeSignature.h"
+#include "ViewInfo.h"
+
+#include "NumericConverterFormats.h"
 
 IMPLEMENT_CLASS(TimeToolBar, ToolBar);
 
@@ -48,22 +51,30 @@ BEGIN_EVENT_TABLE(TimeToolBar, ToolBar)
    EVT_IDLE(TimeToolBar::OnIdle)
 END_EVENT_TABLE()
 
-TimeToolBar::TimeToolBar(AudacityProject &project)
-:  ToolBar(project, TimeBarID, XO("Time"), wxT("Time"), true),
-   mListener(NULL),
-   mAudioTime(NULL)
+Identifier TimeToolBar::ID()
 {
-   project.Bind(EVT_PROJECT_SETTINGS_CHANGE, &TimeToolBar::OnSettingsChanged, this);
+   return wxT("Time");
+}
+
+TimeToolBar::TimeToolBar(AudacityProject &project)
+:  ToolBar(project, XO("Time"), ID(), true),
+   mListener(NULL), mAudioTime(NULL)
+{
 }
 
 TimeToolBar::~TimeToolBar()
 {
 }
 
+ToolBar::DockID TimeToolBar::DefaultDockID() const
+{
+   return BotDockID;
+}
+
 TimeToolBar &TimeToolBar::Get(AudacityProject &project)
 {
    auto &toolManager = ToolManager::Get(project);
-   return *static_cast<TimeToolBar*>(toolManager.GetToolBar(TimeBarID));
+   return *static_cast<TimeToolBar*>(toolManager.GetToolBar(ID()));
 }
 
 const TimeToolBar &TimeToolBar::Get(const AudacityProject &project)
@@ -73,16 +84,13 @@ const TimeToolBar &TimeToolBar::Get(const AudacityProject &project)
 
 void TimeToolBar::Populate()
 {
-   const auto &settings = ProjectSettings::Get(mProject);
-
-   // Get the default sample rate
-   auto rate = settings.GetRate();
+   const auto &formats = ProjectNumericFormats::Get(mProject);
 
    // Get the default time format
-   auto format = settings.GetAudioTimeFormat();
+   auto format = formats.GetAudioTimeFormat();
 
    // Create the read-only time control
-   mAudioTime = safenew NumericTextCtrl(this, AudioPositionID, NumericConverter::TIME, format, 0.0, rate);
+   mAudioTime = safenew NumericTextCtrl(FormatterContext::ProjectContext(mProject), this, AudioPositionID, NumericConverterType_TIME(), format, 0.0);
    mAudioTime->SetName(XO("Audio Position"));
    mAudioTime->SetReadOnly(true);
 
@@ -99,7 +107,13 @@ void TimeToolBar::Populate()
    mSettingInitialSize = true;
 
    // Establish initial resizing limits
-//   SetResizingLimits();
+   //   SetResizingLimits();
+   mFormatChangedToFitValueSubscription = mAudioTime->Subscribe(
+      [this](auto)
+      {
+         wxSizeEvent e;
+         OnSize(e);
+      });
 }
 
 void TimeToolBar::UpdatePrefs()
@@ -107,7 +121,7 @@ void TimeToolBar::UpdatePrefs()
    // Since the language may have changed, we need to force an update to accommodate
    // different length text
    wxCommandEvent e;
-   e.SetInt(mAudioTime->GetFormatIndex());
+   e.SetString(mAudioTime->GetFormatName().Internal());
    OnUpdate(e);
 
    // Language may have changed so reset label
@@ -119,12 +133,12 @@ void TimeToolBar::UpdatePrefs()
 
 void TimeToolBar::SetToDefaultSize()
 {
-   // Reset 
+   // Reset
    SetMaxSize(wxDefaultSize);
    SetMinSize(wxDefaultSize);
 
    // Set the default time format
-   SetAudioTimeFormat(NumericConverter::HoursMinsSecondsFormat());
+   SetAudioTimeFormat(NumericConverterFormats::HoursMinsSecondsFormat());
 
    // Set the default size
    SetSize(GetInitialWidth(), 48);
@@ -186,7 +200,7 @@ void TimeToolBar::SetListener(TimeToolBarListener *l)
    // OnUpdate() will not be called and need it to set the initial size.
    if (mSettingInitialSize) {
       wxCommandEvent e;
-      e.SetInt(mAudioTime->GetFormatIndex());
+      e.SetString(mAudioTime->GetFormatName().Internal());
       OnUpdate(e);
    }
 }
@@ -194,10 +208,10 @@ void TimeToolBar::SetListener(TimeToolBarListener *l)
 void TimeToolBar::SetAudioTimeFormat(const NumericFormatSymbol & format)
 {
    // Set the format if it's different from previous
-   if (mAudioTime->SetFormatString(mAudioTime->GetBuiltinFormat(format))) {
+   if (mAudioTime->SetFormatName(format)) {
       // Simulate an update since the format has changed.
       wxCommandEvent e;
-      e.SetInt(mAudioTime->GetFormatIndex());
+      e.SetString(format.Internal());
       OnUpdate(e);
    }
 }
@@ -261,23 +275,13 @@ void TimeToolBar::SetResizingLimits()
    SetMaxSize(maxSize);
 }
 
-// Called when the project settings change
-void TimeToolBar::OnSettingsChanged(wxCommandEvent &evt)
-{
-   evt.Skip(false);
-
-   if (evt.GetInt() == ProjectSettings::ChangedProjectRate && mAudioTime)
-   {
-      const auto &settings = ProjectSettings::Get(mProject);
-      mAudioTime->SetSampleRate(settings.GetRate());
-   }
-}
-
 // Called when the format drop downs is changed.
 // This causes recreation of the toolbar contents.
 void TimeToolBar::OnUpdate(wxCommandEvent &evt)
 {
    evt.Skip(false);
+
+   ToolBar::ReCreateButtons();
 
    // Reset to allow resizing to work
    SetMinSize(wxDefaultSize);
@@ -285,9 +289,9 @@ void TimeToolBar::OnUpdate(wxCommandEvent &evt)
 
    // Save format name before recreating the controls so they resize properly
    if (mListener) {
-      mListener->TT_SetAudioTimeFormat(mAudioTime->GetBuiltinName(evt.GetInt()));
+      mListener->TT_SetAudioTimeFormat(evt.GetString());
    }
-
+   
    // During initialization, the desired size will have already been set at this point
    // and the "best" size" would override it, so we simply send a size event to force
    // the content to fit inside the toolbar.
@@ -362,7 +366,7 @@ void TimeToolBar::OnIdle(wxIdleEvent &evt)
 
    auto &projectAudioIO = ProjectAudioIO::Get(mProject);
    if (projectAudioIO.IsAudioActive()) {
-      auto gAudioIO = AudioIOBase::Get();
+      auto gAudioIO = AudioIO::Get();
       audioTime = gAudioIO->GetStreamTime();
    }
    else {
@@ -373,9 +377,12 @@ void TimeToolBar::OnIdle(wxIdleEvent &evt)
    mAudioTime->SetValue(wxMax(0.0, audioTime));
 }
 
-static RegisteredToolbarFactory factory
+wxSize TimeToolBar::ComputeSizing(int digitH)
 {
-   TimeBarID,
+   return mAudioTime->ComputeSizing(false, digitH * mDigitRatio, digitH);
+}
+
+static RegisteredToolbarFactory factory{
    []( AudacityProject &project )
    {
       return ToolBar::Holder{ safenew TimeToolBar{ project } };
@@ -385,7 +392,7 @@ static RegisteredToolbarFactory factory
 namespace {
 AttachedToolBarMenuItem sAttachment
 {
-   TimeBarID,
+   TimeToolBar::ID(),
    wxT("ShowTimeTB"),
    /* i18n-hint: Clicking this menu item shows the toolbar
       for viewing actual time of the cursor */

@@ -12,20 +12,21 @@ Paul Licameli split from TrackControls.cpp
 
 #include "TrackButtonHandles.h"
 #include "TrackSelectHandle.h"
-#include "../../AColor.h"
+#include "AColor.h"
 #include "../../RefreshCode.h"
-#include "../../Project.h"
-#include "../../ProjectHistory.h"
+#include "Project.h"
+#include "ProjectHistory.h"
+#include "../../ProjectWindows.h"
 #include "../../TrackArtist.h"
 #include "../../TrackInfo.h"
 #include "../../TrackPanelDrawingContext.h"
 #include "../../TrackPanelMouseEvent.h"
 #include "../../TrackUtilities.h"
 #include <wx/textdlg.h>
-#include "../../commands/CommandType.h"
+#include "../../commands/AudacityCommand.h"
 #include "../../commands/CommandManager.h"
-#include "../../ShuttleGui.h"
-#include "../../Track.h"
+#include "ShuttleGui.h"
+#include "Track.h"
 #include "../../widgets/PopupMenuTable.h"
 
 #include <wx/dc.h>
@@ -95,11 +96,6 @@ private:
    void OnMoveTrack(wxCommandEvent &event);
 
    void InitUserData(void *pUserData) override;
-
-   void DestroyMenu() override
-   {
-      mpData = nullptr;
-   }
 
    CommonTrackControls::InitMenuData *mpData{};
 
@@ -195,15 +191,15 @@ public:
    static const ComponentInterfaceSymbol Symbol;
 
    // ComponentInterface overrides
-   ComponentInterfaceSymbol GetSymbol() override
+   ComponentInterfaceSymbol GetSymbol() const override
    { return Symbol; }
    //TranslatableString GetDescription() override {return XO("Sets the track name.");};
-   //bool DefineParams( ShuttleParams & S ) override;
+   //bool VisitSettings( SettingsVisitor & S ) override;
    void PopulateOrExchange(ShuttleGui & S) override;
    //bool Apply(const CommandContext & context) override;
 
    // Provide an override, if we want the help button.
-   // wxString ManualPage() override {return wxT("");};
+   // ManualPageID ManualPage() override {return {};}
 public:
    wxString mName;
 };
@@ -237,8 +233,7 @@ void TrackMenuTable::OnSetName(wxCommandEvent &)
       if (bResult) 
       {
          wxString newName = Command.mName;
-         for (auto channel : TrackList::Channels(pTrack))
-            channel->SetName(newName);
+         pTrack->SetName(newName);
 
          ProjectHistory::Get( *proj )
             .PushState(
@@ -275,7 +270,8 @@ void TrackMenuTable::OnMoveTrack(wxCommandEvent &event)
 }
 
 unsigned CommonTrackControls::DoContextMenu(
-   const wxRect &rect, wxWindow *pParent, wxPoint *, AudacityProject *pProject)
+   const wxRect &rect, wxWindow *pParent, const wxPoint *,
+   AudacityProject *pProject)
 {
    using namespace RefreshCode;
    wxRect buttonRect;
@@ -288,14 +284,14 @@ unsigned CommonTrackControls::DoContextMenu(
    InitMenuData data{ *pProject, track.get(), pParent, RefreshNone };
 
    const auto pTable = &TrackMenuTable::Instance();
-   auto pMenu = PopupMenuTable::BuildMenu(pParent, pTable, &data);
+   auto pMenu = PopupMenuTable::BuildMenu(pTable, &data);
 
    PopupMenuTable *const pExtension = GetMenuExtension(track.get());
    if (pExtension)
       PopupMenuTable::ExtendMenu( *pMenu, *pExtension );
 
-   pParent->PopupMenu
-      (pMenu.get(), buttonRect.x + 1, buttonRect.y + buttonRect.height + 1);
+   pMenu->Popup( *pParent,
+      { buttonRect.x + 1, buttonRect.y + buttonRect.height + 1 } );
 
    return data.result;
 }
@@ -375,7 +371,7 @@ void CommonTrackControls::Draw(
    
       // Vaughan, 2010-08-24: No longer doing this.
       // Draw sync-lock tiles in ruler area.
-      //if (t->IsSyncLockSelected()) {
+      //if (SyncLock::IsSyncLockSelected(t)) {
       //   wxRect tileFill = rect;
       //   tileFill.x = mViewInfo->GetVRulerOffset();
       //   tileFill.width = mViewInfo->GetVRulerWidth();

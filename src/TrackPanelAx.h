@@ -11,31 +11,26 @@
 #ifndef __AUDACITY_TRACK_PANEL_ACCESSIBILITY__
 #define __AUDACITY_TRACK_PANEL_ACCESSIBILITY__
 
-#include "Audacity.h"
+
 
 #include <functional>
 #include <memory>
 
-#include <wx/event.h> // to declare custom event types
 #include <wx/setup.h> // for wxUSE_* macros
 
-#include <wx/string.h> // member variable
-
 #if wxUSE_ACCESSIBILITY
-#include "widgets/WindowAccessible.h" // to inherit
+#include "WindowAccessible.h" // to inherit
 #endif
 
 #include "ClientData.h" // to inherit
+#include "Observer.h"
 
 class wxRect;
+class wxWindow;
 
 class AudacityProject;
 class Track;
 class TrackList;
-
-// An event sent to the project
-wxDECLARE_EXPORTED_EVENT(AUDACITY_DLL_API,
-                         EVT_TRACK_FOCUS_CHANGE, wxCommandEvent);
 
 class TrackPanelAx final
 #if wxUSE_ACCESSIBILITY
@@ -56,9 +51,6 @@ public:
    // Return is the actual focused track, which may be different from
    // the argument when that is null
    std::shared_ptr<Track> SetFocus( std::shared_ptr<Track> track = {} );
-
-   // Returns TRUE if passed track has the focus
-   bool IsFocused( const Track *track );
 
    // Called to signal changes to a track
    void Updated();
@@ -156,8 +148,12 @@ private:
    int mMessageCount;
 };
 
-class TrackFocus final
+struct TrackFocusChangeMessage {};
+
+class AUDACITY_DLL_API TrackFocus final
    : public ClientData::Base
+   , public Observer::Publisher<TrackFocusChangeMessage>
+   , public std::enable_shared_from_this<TrackFocus>
 {
 public:
    static TrackFocus &Get( AudacityProject &project );
@@ -166,22 +162,20 @@ public:
    explicit TrackFocus( AudacityProject &project );
    ~TrackFocus() override;
 
-   TrackFocus( const TrackFocus & ) PROHIBITED;
-   TrackFocus& operator=( const TrackFocus & ) PROHIBITED;
+   TrackFocus( const TrackFocus & ) = delete;
+   TrackFocus& operator=( const TrackFocus & ) = delete;
 
-   // Report the currently focused track, which may be null, otherwise is
-   // a leader track
-   // This function is not const, because it may have a side effect of setting
-   // a focus if none was already set
+   /*!
+    @return the currently focused track, which may be null, otherwise is
+    a leader track
+   
+    This function is not const, because it may have a side effect of setting
+    a focus if none was already set
+    */
    Track *Get();
 
    // Set the track focus to a given track or to null
    void Set( Track *pTrack );
-
-   // Not equivalent to pTrack == this->Get(): may return true also for
-   // other channels than the leader
-   // As with Get(), this is not const
-   bool IsFocused( const Track *pTrack );
 
    void SetAccessible( wxWindow &owner,
       std::unique_ptr< TrackPanelAx > pAccessible );
@@ -191,6 +185,7 @@ public:
    void UpdateAccessibility();
 
 private:
+   friend TrackPanelAx; // so it can Publish()
 
    AudacityProject &mProject;
 

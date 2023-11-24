@@ -14,7 +14,7 @@
 
 *//*******************************************************************/
 
-#include "Audacity.h" // for USE_* macros
+
 #include "TrackPanelAx.h"
 
 // For compilers that support precompilation, includes "wx/wx.h".
@@ -27,14 +27,13 @@
 #include <wx/wx.h>
 #endif
 
-
-#include <wx/intl.h>
-
+#include "BasicUI.h"
 #include "Project.h"
+#include "SyncLock.h"
 #include "Track.h"
-
-
-wxDEFINE_EVENT(EVT_TRACK_FOCUS_CHANGE, wxCommandEvent);
+#include "LabelTrack.h"
+#include "NoteTrack.h"
+#include "TimeTrack.h"
 
 TrackPanelAx::TrackPanelAx( AudacityProject &project )
    :
@@ -74,7 +73,7 @@ std::shared_ptr<Track> TrackPanelAx::GetFocus()
       }
       if (!focusedTrack) {
          focusedTrack =
-            Track::SharedPointer( *GetTracks().Any().first );
+            Track::SharedPointer(*GetTracks().Any().first);
          // only call SetFocus if the focus has changed to avoid
          // unnecessary focus events
          if (focusedTrack) 
@@ -108,12 +107,15 @@ std::shared_ptr<Track> TrackPanelAx::SetFocus( std::shared_ptr<Track> track )
    }
 #endif
 
-   if( !track )
-      track = Track::SharedPointer( *GetTracks().Any().begin() );
+   if (!track)
+      track = Track::SharedPointer(*GetTracks().begin());
 
    if ( mFocusedTrack.lock() != track ) {
       mFocusedTrack = track;
-      mProject.QueueEvent( safenew wxCommandEvent{ EVT_TRACK_FOCUS_CHANGE } );
+      BasicUI::CallAfter([wFocus = TrackFocus::Get(mProject).weak_from_this()]{
+         if (auto pFocus = wFocus.lock())
+            pFocus->Publish({});
+      });
    }
    mNumFocusedTrack = TrackNum(track);
 
@@ -149,32 +151,13 @@ std::shared_ptr<Track> TrackPanelAx::SetFocus( std::shared_ptr<Track> track )
    return track;
 }
 
-// Returns TRUE if passed track has the focus
-bool TrackPanelAx::IsFocused( const Track *track )
-{
-   auto focusedTrack = mFocusedTrack.lock();
-   if( !focusedTrack )
-      focusedTrack = SetFocus();
-
-   // Remap track pointer if there are oustanding pending updates
-   auto origTrack =
-      GetTracks().FindById( track->GetId() );
-   if (origTrack)
-      track = origTrack;
-
-   return focusedTrack
-      ? TrackList::Channels(focusedTrack.get()).contains(track)
-      : !track;
-}
-
 int TrackPanelAx::TrackNum( const std::shared_ptr<Track> &target )
 {
    // Find 1-based position of the target in the visible tracks, or 0 if not
    // found
    int ndx = 0;
 
-   for ( auto t : GetTracks().Leaders() )
-   {
+   for (auto t : GetTracks()) {
       ndx++;
       if( t == target.get() )
       {
@@ -189,8 +172,7 @@ std::shared_ptr<Track> TrackPanelAx::FindTrack( int num )
 {
    int ndx = 0;
 
-   for ( auto t : GetTracks().Leaders() )
-   {
+   for (auto t : GetTracks()) {
       ndx++;
       if( ndx == num )
          return t->SharedPointer();
@@ -266,7 +248,7 @@ wxAccStatus TrackPanelAx::GetChild( int childId, wxAccessible** child )
 // Gets the number of children.
 wxAccStatus TrackPanelAx::GetChildCount( int* childCount )
 {
-   *childCount = GetTracks().Leaders().size();
+   *childCount = GetTracks().Any().size();
    return wxACC_OK;
 }
 
@@ -316,7 +298,7 @@ wxAccStatus TrackPanelAx::GetLocation( wxRect& rect, int elementId )
 
    if( elementId == wxACC_SELF )
    {
-      rect = GetWindow()->GetRect();
+      rect = GetWindow()->GetScreenRect();
    }
    else
    {
@@ -336,9 +318,8 @@ wxAccStatus TrackPanelAx::GetLocation( wxRect& rect, int elementId )
       const int dx = 1;
 #endif
       rect.Inflate(dx, dx);
+      rect.SetPosition(GetWindow()->ClientToScreen(rect.GetPosition()));
    }
-
-   rect.SetPosition( GetWindow()->GetParent()->ClientToScreen( rect.GetPosition() ) );
 
    return wxACC_OK;
 }
@@ -351,81 +332,77 @@ wxAccStatus TrackPanelAx::GetName( int childId, wxString* name )
    {
       if( childId == wxACC_SELF )
       {
-         *name = _( "TrackView" );
+         *name = _("TrackView");
       }
       else
       {
          auto t = FindTrack( childId );
 
          if( t == NULL )
-         {
             return wxACC_FAIL;
-         }
-         else
+
+         name->Printf("%d %s", TrackNum(t), t->GetName());
+
+         if(dynamic_cast<LabelTrack*>(t.get()))
          {
-            *name = t->GetName();
-            if( *name == t->GetDefaultName() )
-            {
-               /* i18n-hint: The %d is replaced by the number of the track.*/
-               name->Printf(_("Track %d"), TrackNum( t ) );
-            }
-
-            t->TypeSwitch(
-               [&](const LabelTrack *) {
-                  /* i18n-hint: This is for screen reader software and indicates that
-                     this is a Label track.*/
-                  name->Append( wxT(" ") + wxString(_("Label Track")));
-               },
-               [&](const TimeTrack *) {
-                  /* i18n-hint: This is for screen reader software and indicates that
-                     this is a Time track.*/
-                  name->Append( wxT(" ") + wxString(_("Time Track")));
-               }
+            const auto trackNameLower = t->GetName().Lower();
+            //Prior to version 3.2 "Label Track" was the default
+            //name for label tracks, don't append type part to the
+            //text to avoid verbosity.
+            if(trackNameLower.Find(wxString(_("Label Track")).Lower()) == wxNOT_FOUND &&
+               trackNameLower.Find(LabelTrack::GetDefaultName().Lower()) == wxNOT_FOUND)
+               /* i18n-hint: This is for screen reader software and indicates that
+                  this is a Label track.*/
+               name->Append( wxT(" ") + wxString(_("Label Track")));
+         }
+         else if(dynamic_cast<TimeTrack*>(t.get()))
+         {
+            if(t->GetName().Lower().Find(TimeTrack::GetDefaultName().Lower()) == wxNOT_FOUND)
+               /* i18n-hint: This is for screen reader software and indicates that
+                  this is a Time track.*/
+               name->Append(wxT(" ") + wxString(_("Time Track")));
+         }
 #ifdef USE_MIDI
-                ,
-               [&](const NoteTrack *) {
-                  /* i18n-hint: This is for screen reader software and indicates that
-                     this is a Note track.*/
-                  name->Append( wxT(" ") + wxString(_("Note Track")));
-               }
+         else if(dynamic_cast<NoteTrack*>(t.get()))
+            /* i18n-hint: This is for screen reader software and indicates that
+               this is a Note track.*/
+            name->Append( wxT(" ") + wxString(_("Note Track")));
 #endif
-            );
 
-            // LLL: Remove these during "refactor"
-            auto pt = dynamic_cast<PlayableTrack *>(t.get());
-            if( pt && pt->GetMute() )
-            {
-               // The following comment also applies to the solo, selected,
-               // and synclockselected states.
-               // Many of translations of the strings with a leading space omitted
-               // the leading space. Therefore a space has been added using wxT(" ").
-               // Because screen readers won't be affected by multiple spaces, the
-               // leading spaces have not been removed, so that no NEW translations are needed.
-               /* i18n-hint: This is for screen reader software and indicates that
-                  this track is muted. (The mute button is on.)*/
-               name->Append( wxT(" ") + wxString(_( " Muted" )) );
-            }
+         // LLL: Remove these during "refactor"
+         auto pt = dynamic_cast<PlayableTrack *>(t.get());
+         if( pt && pt->GetMute() )
+         {
+            // The following comment also applies to the solo, selected,
+            // and synclockselected states.
+            // Many of translations of the strings with a leading space omitted
+            // the leading space. Therefore a space has been added using wxT(" ").
+            // Because screen readers won't be affected by multiple spaces, the
+            // leading spaces have not been removed, so that no NEW translations are needed.
+            /* i18n-hint: This is for screen reader software and indicates that
+               this track is muted. (The mute button is on.)*/
+            name->Append( wxT(" ") + wxString(_( " Muted" )) );
+         }
 
-            if( pt && pt->GetSolo() )
-            {
-               /* i18n-hint: This is for screen reader software and indicates that
-                  this track is soloed. (The Solo button is on.)*/
-               name->Append( wxT(" ") + wxString(_( " Soloed" )) );
-            }
-            if( t->GetSelected() )
-            {
-               /* i18n-hint: This is for screen reader software and indicates that
-                  this track is selected.*/
-               name->Append( wxT(" ") + wxString(_( " Selected" )) );
-            }
-            if( t->IsSyncLockSelected() )
-            {
-               /* i18n-hint: This is for screen reader software and indicates that
-                  this track is shown with a sync-locked icon.*/
-               // The absence of a dash between Sync and Locked is deliberate -
-               // if present, Jaws reads it as "dash".
-               name->Append( wxT(" ") + wxString(_( " Sync Locked" )) );
-            }
+         if( pt && pt->GetSolo() )
+         {
+            /* i18n-hint: This is for screen reader software and indicates that
+               this track is soloed. (The Solo button is on.)*/
+            name->Append( wxT(" ") + wxString(_( " Soloed" )) );
+         }
+         if( t->GetSelected() )
+         {
+            /* i18n-hint: This is for screen reader software and indicates that
+               this track is selected.*/
+            name->Append( wxT(" ") + wxString(_( " Selected" )) );
+         }
+         if (SyncLock::IsSyncLockSelected(t.get()))
+         {
+            /* i18n-hint: This is for screen reader software and indicates that
+               this track is shown with a sync-locked icon.*/
+            // The absence of a dash between Sync and Locked is deliberate -
+            // if present, Jaws reads it as "dash".
+            name->Append( wxT(" ") + wxString(_( " Sync Locked" )) );
          }
       }
    }
@@ -558,7 +535,7 @@ wxAccStatus TrackPanelAx::GetValue( int WXUNUSED(childId), wxString* WXUNUSED(st
 #if defined(__WXMAC__)
    if( childId == wxACC_SELF )
    {
-      *strValue = _( "TrackView" );
+      *strValue = _("TrackView");
    }
    else
    {
@@ -570,11 +547,9 @@ wxAccStatus TrackPanelAx::GetValue( int WXUNUSED(childId), wxString* WXUNUSED(st
       }
       else
       {
-         *strValue = t->GetName();
-         if( *strValue == t->GetDefaultName() )
-         {
-            strValue->Printf(_("Track %d"), TrackNum( t ) );
-         }
+         /* i18n-hint: The %d is replaced by the number of the track.*/
+         strValue->Printf(_("Track %d"), TrackNum(t));
+         strValue->Append(" " + t->GetName());
 
          // LLL: Remove these during "refactor"
          auto pt = dynamic_cast<PlayableTrack *>(t.get());
@@ -762,16 +737,9 @@ Track *TrackFocus::Get()
 void TrackFocus::Set( Track *pTrack )
 {
    if (mAx) {
-      pTrack = *TrackList::Get( mProject ).FindLeader( pTrack );
+      pTrack = *TrackList::Get( mProject ).Find( pTrack );
       mAx->SetFocus( Track::SharedPointer( pTrack ) );
    }
-}
-
-bool TrackFocus::IsFocused( const Track *pTrack )
-{
-   if (mAx)
-      return mAx->IsFocused( pTrack );
-   return false;
 }
 
 void TrackFocus::SetAccessible(

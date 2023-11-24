@@ -13,16 +13,17 @@ Paul Licameli
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
-#include "WaveformSettings.h"
 
-#include "GUISettings.h"
+#include "WaveformSettings.h"
+#include "WaveTrack.h"
+
+#include "Decibels.h"
 #include "GUIPrefs.h"
+#include "TracksPrefs.h"
 
 #include <algorithm>
-#include <wx/intl.h>
 
-#include "../Prefs.h"
+#include "Prefs.h"
 
 
 WaveformSettings::Globals::Globals()
@@ -43,6 +44,24 @@ WaveformSettings::Globals
 {
    static Globals instance;
    return instance;
+}
+
+static const ChannelGroup::Attachments::RegisteredFactory
+key1{ [](auto &) {
+   return std::make_unique<WaveformSettings>(WaveformSettings::defaults()); } };
+
+WaveformSettings &WaveformSettings::Get(const WaveTrack &track)
+{
+   auto &mutTrack = const_cast<WaveTrack&>(track);
+   return mutTrack.GetGroupData().Attachments
+      ::Get<WaveformSettings>(key1);
+}
+
+void WaveformSettings::Set(
+   WaveTrack &track, std::unique_ptr<WaveformSettings> pSettings)
+{
+   track.GetGroupData().Attachments
+      ::Assign(key1, move(pSettings));
 }
 
 WaveformSettings::WaveformSettings()
@@ -85,10 +104,9 @@ bool WaveformSettings::Validate(bool /* quiet */)
 
 void WaveformSettings::LoadPrefs()
 {
-   scaleType = ScaleType(gPrefs->Read(wxT("/Waveform/ScaleType"), 0L));
-   bool newPrefFound = gPrefs->Read(wxT("/Waveform/dBRange"), &dBRange);
-   if (!newPrefFound)
-      dBRange = gPrefs->Read(ENV_DB_KEY, ENV_DB_RANGE);
+   scaleType = TracksPrefs::WaveformScaleChoice();
+
+   dBRange = DecibelScaleCutoff.Read();
 
    // Enforce legal values
    Validate(true);
@@ -98,12 +116,25 @@ void WaveformSettings::LoadPrefs()
 
 void WaveformSettings::SavePrefs()
 {
-   gPrefs->Write(wxT("/Waveform/ScaleType"), long(scaleType));
-   gPrefs->Write(wxT("/Waveform/dBRange"), long(dBRange));
 }
 
 void WaveformSettings::Update()
 {
+}
+
+// This is a temporary hack until WaveformSettings gets fully integrated
+void WaveformSettings::UpdatePrefs()
+{
+   if (scaleType == defaults().scaleType) {
+      scaleType = TracksPrefs::WaveformScaleChoice();
+   }
+
+   if (dBRange == defaults().dBRange){
+      dBRange = DecibelScaleCutoff.Read();
+   }
+
+   // Enforce legal values
+   Validate(true);
 }
 
 void WaveformSettings::ConvertToEnumeratedDBRange()
@@ -150,12 +181,41 @@ const EnumValueSymbols &WaveformSettings::GetScaleNames()
 {
    static const EnumValueSymbols result{
       // Keep in correspondence with ScaleTypeValues:
-      XO("Linear"),
-      XO("dB"),
+      { wxT("Linear"), XO("Linear (amp)") },
+      { wxT("dB"), XO("Logarithmic (dB)") },
+      { wxT("LinearDB"), XO("Linear (dB)") },
    };
    return result;
 }
 
 WaveformSettings::~WaveformSettings()
 {
+}
+
+auto WaveformSettings::Clone() const -> PointerType
+{
+   return std::make_unique<WaveformSettings>(*this);
+}
+
+static const ChannelGroup::Attachments::RegisteredFactory
+key2{ [](auto &) { return std::make_unique<WaveformScale>(); } };
+
+WaveformScale &WaveformScale::Get(const WaveTrack &track)
+{
+   auto &mutTrack = const_cast<WaveTrack&>(track);
+   return mutTrack.GetGroupData().Attachments
+      ::Get<WaveformScale>(key2);
+}
+
+WaveformScale::~WaveformScale() = default;
+
+auto WaveformScale::Clone() const -> PointerType
+{
+   return std::make_unique<WaveformScale>(*this);
+}
+
+int WaveformScale::ZeroLevelYCoordinate(wxRect rect) const
+{
+   return rect.GetTop() +
+      (int)((mDisplayMax / (mDisplayMax - mDisplayMin)) * rect.height);
 }

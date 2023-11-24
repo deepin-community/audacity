@@ -14,17 +14,17 @@
 *//*******************************************************************/
 
 
-#include "../Audacity.h"
+
 #include "ExtImportPrefs.h"
 
 #include <wx/defs.h>
 #include <wx/listctrl.h>
 #include <wx/dnd.h>
 
-#include "../Prefs.h"
-#include "../ShuttleGui.h"
-#include "../import/Import.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "Prefs.h"
+#include "ShuttleGui.h"
+#include "Import.h"
+#include "AudacityMessageBox.h"
 #include "../widgets/Grid.h"
 
 #define EXTIMPORT_MIME_SUPPORT 0
@@ -74,17 +74,17 @@ ExtImportPrefs::~ExtImportPrefs()
 {
 }
 
-ComponentInterfaceSymbol ExtImportPrefs::GetSymbol()
+ComponentInterfaceSymbol ExtImportPrefs::GetSymbol() const
 {
    return EXT_IMPORT_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString ExtImportPrefs::GetDescription()
+TranslatableString ExtImportPrefs::GetDescription() const
 {
    return XO("Preferences for ExtImport");
 }
 
-wxString ExtImportPrefs::HelpPageName()
+ManualPageID ExtImportPrefs::HelpPageName()
 {
    return "Extended_Import_Preferences";
 }
@@ -92,6 +92,9 @@ wxString ExtImportPrefs::HelpPageName()
 /// Creates the dialog and its contents.
 void ExtImportPrefs::Populate()
 {
+   // Ensure Importer has current items
+   Importer::Get().ReadImportItems();
+
    //------------------------- Main section --------------------
    // Now construct the GUI itself.
    // Use 'eIsCreatingFromPrefs' so that the GUI is
@@ -117,7 +120,7 @@ void ExtImportPrefs::PopulateOrExchange(ShuttleGui & S)
          bool fillRuleTable = false;
          if (RuleTable == NULL)
          {
-            RuleTable = safenew Grid(S.GetParent(),EIPRuleTable);
+            RuleTable = safenew Grid(FormatterContext::EmptyContext(), S.GetParent(),EIPRuleTable);
 
             RuleTable->SetColLabelSize(RuleTable->GetDefaultRowSize());
 #if EXTIMPORT_MIME_SUPPORT
@@ -212,6 +215,8 @@ bool ExtImportPrefs::Commit()
 {
    ShuttleGui S(this, eIsSavingToPrefs);
    PopulateOrExchange(S);
+
+   Importer::Get().WriteImportItems();
 
    return true;
 }
@@ -642,8 +647,11 @@ void ExtImportPrefs::OnDelRule(wxCommandEvent& WXUNUSED(event))
    if (msgres != wxYES)
       return;
 
-   RuleTable->DeleteRows (last_selected);
+   PluginList->DeleteAllItems();
    items.erase (items.begin() + last_selected);
+   DoOnRuleTableSelect (last_selected);
+   // This will change last_selected
+   RuleTable->DeleteRows (last_selected);
    RuleTable->AutoSizeColumns ();
    if (last_selected >= RuleTable->GetNumberRows ())
       last_selected = RuleTable->GetNumberRows () - 1;

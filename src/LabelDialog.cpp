@@ -13,19 +13,15 @@
 
 *//*******************************************************************/
 
-#include "Audacity.h"
+
 #include "LabelDialog.h"
 
-#include <wx/button.h>
 #include <wx/defs.h>
 #include <wx/choice.h>
 #include <wx/dc.h>
-#include <wx/dialog.h>
 #include <wx/grid.h>
-#include <wx/intl.h>
 #include <wx/scrolbar.h>
 #include <wx/settings.h>
-#include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textdlg.h>
 
@@ -34,12 +30,14 @@
 #include "Prefs.h"
 #include "Project.h"
 #include "ProjectWindow.h"
+#include "SelectFile.h"
 #include "ViewInfo.h"
 #include "tracks/labeltrack/ui/LabelTrackView.h"
-#include "widgets/AudacityMessageBox.h"
-#include "widgets/ErrorDialog.h"
+#include "AudacityMessageBox.h"
+#include "AudacityTextEntryDialog.h"
 #include "widgets/Grid.h"
-#include "widgets/HelpSystem.h"
+#include "HelpSystem.h"
+#include "NumericConverterFormats.h"
 
 #include "FileNames.h"
 #include <limits>
@@ -95,12 +93,10 @@ END_EVENT_TABLE()
 
 LabelDialog::LabelDialog(wxWindow *parent,
                          AudacityProject &project,
-                         TrackFactory &factory,
                          TrackList *tracks,
                          LabelTrack *selectedTrack,
                          int index,
                          ViewInfo &viewinfo,
-                         double rate,
                          const NumericFormatSymbol & format,
                          const NumericFormatSymbol &freqFormat)
 : wxDialogWrapper(parent,
@@ -110,13 +106,11 @@ LabelDialog::LabelDialog(wxWindow *parent,
            wxSize(800, 600),
            wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
   , mProject{ project }
-  , mFactory(factory)
   , mTracks(tracks)
   , mSelectedTrack(selectedTrack)
   , mIndex(index)
-  , mViewInfo(&viewinfo),
-  mRate(rate),
-  mFormat(format)
+  , mViewInfo(&viewinfo)
+  , mFormat(format)
   , mFreqFormat(freqFormat)
 {
    SetName();
@@ -130,8 +124,9 @@ LabelDialog::~LabelDialog()
 void LabelDialog::PopulateLabels()
 {
    // Build the initial (empty) grid
-   mGrid->CreateGrid(0, Col_Max);
+   mGrid->CreateGrid(0, Col_Max, wxGrid::wxGridSelectRows);
    mGrid->SetDefaultCellAlignment(wxALIGN_LEFT, wxALIGN_CENTER);
+   mGrid->SetRowLabelSize(0);
 
    size_t ii = 0;
    for ( const auto &label : {
@@ -182,7 +177,7 @@ void LabelDialog::PopulateLabels()
    attr->SetAlignment(wxALIGN_CENTER, wxALIGN_CENTER);
 
    mGrid->SetColAttr(Col_Hfreq, attr->Clone());
-   
+
    // Seems there's a bug in wxGrid.  Adding only 1 row does not
    // allow SetCellSize() to work properly and you will not get
    // the expected 1 row by 4 column cell.
@@ -260,8 +255,10 @@ void LabelDialog::PopulateOrExchange( ShuttleGui & S )
    {
       S.StartVerticalLay(wxEXPAND,1);
       {
-         mGrid = safenew Grid(S.GetParent(), wxID_ANY);
-         S.Prop(1).AddWindow( mGrid );
+         mGrid = safenew Grid(
+            FormatterContext::ProjectContext(mProject), S.GetParent(),
+            wxID_ANY);
+         S.Prop(1).AddWindow(mGrid);
       }
       S.EndVerticalLay();
       S.StartVerticalLay(0);
@@ -286,7 +283,7 @@ void LabelDialog::PopulateOrExchange( ShuttleGui & S )
 
 void LabelDialog::OnHelp(wxCommandEvent & WXUNUSED(event))
 {
-   wxString page = GetHelpPageName();
+   const auto &page = GetHelpPageName();
    HelpSystem::ShowHelp(this, page, true);
 }
 
@@ -297,13 +294,10 @@ bool LabelDialog::TransferDataToWindow()
    int i;
 
    // Set the editor parameters.  Do this each time since they may change
-   // due to NEW tracks and change in NumericTextCtrl format.  Rate won't
-   // change but might as well leave it here.
+   // due to NEW tracks and change in NumericTextCtrl format.
    mChoiceEditor->SetChoices(mTrackNames);
    mTimeEditor->SetFormat(mFormat);
-   mTimeEditor->SetRate(mRate);
    mFrequencyEditor->SetFormat(mFreqFormat);
-   mFrequencyEditor->SetRate(mRate);
 
    // Disable redrawing until we're done
    mGrid->BeginBatch();
@@ -402,7 +396,7 @@ bool LabelDialog::TransferDataFromWindow()
       wxString name = mTrackNames[tndx + 1].AfterFirst(wxT('-')).Mid(1);
 
       // Create the NEW track and add to track list
-      auto newTrack = mFactory.NewLabelTrack();
+      auto newTrack = std::make_shared<LabelTrack>();
       newTrack->SetName(name);
       mTracks->Add( newTrack );
       tndx++;
@@ -427,7 +421,7 @@ bool LabelDialog::TransferDataFromWindow()
 
       // Add the label to it
       lt->AddLabel(rd.selectedRegion, rd.title);
-      LabelTrackView::Get( *lt ).SetSelectedIndex( -1 );
+      LabelTrackView::Get( *lt ).ResetTextSelection();
    }
 
    return true;
@@ -533,8 +527,9 @@ void LabelDialog::FindInitialRow()
 void LabelDialog::OnUpdate(wxCommandEvent &event)
 {
    // Remember the NEW format and repopulate grid
-   mFormat = NumericConverter::LookupFormat(
-      NumericConverter::TIME, event.GetString() );
+   mFormat = NumericConverterFormats::Lookup(
+      FormatterContext::ProjectContext(mProject),
+      NumericConverterType_TIME(), event.GetString() );
    TransferDataToWindow();
 
    event.Skip(false);
@@ -543,8 +538,9 @@ void LabelDialog::OnUpdate(wxCommandEvent &event)
 void LabelDialog::OnFreqUpdate(wxCommandEvent &event)
 {
    // Remember the NEW format and repopulate grid
-   mFreqFormat = NumericConverter::LookupFormat(
-      NumericConverter::FREQUENCY, event.GetString() );
+   mFreqFormat = NumericConverterFormats::Lookup(
+      FormatterContext::ProjectContext(mProject),
+      NumericConverterType_FREQUENCY(), event.GetString() );
    TransferDataToWindow();
 
    event.Skip(false);
@@ -632,7 +628,7 @@ void LabelDialog::OnImport(wxCommandEvent & WXUNUSED(event))
 {
    // Ask user for a filename
    wxString fileName =
-       FileNames::SelectFile(FileNames::Operation::Open,
+       SelectFile(FileNames::Operation::Open,
          XO("Select a text file containing labels"),
          wxEmptyString,     // Path
          wxT(""),       // Name
@@ -654,7 +650,7 @@ void LabelDialog::OnImport(wxCommandEvent & WXUNUSED(event))
       else {
          // Create a temporary label track and load the labels
          // into it
-         auto lt = mFactory.NewLabelTrack();
+         auto lt = std::make_shared<LabelTrack>();
          lt->Import(f);
 
          // Add the labels to our collection
@@ -681,7 +677,7 @@ void LabelDialog::OnExport(wxCommandEvent & WXUNUSED(event))
    // Extract the actual name.
    wxString fName = mTrackNames[mTrackNames.size() - 1].AfterFirst(wxT('-')).Mid(1);
 
-   fName = FileNames::SelectFile(FileNames::Operation::Export,
+   fName = SelectFile(FileNames::Operation::Export,
       XO("Export Labels As:"),
       wxEmptyString,
       fName,
@@ -723,7 +719,7 @@ void LabelDialog::OnExport(wxCommandEvent & WXUNUSED(event))
    }
 
    // Transfer our collection to a temporary label track
-   auto lt = mFactory.NewLabelTrack();
+   auto lt = std::make_shared<LabelTrack>();
    int i;
 
    for (i = 0; i < cnt; i++) {
@@ -745,7 +741,7 @@ void LabelDialog::OnExport(wxCommandEvent & WXUNUSED(event))
 
 void LabelDialog::OnSelectCell(wxGridEvent &event)
 {
-   for (auto t: mTracks->Any())
+   for (auto t: *mTracks)
       t->SetSelected( true );
 
    if (!mData.empty())
@@ -823,7 +819,7 @@ void LabelDialog::OnChangeTrack(wxGridEvent & WXUNUSED(event), int row, RowData 
          XO("Label Track").Translation());
 
       // User canceled so repopulating the grid will set the track
-      // name to the orignal value
+      // name to the original value
       if (d.ShowModal() == wxID_CANCEL) {
          TransferDataToWindow();
          return;
@@ -896,7 +892,7 @@ void LabelDialog::OnChangeHfreq(wxGridEvent & WXUNUSED(event), int row, RowData 
    rd->selectedRegion.setF1(f, false);
    mGrid->SetCellValue(row, Col_Lfreq, wxString::Format(wxT("%g"),
                                                         rd->selectedRegion.f0()));
-   
+
    return;
 }
 
@@ -905,7 +901,7 @@ void LabelDialog::ReadSize(){
    int prefWidth, prefHeight;
    gPrefs->Read(wxT("/LabelEditor/Width"), &prefWidth, sz.x);
    gPrefs->Read(wxT("/LabelEditor/Height"), &prefHeight, sz.y);
-   
+
    wxRect screenRect(wxGetClientDisplayRect());
    wxSize prefSize = wxSize(prefWidth, prefHeight);
    prefSize.DecTo(screenRect.GetSize());

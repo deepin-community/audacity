@@ -23,26 +23,22 @@ other settings.
 
 *//********************************************************************/
 
-#include "../Audacity.h"
-#include "MidiIOPrefs.h"
 
-#include "../Experimental.h"
+#include "MidiIOPrefs.h"
 
 #ifdef EXPERIMENTAL_MIDI_OUT
 
 #include <wx/defs.h>
 
 #include <wx/choice.h>
-#include <wx/intl.h>
 #include <wx/textctrl.h>
 
-#include "../../lib-src/portmidi/pm_common/portmidi.h"
+#include <portmidi.h>
 
-#include "../Prefs.h"
-#include "../ShuttleGui.h"
-#include "../widgets/AudacityMessageBox.h"
-
-#define DEFAULT_SYNTH_LATENCY 5
+#include "NoteTrack.h"
+#include "Prefs.h"
+#include "ShuttleGui.h"
+#include "AudacityMessageBox.h"
 
 enum {
    HostID = 10000,
@@ -67,17 +63,17 @@ MidiIOPrefs::~MidiIOPrefs()
 {
 }
 
-ComponentInterfaceSymbol MidiIOPrefs::GetSymbol()
+ComponentInterfaceSymbol MidiIOPrefs::GetSymbol() const
 {
    return MIDI_IO_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString MidiIOPrefs::GetDescription()
+TranslatableString MidiIOPrefs::GetDescription() const
 {
    return XO("Preferences for MidiIO");
 }
 
-wxString MidiIOPrefs::HelpPageName()
+ManualPageID MidiIOPrefs::HelpPageName()
 {
    return "MIDI_Devices_Preferences";
 }
@@ -88,9 +84,9 @@ void MidiIOPrefs::Populate()
    GetNamesAndLabels();
 
    // Get current setting for devices
-   mPlayDevice = gPrefs->Read(wxT("/MidiIO/PlaybackDevice"), wxT(""));
+   mPlayDevice = MIDIPlaybackDevice.Read();
 #ifdef EXPERIMENTAL_MIDI_IN
-   mRecordDevice = gPrefs->Read(wxT("/MidiIO/RecordingDevice"), wxT(""));
+   mRecordDevice = MIDIRecordingDevice.Read();
 #endif
 //   mRecordChannels = gPrefs->Read(wxT("/MidiIO/RecordChannels"), 2L);
 
@@ -126,9 +122,18 @@ void MidiIOPrefs::GetNamesAndLabels() {
          }
       }
    }
+
+   if (nDevices == 0) {
+      mHostNames.push_back(XO("No MIDI interfaces"));
+      mHostLabels.push_back(wxT("No MIDI interfaces"));
+   }
 }
 
-void MidiIOPrefs::PopulateOrExchange( ShuttleGui & S ) {
+void MidiIOPrefs::PopulateOrExchange( ShuttleGui & S )
+{
+   ChoiceSetting Setting{ L"/MidiIO/Host",
+      { ByColumns, mHostNames, mHostLabels }
+   };
 
    S.SetBorder(2);
    S.StartScroller();
@@ -140,12 +145,7 @@ void MidiIOPrefs::PopulateOrExchange( ShuttleGui & S ) {
       {
          S.Id(HostID);
          /* i18n-hint: (noun) */
-         mHost = S.TieChoice( XXO("&Host:"),
-            {
-               wxT("/MidiIO/Host"),
-               { ByColumns, mHostNames, mHostLabels }
-            }
-         );
+         mHost = S.TieChoice(XXO("&Host:"), Setting);
 
          S.AddPrompt(XXO("Using: PortMidi"));
       }
@@ -161,8 +161,7 @@ void MidiIOPrefs::PopulateOrExchange( ShuttleGui & S ) {
          mPlay = S.AddChoice(XXO("&Device:"),
                              {} );
          mLatency = S.TieIntegerTextBox(XXO("MIDI Synth L&atency (ms):"),
-                                        {wxT("/MidiIO/SynthLatency"),
-                                         DEFAULT_SYNTH_LATENCY}, 3);
+                                        MIDISynthLatency_ms, 3);
       }
       S.EndMultiColumn();
    }
@@ -198,12 +197,6 @@ void MidiIOPrefs::OnHost(wxCommandEvent & WXUNUSED(e))
    if (index >= 0 && index < (int)mHostNames.size())
       itemAtIndex = mHostLabels[index];
    int nDevices = Pm_CountDevices();
-
-   if (nDevices == 0) {
-      mHost->Clear();
-      mHost->Append(_("No MIDI interfaces"), (void *) NULL);
-      mHost->SetSelection(0);
-   }
 
    mPlay->Clear();
 #ifdef EXPERIMENTAL_MIDI_IN
@@ -274,20 +267,21 @@ bool MidiIOPrefs::Commit()
 
    info = (const PmDeviceInfo *) mPlay->GetClientData(mPlay->GetSelection());
    if (info) {
-      gPrefs->Write(wxT("/MidiIO/PlaybackDevice"),
-                    wxString::Format(wxT("%s: %s"),
-                                     wxString(wxSafeConvertMB2WX(info->interf)),
-                                     wxString(wxSafeConvertMB2WX(info->name))));
+      MIDIPlaybackDevice.Write(
+         wxString::Format(wxT("%s: %s"),
+            wxString(wxSafeConvertMB2WX(info->interf)),
+            wxString(wxSafeConvertMB2WX(info->name))));
    }
 #ifdef EXPERIMENTAL_MIDI_IN
    info = (const PmDeviceInfo *) mRecord->GetClientData(mRecord->GetSelection());
    if (info) {
-      gPrefs->Write(wxT("/MidiIO/RecordingDevice"),
-                    wxString::Format(wxT("%s: %s"),
-                                     wxString(wxSafeConvertMB2WX(info->interf)),
-                                     wxString(wxSafeConvertMB2WX(info->name))));
+      MidiRecordingDevice.Write(
+         wxString::Format(wxT("%s: %s"),
+            wxString(wxSafeConvertMB2WX(info->interf)),
+            wxString(wxSafeConvertMB2WX(info->name))));
    }
 #endif
+   MIDISynthLatency_ms.Invalidate();
    return gPrefs->Flush();
 }
 

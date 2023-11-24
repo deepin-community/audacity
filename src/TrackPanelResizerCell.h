@@ -14,33 +14,29 @@
 #include "ClientData.h" // to inherit
 #include "tracks/ui/CommonTrackPanelCell.h" // to inherit
 
-class Track;
+class Channel;
 class TrackPanelResizeHandle;
 
 class TrackPanelResizerCell
-   : public CommonTrackPanelCell
+   : public CommonTrackCell
    , public std::enable_shared_from_this< TrackPanelResizerCell >
-   , public ClientData::Base
 {
    TrackPanelResizerCell(const TrackPanelResizerCell&) = delete;
    TrackPanelResizerCell &operator= (const TrackPanelResizerCell&) = delete;
 public:
 
-   static TrackPanelResizerCell &Get( Track &track );
-   static const TrackPanelResizerCell &Get( const Track &track );
+   static TrackPanelResizerCell &Get(Channel &channel);
+   static const TrackPanelResizerCell &Get(const Channel &channel);
 
-   explicit
-   TrackPanelResizerCell( const std::shared_ptr<Track> &pTrack );
+   /*!
+    @pre `dynamic_cast<Track*>(&channel.GetChannelGroup()) != nullptr`
+    */
+   explicit TrackPanelResizerCell(Channel &channel);
 
    std::vector<UIHandlePtr> HitTest
       (const TrackPanelMouseState &, const AudacityProject *) override;
 
-protected:
-   std::shared_ptr<Track> DoFindTrack() override;
-
 private:
-   // back-pointer is weak to break a cycle
-   std::weak_ptr<Track> mwTrack;
 
    // TrackPanelDrawable implementation
    void Draw(

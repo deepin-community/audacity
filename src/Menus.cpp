@@ -25,29 +25,36 @@
 
 *//*******************************************************************/
 
-#include "Audacity.h" // for USE_* macros
+
 #include "Menus.h"
 
-#include "Experimental.h"
+
 
 #include <wx/frame.h>
 
 #include "Project.h"
 #include "ProjectHistory.h"
-#include "ProjectSettings.h"
+#include "ProjectWindows.h"
 #include "UndoManager.h"
 #include "commands/CommandManager.h"
-#include "toolbars/ToolManager.h"
-#include "widgets/AudacityMessageBox.h"
-#include "widgets/ErrorDialog.h"
+#include "AudacityMessageBox.h"
+#include "BasicUI.h"
 
 #include <unordered_set>
 
 #include <wx/menu.h>
 #include <wx/windowptr.h>
+#include <wx/log.h>
 
 MenuCreator::MenuCreator()
 {
+   mLastAnalyzerRegistration = repeattypenone;
+   mLastToolRegistration = repeattypenone;
+   
+   mRepeatGeneratorFlags = 0;
+   mRepeatEffectFlags = 0;
+   mRepeatAnalyzerFlags = 0;
+   mRepeatToolFlags = 0;
 }
 
 MenuCreator::~MenuCreator()
@@ -73,16 +80,12 @@ MenuManager::MenuManager( AudacityProject &project )
    : mProject{ project }
 {
    UpdatePrefs();
-   mProject.Bind( EVT_UNDO_OR_REDO, &MenuManager::OnUndoRedo, this );
-   mProject.Bind( EVT_UNDO_RESET, &MenuManager::OnUndoRedo, this );
-   mProject.Bind( EVT_UNDO_PUSHED, &MenuManager::OnUndoRedo, this );
+   mUndoSubscription = UndoManager::Get(project)
+      .Subscribe(*this, &MenuManager::OnUndoRedo);
 }
 
 MenuManager::~MenuManager()
 {
-   mProject.Unbind( EVT_UNDO_OR_REDO, &MenuManager::OnUndoRedo, this );
-   mProject.Unbind( EVT_UNDO_RESET, &MenuManager::OnUndoRedo, this );
-   mProject.Unbind( EVT_UNDO_PUSHED, &MenuManager::OnUndoRedo, this );
 }
 
 void MenuManager::UpdatePrefs()
@@ -100,46 +103,52 @@ void MenuManager::UpdatePrefs()
    mStopIfWasPaused = true;  // not configurable for now, but could be later.
 }
 
-void MenuVisitor::BeginGroup( Registry::GroupItem &item, const Path &path )
+MenuVisitor::~MenuVisitor() = default;
+
+void MenuVisitor::BeginGroup( Registry::GroupItemBase &item, const Path &path )
 {
    bool isMenu = false;
    bool isExtension = false;
    auto pItem = &item;
-   if ( pItem->Transparent() ) {
+   const bool inlined = dynamic_cast<MenuTable::MenuItems*>(pItem);
+   if (inlined) {
    }
-   else if ( dynamic_cast<MenuTable::MenuSection*>( pItem ) ) {
+   else if (dynamic_cast<MenuTable::MenuSection*>(pItem)) {
       if ( !needSeparator.empty() )
          needSeparator.back() = true;
    }
-   else if ( auto pWhole = dynamic_cast<MenuTable::WholeMenu*>( pItem ) ) {
+   else if (auto pWhole = dynamic_cast<MenuTable::WholeMenu*>(pItem)) {
       isMenu = true;
       isExtension = pWhole->extension;
       MaybeDoSeparator();
    }
 
-   DoBeginGroup( item, path );
+   if (!inlined)
+      DoBeginGroup(item, path);
 
-   if ( isMenu ) {
-      needSeparator.push_back( false );
-      firstItem.push_back( !isExtension );
+   if (isMenu) {
+      needSeparator.push_back(false);
+      firstItem.push_back(!isExtension);
    }
 }
 
-void MenuVisitor::EndGroup( Registry::GroupItem &item, const Path &path )
+void MenuVisitor::EndGroup( Registry::GroupItemBase &item, const Path &path )
 {
    auto pItem = &item;
-   if ( pItem->Transparent() ) {
+   const bool inlined = dynamic_cast<MenuTable::MenuItems*>(pItem);
+   if (inlined) {
    }
-   else if ( dynamic_cast<MenuTable::MenuSection*>( pItem ) ) {
+   else if (dynamic_cast<MenuTable::MenuSection*>(pItem)) {
       if ( !needSeparator.empty() )
          needSeparator.back() = true;
    }
-   else if ( dynamic_cast<MenuTable::WholeMenu*>( pItem ) ) {
+   else if ( dynamic_cast<MenuTable::WholeMenu*>(pItem)) {
       firstItem.pop_back();
       needSeparator.pop_back();
    }
 
-   DoEndGroup( item, path );
+   if (!inlined)
+      DoEndGroup(item, path);
 }
 
 void MenuVisitor::Visit( Registry::SingleItem &item, const Path &path )
@@ -161,11 +170,11 @@ void MenuVisitor::MaybeDoSeparator()
       DoSeparator();
 }
 
-void MenuVisitor::DoBeginGroup( Registry::GroupItem &, const Path & )
+void MenuVisitor::DoBeginGroup( Registry::GroupItemBase &, const Path & )
 {
 }
 
-void MenuVisitor::DoEndGroup( Registry::GroupItem &, const Path & )
+void MenuVisitor::DoEndGroup( Registry::GroupItemBase &, const Path & )
 {
 }
 
@@ -177,23 +186,17 @@ void MenuVisitor::DoSeparator()
 {
 }
 
+ProjectMenuVisitor::~ProjectMenuVisitor() = default;
+
+void *ProjectMenuVisitor::GetComputedItemContext()
+{
+   return &mProject;
+}
+
 namespace MenuTable {
 
-MenuItem::MenuItem( const Identifier &internalName,
-   const TranslatableString &title_, BaseItemPtrs &&items_ )
-: ConcreteGroupItem< false, ToolbarMenuVisitor >{
-   internalName, std::move( items_ ) }, title{ title_ }
-{
-   wxASSERT( !title.empty() );
-}
 MenuItem::~MenuItem() {}
 
-ConditionalGroupItem::ConditionalGroupItem(
-   const Identifier &internalName, Condition condition_, BaseItemPtrs &&items_ )
-: ConcreteGroupItem< false, ToolbarMenuVisitor >{
-   internalName, std::move( items_ ) }, condition{ condition_ }
-{
-}
 ConditionalGroupItem::~ConditionalGroupItem() {}
 
 CommandItem::CommandItem(const CommandID &name_,
@@ -221,6 +224,12 @@ CommandGroupItem::CommandGroupItem(const Identifier &name_,
 CommandGroupItem::~CommandGroupItem() {}
 
 SpecialItem::~SpecialItem() {}
+MenuPart::~MenuPart() {}
+
+MenuItems::~MenuItems() {}
+auto MenuItems::GetOrdering() const -> Ordering {
+   return name.empty() ? Anonymous : Weak;
+}
 
 MenuSection::~MenuSection() {}
 WholeMenu::~WholeMenu() {}
@@ -228,8 +237,8 @@ WholeMenu::~WholeMenu() {}
 CommandHandlerFinder FinderScope::sFinder =
    [](AudacityProject &project) -> CommandHandlerObject & {
       // If this default finder function is reached, then FinderScope should
-      // have been used somewhere, or an explicit CommandHandlerFinder passed
-      // to menu item constructors
+      // have been used somewhere but was not, or an explicit
+      // CommandHandlerFinder was not passed to menu item constructors
       wxASSERT( false );
       return project;
    };
@@ -246,60 +255,51 @@ using namespace Registry;
 
 const auto MenuPathStart = wxT("MenuBar");
 
-static Registry::GroupItem &sRegistry()
-{
-   static Registry::TransparentGroupItem<> registry{ MenuPathStart };
-   return registry;
 }
+
+Registry::GroupItemBase &MenuTable::ItemRegistry::Registry()
+{
+   static GroupItem<Traits> registry{ MenuPathStart };
+   return registry;
 }
 
 MenuTable::AttachedItem::AttachedItem(
    const Placement &placement, BaseItemPtr pItem )
+   : RegisteredItem{ std::move(pItem), placement }
 {
-   Registry::RegisterItem( sRegistry(), placement, std::move( pItem ) );
-}
-
-void MenuTable::DestroyRegistry()
-{
-   sRegistry().items.clear();
 }
 
 namespace {
 
 using namespace MenuTable;
 
-struct MenuItemVisitor : ToolbarMenuVisitor
+struct MenuItemVisitor : ProjectMenuVisitor
 {
    MenuItemVisitor( AudacityProject &proj, CommandManager &man )
-      : ToolbarMenuVisitor(proj), manager( man ) {}
+      : ProjectMenuVisitor{ proj }, manager{ man } {}
 
-   void DoBeginGroup( GroupItem &item, const Path& ) override
+   void DoBeginGroup( GroupItemBase &item, const Path& ) override
    {
       auto pItem = &item;
-      if (const auto pMenu =
-          dynamic_cast<MenuItem*>( pItem )) {
-         manager.BeginMenu( pMenu->title );
+      if (const auto pMenu = dynamic_cast<const MenuItem*>(pItem)) {
+         manager.BeginMenu(pMenu->GetTitle());
       }
-      else
-      if (const auto pConditionalGroup =
-          dynamic_cast<ConditionalGroupItem*>( pItem )) {
-         const auto flag = pConditionalGroup->condition();
+      else if (const auto pConditionalGroup =
+          dynamic_cast<const ConditionalGroupItem*>(pItem)
+      ) {
+         const auto flag = (*pConditionalGroup)();
          if (!flag)
             manager.BeginOccultCommands();
          // to avoid repeated call of condition predicate in EndGroup():
          flags.push_back(flag);
       }
-      else
-      if ( pItem->Transparent() ) {
-      }
-      else
-      if ( const auto pGroup = dynamic_cast<MenuSection*>( pItem ) ) {
+      else if (const auto pGroup = dynamic_cast<const MenuSection*>(pItem)) {
       }
       else
          wxASSERT( false );
    }
 
-   void DoEndGroup( GroupItem &item, const Path& ) override
+   void DoEndGroup( GroupItemBase &item, const Path& ) override
    {
       auto pItem = &item;
       if (const auto pMenu =
@@ -313,9 +313,6 @@ struct MenuItemVisitor : ToolbarMenuVisitor
          if (!flag)
             manager.EndOccultCommands();
          flags.pop_back();
-      }
-      else
-      if ( pItem->Transparent() ) {
       }
       else
       if ( const auto pGroup = dynamic_cast<MenuSection*>( pItem ) ) {
@@ -336,7 +333,7 @@ struct MenuItemVisitor : ToolbarMenuVisitor
       auto pItem = &item;
       if (const auto pCommand =
           dynamic_cast<CommandItem*>( pItem )) {
-         manager.AddItem( project,
+         manager.AddItem(mProject,
             pCommand->name, pCommand->label_in,
             pCommand->finder, pCommand->callback,
             pCommand->flags, pCommand->options
@@ -354,7 +351,7 @@ struct MenuItemVisitor : ToolbarMenuVisitor
       if (const auto pSpecial =
           dynamic_cast<SpecialItem*>( pItem )) {
          wxASSERT( pCurrentMenu );
-         pSpecial->fn( project, *pCurrentMenu );
+         pSpecial->fn(mProject, *pCurrentMenu);
       }
       else
          wxASSERT( false );
@@ -384,13 +381,13 @@ void MenuCreator::CreateMenusAndCommands(AudacityProject &project)
       MenuPathStart,
       {
          {wxT(""), wxT(
-   "File,Edit,Select,View,Transport,Tracks,Generate,Effect,Analyze,Tools,Window,Optional,Help"
+"File,Edit,Select,View,Transport,Tracks,Generate,Effect,Analyze,Tools,Window,Optional,Help"
           )},
          {wxT("/Optional/Extra/Part1"), wxT(
-   "Transport,Tools,Mixer,Edit,PlayAtSpeed,Seek,Device,Select"
+"Transport,Tools,Mixer,Edit,PlayAtSpeed,Seek,Device,Select"
           )},
          {wxT("/Optional/Extra/Part2"), wxT(
-   "Navigation,Focus,Cursor,Track,Scriptables1,Scriptables2"
+"Navigation,Focus,Cursor,Track,Scriptables1,Scriptables2"
           )},
          {wxT("/View/Windows"), wxT("UndoHistory,Karaoke,MixerBoard")},
          {wxT("/Analyze/Analyzers/Windows"), wxT("ContrastAnalyser,PlotSpectrum")},
@@ -400,7 +397,16 @@ void MenuCreator::CreateMenusAndCommands(AudacityProject &project)
 //"ShowMeterTB,"
 "ShowMixerTB,"
 "ShowEditTB,ShowTranscriptionTB,ShowScrubbingTB,ShowDeviceTB,ShowSelectionTB,"
-"ShowSpectralSelectionTB") }
+"ShowSpectralSelectionTB") },
+         {wxT("/Tracks/Add/Add"), wxT(
+"NewMonoTrack,NewStereoTrack,NewLabelTrack,NewTimeTrack")},
+         {wxT("/Optional/Extra/Part2/Scriptables1"), wxT(
+"SelectTime,SelectFrequencies,SelectTracks,SetTrackStatus,SetTrackAudio,"
+"SetTrackVisuals,GetPreference,SetPreference,SetClip,SetEnvelope,SetLabel"
+"SetProject") },
+         {wxT("/Optional/Extra/Part2/Scriptables2"), wxT(
+"Select,SetTrack,GetInfo,Message,Help,Import2,Export2,OpenProject2,"
+"SaveProject2,Drag,CompareAudio,Screenshot") },
       }
    };
 
@@ -425,10 +431,13 @@ void MenuCreator::CreateMenusAndCommands(AudacityProject &project)
 #endif
 }
 
-void MenuManager::Visit( ToolbarMenuVisitor &visitor )
+void MenuManager::Visit(ProjectMenuVisitor &visitor)
 {
    static const auto menuTree = MenuTable::Items( MenuPathStart );
-   Registry::Visit( visitor, menuTree.get(), &sRegistry() );
+
+   wxLogNull nolog;
+   Registry::Visit( visitor, menuTree.get(),
+      &MenuTable::ItemRegistry::Registry() );
 }
 
 // TODO: This surely belongs in CommandManager?
@@ -501,36 +510,19 @@ void MenuCreator::RebuildMenuBar(AudacityProject &project)
    CreateMenusAndCommands(project);
 }
 
-void MenuManager::OnUndoRedo( wxCommandEvent &evt )
+void MenuManager::OnUndoRedo(UndoRedoMessage message)
 {
-   evt.Skip();
+   switch (message.type) {
+   case UndoRedoMessage::UndoOrRedo:
+   case UndoRedoMessage::Reset:
+   case UndoRedoMessage::Pushed:
+   case UndoRedoMessage::Renamed:
+      break;
+   default:
+      return;
+   }
    ModifyUndoMenuItems( mProject );
    UpdateMenus();
-}
-
-namespace{
-   using Predicates = std::vector< ReservedCommandFlag::Predicate >;
-   Predicates &RegisteredPredicates()
-   {
-      static Predicates thePredicates;
-      return thePredicates;
-   }
-   std::vector< CommandFlagOptions > &Options()
-   {
-      static std::vector< CommandFlagOptions > options;
-      return options;
-   }
-}
-
-ReservedCommandFlag::ReservedCommandFlag(
-   const Predicate &predicate, const CommandFlagOptions &options )
-{
-   static size_t sNextReservedFlag = 0;
-   // This will throw std::out_of_range if the constant NCommandFlags is too
-   // small
-   set( sNextReservedFlag++ );
-   RegisteredPredicates().emplace_back( predicate );
-   Options().emplace_back( options );
 }
 
 CommandFlag MenuManager::GetUpdateFlags( bool checkActive ) const
@@ -545,9 +537,9 @@ CommandFlag MenuManager::GetUpdateFlags( bool checkActive ) const
 
    CommandFlag flags, quickFlags;
 
-   const auto &options = Options();
+   const auto &options = ReservedCommandFlag::Options();
    size_t ii = 0;
-   for ( const auto &predicate : RegisteredPredicates() ) {
+   for ( const auto &predicate : ReservedCommandFlag::RegisteredPredicates() ) {
       if ( options[ii].quickTest ) {
          quickFlags[ii] = true;
          if( predicate( mProject ) )
@@ -561,7 +553,8 @@ CommandFlag MenuManager::GetUpdateFlags( bool checkActive ) const
       flags = (lastFlags & ~quickFlags) | flags;
    else {
       ii = 0;
-      for ( const auto &predicate : RegisteredPredicates() ) {
+      for ( const auto &predicate
+           : ReservedCommandFlag::RegisteredPredicates() ) {
          if ( !options[ii].quickTest && predicate( mProject ) )
             flags[ii] = true;
          ++ii;
@@ -570,55 +563,6 @@ CommandFlag MenuManager::GetUpdateFlags( bool checkActive ) const
 
    lastFlags = flags;
    return flags;
-}
-
-void MenuManager::ModifyAllProjectToolbarMenus()
-{
-   for (auto pProject : AllProjects{}) {
-      auto &project = *pProject;
-      MenuManager::Get(project).ModifyToolbarMenus(project);
-   }
-}
-
-void MenuManager::ModifyToolbarMenus(AudacityProject &project)
-{
-   // Refreshes can occur during shutdown and the toolmanager may already
-   // be deleted, so protect against it.
-   auto &toolManager = ToolManager::Get( project );
-
-   auto &settings = ProjectSettings::Get( project );
-
-   // Now, go through each toolbar, and call EnableDisableButtons()
-   for (int i = 0; i < ToolBarCount; i++) {
-      auto bar = toolManager.GetToolBar(i);
-      if (bar)
-         bar->EnableDisableButtons();
-   }
-
-   // These don't really belong here, but it's easier and especially so for
-   // the Edit toolbar and the sync-lock menu item.
-   bool active;
-
-   gPrefs->Read(wxT("/GUI/SyncLockTracks"), &active, false);
-   settings.SetSyncLock(active);
-
-   CommandManager::Get( project ).UpdateCheckmarks( project );
-}
-
-namespace
-{
-   using MenuItemEnablers = std::vector<MenuItemEnabler>;
-   MenuItemEnablers &Enablers()
-   {
-      static MenuItemEnablers enablers;
-      return enablers;
-   }
-}
-
-RegisteredMenuItemEnabler::RegisteredMenuItemEnabler(
-   const MenuItemEnabler &enabler )
-{
-   Enablers().emplace_back( enabler );
 }
 
 // checkActive is a temporary hack that should be removed as soon as we
@@ -642,7 +586,7 @@ void MenuManager::UpdateMenus( bool checkActive )
    //The effect still needs flags to determine whether it will need
    //to actually do the 'select all' to make the command valid.
 
-   for ( const auto &enabler : Enablers() ) {
+   for ( const auto &enabler : RegisteredMenuItemEnabler::Enablers() ) {
       auto actual = enabler.actualFlags();
       if (
          enabler.applicable( project ) && (flags & actual) == actual
@@ -660,7 +604,7 @@ void MenuManager::UpdateMenus( bool checkActive )
       (mWhatIfNoSelection == 0 ? flags2 : flags) // the "strict" flags
    );
 
-   MenuManager::ModifyToolbarMenus(project);
+   Publish({});
 }
 
 /// The following method moves to the previous track
@@ -709,7 +653,7 @@ bool MenuManager::TryToMakeActionAllowed(
       flags = GetUpdateFlags();
 
    // Visit the table of recovery actions
-   auto &enablers = Enablers();
+   auto &enablers = RegisteredMenuItemEnabler::Enablers();
    auto iter = enablers.begin(), end = enablers.end();
    while ((flags & flagsRqd) != flagsRqd && iter != end) {
       const auto &enabler = *iter;
@@ -760,7 +704,7 @@ void MenuManager::TellUserWhyDisallowed(
       }
    };
 
-   const auto &alloptions = Options();
+   const auto &alloptions = ReservedCommandFlag::Options();
    auto missingFlags = flagsRequired & ~flagsGot;
 
    // Find greatest priority
@@ -797,8 +741,7 @@ void MenuManager::TellUserWhyDisallowed(
       return;
 
    // Does not have the warning icon...
-   ShowErrorDialog(
-      NULL,
+   BasicUI::ShowErrorDialog( {},
       untranslatedTitle,
       reason,
       helpPage);

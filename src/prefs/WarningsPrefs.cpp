@@ -17,12 +17,13 @@
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "WarningsPrefs.h"
 
 #include <wx/defs.h>
 
-#include "../ShuttleGui.h"
+#include "Prefs.h"
+#include "ShuttleGui.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -36,17 +37,17 @@ WarningsPrefs::~WarningsPrefs()
 {
 }
 
-ComponentInterfaceSymbol WarningsPrefs::GetSymbol()
+ComponentInterfaceSymbol WarningsPrefs::GetSymbol() const
 {
    return WARNINGS_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString WarningsPrefs::GetDescription()
+TranslatableString WarningsPrefs::GetDescription() const
 {
    return XO("Preferences for Warnings");
 }
 
-wxString WarningsPrefs::HelpPageName()
+ManualPageID WarningsPrefs::HelpPageName()
 {
    return "Warnings_Preferences";
 }
@@ -69,14 +70,11 @@ void WarningsPrefs::PopulateOrExchange(ShuttleGui & S)
 
    S.StartStatic(XO("Show Warnings/Prompts for"));
    {
-      S.TieCheckBox(XXO("Saving &projects"),
+      S.TieCheckBox(XXO("Saving &projects versus exporting audio"),
                     {wxT("/Warnings/FirstProjectSave"),
                      true});
       S.TieCheckBox(XXO("Saving &empty project"),
                     {wxT("/GUI/EmptyCanBeDirty"),
-                     true});
-      S.TieCheckBox(XXO("&Low disk space at launch or new project"),
-                    {wxT("/Warnings/DiskSpaceWarning"),
                      true});
       S.TieCheckBox(XXO("Mixing down to &mono during export"),
                     {wxT("/Warnings/MixMono"),
@@ -90,11 +88,6 @@ void WarningsPrefs::PopulateOrExchange(ShuttleGui & S)
       S.TieCheckBox(XXO("Missing file &name extension during export"),
                     {wxT("/Warnings/MissingExtension"),
                      true});
-#ifdef EXPERIMENTAL_OD_DATA
-      S.TieCheckBox(XXO("&Importing uncompressed audio files"),
-                    {wxT("/Warnings/CopyOrEditUncompressedDataAsk"),
-                     true});
-#endif
    }
    S.EndStatic();
    S.EndScroller();

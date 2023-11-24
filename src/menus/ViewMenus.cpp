@@ -1,29 +1,26 @@
-#include "../Audacity.h"
-#include "../Experimental.h"
-
 #include "../CommonCommandFlags.h"
 #include "../Menus.h"
-#include "../Prefs.h"
-#include "../Project.h"
-#include "../ProjectHistory.h"
+#include "PlayableTrack.h"
+#include "Prefs.h"
+#include "Project.h"
+#include "ProjectHistory.h"
 #include "../ProjectSettings.h"
 #include "../ProjectWindow.h"
-#include "../Track.h"
 #include "../TrackInfo.h"
 #include "../TrackPanel.h"
-#include "../UndoManager.h"
-#include "../ViewInfo.h"
+#include "UndoManager.h"
+#include "ViewInfo.h"
 #include "../commands/CommandContext.h"
 #include "../commands/CommandManager.h"
 #include "../prefs/GUIPrefs.h"
 #include "../prefs/TracksPrefs.h"
-#include "../tracks/ui/TrackView.h"
+#include "../tracks/ui/ChannelView.h"
 
-#ifdef EXPERIMENTAL_EFFECTS_RACK
-#include "../effects/EffectUI.h"
-#endif
 
+#include <wx/app.h>
 #include <wx/scrolbar.h>
+
+#include <numeric>
 
 // private helper classes and functions
 namespace {
@@ -66,8 +63,8 @@ double GetZoomOfPreset( const AudacityProject &project, int preset )
    double result = 1.0;
    auto &window = ProjectWindow::Get( project );
    double zoomToFit = window.GetZoomOfToFit();
-   using namespace WaveTrackViewConstants;
-   switch( preset ){
+   using namespace WaveChannelViewConstants;
+   switch(preset) {
       default:
       case kZoomDefault:
          result = ZoomInfo::GetDefaultZoom();
@@ -129,10 +126,11 @@ void DoZoomFitV(AudacityProject &project)
    auto &tracks = TrackList::Get( project );
 
    // Only nonminimized audio tracks will be resized
+   // Assume all channels of the track have the same minimization state
    auto range = tracks.Any<AudioTrack>()
       - [](const Track *pTrack){
-         return TrackView::Get( *pTrack ).GetMinimized(); };
-   auto count = range.size();
+         return ChannelView::Get(*pTrack->GetChannel(0)).GetMinimized(); };
+   auto count = range.sum(&Track::NChannels);
    if (count == 0)
       return;
 
@@ -142,15 +140,21 @@ void DoZoomFitV(AudacityProject &project)
    
    // The height of minimized and non-audio tracks cannot be apportioned
    height -=
-      tracks.Any().sum( TrackView::GetTrackHeight )
-         - range.sum( TrackView::GetTrackHeight );
+      tracks.Any().sum(ChannelView::GetChannelGroupHeight)
+         - range.sum(ChannelView::GetChannelGroupHeight);
    
    // Give each resized track the average of the remaining height
-   height = height / count;
+   // Bug 2803: Cast count to int, because otherwise the result of 
+   // division will be unsigned too, and will be a very large number 
+   // if height was negative!
+   height = height / (int)count;
+   // Use max() so that we don't set a negative height when there is
+   // not enough room.
    height = std::max( (int)TrackInfo::MinimumTrackHeight(), height );
 
    for (auto t : range)
-      TrackView::Get( *t ).SetHeight(height);
+      for (auto pChannel : t->Channels())
+         ChannelView::Get(*pChannel).SetExpandedHeight(height);
 }
 }
 
@@ -259,8 +263,9 @@ void OnCollapseAllTracks(const CommandContext &context)
    auto &tracks = TrackList::Get( project );
    auto &window = ProjectWindow::Get( project );
 
-   for (auto t : tracks.Any())
-      TrackView::Get( *t ).SetMinimized(true);
+   for (auto t : tracks)
+      for (auto pChannel : t->Channels())
+         ChannelView::Get(*pChannel).SetMinimized(true);
 
    ProjectHistory::Get( project ).ModifyState(true);
 }
@@ -271,8 +276,9 @@ void OnExpandAllTracks(const CommandContext &context)
    auto &tracks = TrackList::Get( project );
    auto &window = ProjectWindow::Get( project );
 
-   for (auto t : tracks.Any())
-      TrackView::Get( *t ).SetMinimized(false);
+   for (auto t : tracks)
+      for (auto pChannel : t->Channels())
+         ChannelView::Get(*pChannel).SetMinimized(false);
 
    ProjectHistory::Get( project ).ModifyState(true);
 }
@@ -328,42 +334,48 @@ void OnShowClipping(const CommandContext &context)
    gPrefs->Flush();
    commandManager.Check(wxT("ShowClipping"), checked);
 
-   wxTheApp->AddPendingEvent(wxCommandEvent{
-      EVT_PREFS_UPDATE, ShowClippingPrefsID() });
+   PrefsListener::Broadcast(ShowClippingPrefsID());
 
    trackPanel.Refresh(false);
 }
 
-#if defined(EXPERIMENTAL_EFFECTS_RACK)
-void OnShowEffectsRack(const CommandContext &context )
+void OnShowNameOverlay(const CommandContext &context)
 {
-   auto &rack = EffectRack::Get( context.project );
-   rack.Show( !rack.IsShown() );
+   auto &project = context.project;
+   auto &commandManager = CommandManager::Get( project );
+   auto &trackPanel = TrackPanel::Get( project );
+
+   bool checked = !gPrefs->Read(wxT("/GUI/ShowTrackNameInWaveform"), 0L);
+   gPrefs->Write(wxT("/GUI/ShowTrackNameInWaveform"), checked);
+   gPrefs->Flush();
+   commandManager.Check(wxT("ShowTrackNameInWaveform"), checked);
+
+   PrefsListener::Broadcast(ShowTrackNameInWaveformPrefsID());
+
+   trackPanel.Refresh(false);
 }
-#endif
 
 // Not a menu item, but a listener for events
-void OnUndoPushed( wxCommandEvent &evt )
+void OnUndoPushed(UndoRedoMessage message)
 {
-   evt.Skip();
-   const auto &settings = ProjectSettings::Get( mProject );
-   if (settings.GetTracksFitVerticallyZoomed())
-      DoZoomFitV( mProject );
+   if (message.type == UndoRedoMessage::Pushed) {
+      const auto &settings = ProjectSettings::Get( mProject );
+      if (settings.GetTracksFitVerticallyZoomed())
+         DoZoomFitV( mProject );
+   }
 }
 
 Handler( AudacityProject &project )
    : mProject{ project }
 {
-   mProject.Bind( EVT_UNDO_PUSHED, &Handler::OnUndoPushed, this );
+   mUndoSubscription = UndoManager::Get(mProject)
+      .Subscribe(*this, &Handler::OnUndoPushed);
 }
 
-~Handler()
-{
-   mProject.Unbind( EVT_UNDO_PUSHED, &Handler::OnUndoPushed, this );
-}
-Handler( const Handler & ) PROHIBITED;
-Handler &operator=( const Handler & ) PROHIBITED;
+Handler( const Handler & ) = delete;
+Handler &operator=( const Handler & ) = delete;
 
+Observer::Subscription mUndoSubscription;
 AudacityProject &mProject;
 
 }; // struct Handler
@@ -439,20 +451,15 @@ BaseItemSharedPtr ViewMenu()
       Section( "Windows" ),
 
       Section( "Other",
-         Command( wxT("ShowExtraMenus"), XXO("&Extra Menus (on/off)"),
+         Command( wxT("ShowExtraMenus"), XXO("Enable &Extra Menus"),
             FN(OnShowExtraMenus), AlwaysEnabledFlag,
             Options{}.CheckTest( wxT("/GUI/ShowExtraMenus"), false ) ),
-         Command( wxT("ShowClipping"), XXO("&Show Clipping (on/off)"),
+         Command( wxT("ShowTrackNameInWaveform"), XXO("Show Track &Name as overlay"),
+            FN(OnShowNameOverlay), AlwaysEnabledFlag,
+            Options{}.CheckTest( wxT("/GUI/ShowTrackNameInWaveform"), false ) ),
+         Command( wxT("ShowClipping"), XXO("&Show Clipping in Waveform"),
             FN(OnShowClipping), AlwaysEnabledFlag,
             Options{}.CheckTest( wxT("/GUI/ShowClipping"), false ) )
-   #if defined(EXPERIMENTAL_EFFECTS_RACK)
-         ,
-         Command( wxT("ShowEffectsRack"), XXO("Show Effects Rack"),
-            FN(OnShowEffectsRack), AlwaysEnabledFlag,
-            Options{}.CheckTest( [](AudacityProject &project){
-               auto &rack = EffectRack::Get( project );
-               return rack.IsShown(); } ) )
-   #endif
       )
    ) ) };
    return menu;
@@ -461,7 +468,7 @@ BaseItemSharedPtr ViewMenu()
 
 AttachedItem sAttachment1{
    wxT(""),
-   Shared( ViewMenu() )
+   Indirect(ViewMenu())
 };
 }
 
