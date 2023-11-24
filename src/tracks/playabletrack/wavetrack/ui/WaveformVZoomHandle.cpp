@@ -4,24 +4,22 @@ Audacity: A Digital Audio Editor
 
 WaveformVZoomHandle.cpp
 
-Paul Licameli split from WaveTrackVZoomHandle.cpp
+Paul Licameli split from WaveChannelVZoomHandle.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h"
+
 #include "WaveformVZoomHandle.h"
 
-#include "WaveTrackVZoomHandle.h"
-
-#include "../../../../Experimental.h"
+#include "WaveChannelVZoomHandle.h"
 
 #include "../../../../HitTestResult.h"
-#include "../../../../NumberScale.h"
-#include "../../../../Prefs.h"
-#include "../../../../ProjectHistory.h"
+#include "NumberScale.h"
+#include "Prefs.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackPanelMouseEvent.h"
-#include "../../../../WaveTrack.h"
+#include "WaveTrack.h"
 #include "../../../../prefs/WaveformSettings.h"
 
 WaveformVZoomHandle::WaveformVZoomHandle(
@@ -39,6 +37,11 @@ void WaveformVZoomHandle::Enter( bool, AudacityProject* )
 #endif
 }
 
+bool WaveformVZoomHandle::HandlesRightClick()
+{
+   return true;
+}
+
 UIHandle::Result WaveformVZoomHandle::Click
 (const TrackPanelMouseEvent &, AudacityProject *)
 {
@@ -52,13 +55,13 @@ UIHandle::Result WaveformVZoomHandle::Drag
    auto pTrack = TrackList::Get( *pProject ).Lock(mpTrack);
    if (!pTrack)
       return Cancelled;
-   return WaveTrackVZoomHandle::DoDrag( evt, pProject, mZoomStart, mZoomEnd );
+   return WaveChannelVZoomHandle::DoDrag(evt, pProject, mZoomStart, mZoomEnd);
 }
 
 HitTestPreview WaveformVZoomHandle::Preview
 (const TrackPanelMouseState &st, AudacityProject *)
 {
-   return WaveTrackVZoomHandle::HitPreview(st.state);
+   return WaveChannelVZoomHandle::HitPreview(st.state);
 }
 
 UIHandle::Result WaveformVZoomHandle::Release
@@ -66,10 +69,10 @@ UIHandle::Result WaveformVZoomHandle::Release
  wxWindow *pParent)
 {
    auto pTrack = TrackList::Get( *pProject ).Lock(mpTrack);
-   return WaveTrackVZoomHandle::DoRelease(
+   return WaveChannelVZoomHandle::DoRelease(
       evt, pProject, pParent, pTrack.get(), mRect,
       DoZoom, WaveformVRulerMenuTable::Instance(),
-      mZoomStart, mZoomEnd );
+      mZoomStart, mZoomEnd);
 }
 
 UIHandle::Result WaveformVZoomHandle::Cancel(AudacityProject*)
@@ -85,15 +88,15 @@ void WaveformVZoomHandle::Draw(
 {
    if (!mpTrack.lock()) //? TrackList::Lock()
       return;
-   return WaveTrackVZoomHandle::DoDraw(
-      context, rect, iPass, mZoomStart, mZoomEnd );
+   return WaveChannelVZoomHandle::DoDraw(
+      context, rect, iPass, mZoomStart, mZoomEnd);
 }
 
 wxRect WaveformVZoomHandle::DrawingArea(
    TrackPanelDrawingContext &,
    const wxRect &rect, const wxRect &panelRect, unsigned iPass )
 {
-   return WaveTrackVZoomHandle::DoDrawingArea( rect, panelRect, iPass );
+   return WaveChannelVZoomHandle::DoDrawingArea(rect, panelRect, iPass);
 }
 
 // ZoomKind says how to zoom.
@@ -102,11 +105,11 @@ wxRect WaveformVZoomHandle::DrawingArea(
 void WaveformVZoomHandle::DoZoom(
    AudacityProject *pProject,
    WaveTrack *pTrack,
-   WaveTrackViewConstants::ZoomActions ZoomKind,
+   WaveChannelViewConstants::ZoomActions ZoomKind,
    const wxRect &rect, int zoomStart, int zoomEnd,
    bool fixedMousePoint)
 {
-   using namespace WaveTrackViewConstants;
+   using namespace WaveChannelViewConstants;
    static const float ZOOMLIMIT = 0.001f;
 
    int height = rect.height;
@@ -121,7 +124,7 @@ void WaveformVZoomHandle::DoZoom(
    const float halfrate = rate / 2;
    float maxFreq = 8000.0;
 
-   bool bDragZoom = WaveTrackVZoomHandle::IsDragZooming(zoomStart, zoomEnd);
+   bool bDragZoom = WaveChannelVZoomHandle::IsDragZooming(zoomStart, zoomEnd);
 
    // Possibly override the zoom kind.
    if( bDragZoom )
@@ -131,8 +134,9 @@ void WaveformVZoomHandle::DoZoom(
    float half=0.5;
 
    {
-      pTrack->GetDisplayBounds(&min, &max);
-      const WaveformSettings &waveSettings = pTrack->GetWaveformSettings();
+      auto &cache = WaveformScale::Get(*pTrack);
+      cache.GetDisplayBounds(min, max);
+      auto &waveSettings = WaveformSettings::Get(*pTrack);
       const bool linear = waveSettings.isLinear();
       if( !linear ){
          top = (LINEAR_TO_DB(2.0) + waveSettings.dBRange) / waveSettings.dBRange;
@@ -247,8 +251,7 @@ void WaveformVZoomHandle::DoZoom(
    }
 
    // Now actually apply the zoom.
-   for (auto channel : TrackList::Channels(pTrack))
-      channel->SetDisplayBounds(min, max);
+   WaveformScale::Get(*pTrack).SetDisplayBounds(min, max);
 
    zoomEnd = zoomStart = 0;
    if( pProject )
@@ -282,7 +285,7 @@ BEGIN_POPUP_MENU(WaveformVRulerMenuTable)
                WaveTrack *const wt = pData->pTrack;
                if ( id ==
                   OnFirstWaveformScaleID +
-                  (int)(wt->GetWaveformSettings().scaleType) )
+                  static_cast<int>(WaveformSettings::Get(*wt).scaleType) )
                   menu.Check(id, true);
             }
           );
@@ -327,10 +330,8 @@ void WaveformVRulerMenuTable::OnWaveformScaleType(wxCommandEvent &evt)
                evt.GetId() - OnFirstWaveformScaleID
       )));
 
-   if (wt->GetWaveformSettings().scaleType != newScaleType) {
-      for (auto channel : TrackList::Channels(wt)) {
-         channel->GetIndependentWaveformSettings().scaleType = newScaleType;
-      }
+   if (WaveformSettings::Get(*wt).scaleType != newScaleType) {
+      WaveformSettings::Get(*wt).scaleType = newScaleType;
 
       AudacityProject *const project = &mpData->project;
       ProjectHistory::Get( *project ).ModifyState(true);

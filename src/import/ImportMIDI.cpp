@@ -8,13 +8,12 @@
 
 **********************************************************************/
 
-#include "../Audacity.h" // for USE_* macros
+
 #include "ImportMIDI.h"
 
 #include <wx/defs.h>
 #include <wx/ffile.h>
 #include <wx/frame.h>
-#include <wx/intl.h>
 
 #if defined(USE_MIDI)
 
@@ -24,19 +23,25 @@
 //#include "strparse.h"
 //#include "mfmidi.h"
 
+#include "FileNames.h"
 #include "../NoteTrack.h"
-#include "../Project.h"
-#include "../ProjectHistory.h"
+#include "Project.h"
+#include "ProjectFileIO.h"
+#include "ProjectHistory.h"
 #include "../ProjectWindow.h"
+#include "ProjectWindows.h"
+#include "SelectFile.h"
 #include "../SelectUtilities.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 #include "../widgets/FileHistory.h"
 
 // Given an existing project, try to import into it, return true on success
 bool DoImportMIDI( AudacityProject &project, const FilePath &fileName )
 {
+   auto &projectFileIO = ProjectFileIO::Get( project );
    auto &tracks = TrackList::Get( project );
-   auto newTrack = TrackFactory::Get( project ).NewNoteTrack();
+   auto newTrack =  std::make_shared<NoteTrack>();
+   bool initiallyEmpty = tracks.empty();
    
    if (::ImportMIDI(fileName, newTrack.get())) {
       
@@ -44,6 +49,16 @@ bool DoImportMIDI( AudacityProject &project, const FilePath &fileName )
       auto pTrack = tracks.Add( newTrack );
       pTrack->SetSelected(true);
       
+      // Fix the bug 2109.
+      // In case the project had soloed tracks before importing,
+      // the newly imported track is muted.
+      const bool projectHasSolo =
+         !(tracks.Any<PlayableTrack>() + &PlayableTrack::GetSolo).empty();
+#ifdef EXPERIMENTAL_MIDI_OUT
+      if (projectHasSolo)
+         pTrack->SetMute(true);
+#endif
+
       ProjectHistory::Get( project )
          .PushState(
             XO("Imported MIDI from '%s'").Format( fileName ),
@@ -52,6 +67,15 @@ bool DoImportMIDI( AudacityProject &project, const FilePath &fileName )
       
       ProjectWindow::Get( project ).ZoomAfterImport(pTrack);
       FileHistory::Global().Append(fileName);
+
+      // If the project was clean and temporary (not permanently saved), then set
+      // the filename to the just imported path.
+      if (initiallyEmpty && projectFileIO.IsTemporary()) {
+         wxFileName fn(fileName);
+         project.SetProjectName(fn.GetName());
+         project.SetInitialImportPath(fn.GetPath());
+         projectFileIO.SetProjectTitle();
+      }
       return true;
    }
    else
@@ -94,7 +118,7 @@ bool ImportMIDI(const FilePath &fName, NoteTrack * dest)
    }
 
    dest->SetSequence(std::move(new_seq));
-   dest->SetOffset(offset);
+   dest->MoveTo(offset);
    wxString trackNameBase = fName.AfterLast(wxFILE_SEP_PATH).BeforeLast('.');
    dest->SetName(trackNameBase);
    mf.Close();
@@ -103,4 +127,46 @@ bool ImportMIDI(const FilePath &fName, NoteTrack * dest)
    return true;
 }
 
+// Insert a menu item
+#include "../commands/CommandContext.h"
+#include "../commands/CommandManager.h"
+#include "../CommonCommandFlags.h"
+
+namespace {
+using namespace MenuTable;
+
+void OnImportMIDI(const CommandContext &context)
+{
+   auto &project = context.project;
+   auto &window = GetProjectFrame( project );
+
+   wxString fileName = SelectFile(FileNames::Operation::Open,
+      XO("Select a MIDI file"),
+      wxEmptyString,     // Path
+      wxT(""),       // Name
+      wxT(""),       // Extension
+      {
+         { XO("MIDI and Allegro files"),
+           { wxT("mid"), wxT("midi"), wxT("gro"), }, true },
+         { XO("MIDI files"),
+           { wxT("mid"), wxT("midi"), }, true },
+         { XO("Allegro files"),
+           { wxT("gro"), }, true },
+         FileNames::AllFiles
+      },
+      wxRESIZE_BORDER,        // Flags
+      &window);    // Parent
+
+   if (!fileName.empty())
+      DoImportMIDI(project, fileName);
+}
+
+AttachedItem sAttachment{
+   { wxT("File/Import-Export/Import"),
+      { OrderingHint::After, {"ImportAudio"} } },
+   Command( wxT("ImportMIDI"), XXO("&MIDI..."), OnImportMIDI,
+      AudioIONotBusyFlag() )
+};
+
+}
 #endif

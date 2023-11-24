@@ -8,7 +8,11 @@
 // color of saturated red was used.  (middle grey 
 
 
-
+#include "Cursors32/ClipStretchLeft.xpm"
+#include "Cursors32/ClipStretchRight.xpm"
+#include "Cursors32/ClipTrimLeft.xpm"
+#include "Cursors32/ClipTrimRight.xpm"
+#include "Cursors32/CrosshairCursor.xpm"
 #include "Cursors32/DisabledCursor.xpm"
 #include "Cursors32/RearrangeCursor.xpm"
 #include "Cursors32/RearrangingCursor.xpm"
@@ -30,4 +34,5 @@
 #endif
 #include "Cursors32/SubViewsCursor.xpm"
 
+AUDACITY_DLL_API
 std::unique_ptr<wxCursor> MakeCursor(int WXUNUSED(CursorId), const char * const pXpm[36], int HotX, int HotY);

@@ -21,12 +21,8 @@
 #ifndef __AUDACITY_SPECTRUM_PREFS__
 #define __AUDACITY_SPECTRUM_PREFS__
 
-#include "../Experimental.h"
-
 #include <vector>
 #include <wx/defs.h>
-
-#include "../tracks/playabletrack/wavetrack/ui/WaveTrackViewConstants.h"
 
 #include "PrefsPanel.h"
 #include "SpectrogramSettings.h"
@@ -38,7 +34,7 @@ struct FFTParam;
 class ShuttleGui;
 class SpectrogramSettings;
 class WaveTrack;
-struct WaveTrackSubViewPlacement;
+struct WaveChannelSubViewPlacement;
 
 #define SPECTRUM_PREFS_PLUGIN_SYMBOL ComponentInterfaceSymbol{ XO("Spectrum") }
 
@@ -48,8 +44,8 @@ class SpectrumPrefs final : public PrefsPanel
    SpectrumPrefs(wxWindow * parent, wxWindowID winid,
       AudacityProject *pProject, WaveTrack *wt);
    virtual ~SpectrumPrefs();
-   ComponentInterfaceSymbol GetSymbol() override;
-   TranslatableString GetDescription() override;
+   ComponentInterfaceSymbol GetSymbol() const override;
+   TranslatableString GetDescription() const override;
 
    void Preview() override;
    bool Commit() override;
@@ -57,7 +53,7 @@ class SpectrumPrefs final : public PrefsPanel
    void Rollback();
    bool ShowsPreviewButton() override;
    bool Validate() override;
-   wxString HelpPageName() override;
+   ManualPageID HelpPageName() override;
 
  private:
    void Populate(size_t windowSize);
@@ -82,11 +78,12 @@ class SpectrumPrefs final : public PrefsPanel
    wxTextCtrl *mRange;
    wxTextCtrl *mFrequencyGain;
 
-#ifdef EXPERIMENTAL_ZERO_PADDED_SPECTROGRAMS
+   /*
+    Zero-padding factor for spectrograms can smooth the display of
+    spectrograms by interpolating in frequency domain. */
    int mZeroPaddingChoice;
    wxChoice *mZeroPaddingChoiceCtrl;
    TranslatableStrings mZeroPaddingChoices;
-#endif
 
    TranslatableStrings mTypeChoices;
 
@@ -102,7 +99,7 @@ class SpectrumPrefs final : public PrefsPanel
 
    SpectrogramSettings mTempSettings, mOrigSettings;
 
-   std::vector<WaveTrackSubViewPlacement> mOrigPlacements;
+   std::vector<WaveChannelSubViewPlacement> mOrigPlacements;
    float mOrigMin, mOrigMax;
 
    bool mPopulating;

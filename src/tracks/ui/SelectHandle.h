@@ -12,7 +12,7 @@ Paul Licameli split from TrackPanel.cpp
 #define __AUDACITY_SELECT_HANDLE__
 
 #include "../../UIHandle.h"
-#include "../../SelectedRegion.h"
+#include "SelectedRegion.h"
 #include "../../Snap.h"
 
 #include <vector>
@@ -21,28 +21,28 @@ class SelectionStateChanger;
 class SnapManager;
 class SpectrumAnalyst;
 class Track;
-class TrackView;
+class ChannelView;
 class TrackList;
 class ViewInfo;
 class WaveTrack;
 class wxMouseState;
 
-class SelectHandle : public UIHandle
+class AUDACITY_DLL_API SelectHandle : public UIHandle
 {
    SelectHandle(const SelectHandle&);
 
 public:
-   explicit SelectHandle
-      (const std::shared_ptr<TrackView> &pTrackView, bool useSnap,
-       const TrackList &trackList,
-       const TrackPanelMouseState &st, const ViewInfo &viewInfo);
+   SelectHandle(
+      const std::shared_ptr<ChannelView> &pChannelView, bool useSnap,
+      const TrackList &trackList,
+      const TrackPanelMouseState &st, const ViewInfo &viewInfo);
 
    // This always hits, but details of the hit vary with mouse position and
    // key state.
-   static UIHandlePtr HitTest
-      (std::weak_ptr<SelectHandle> &holder,
-       const TrackPanelMouseState &state, const AudacityProject *pProject,
-       const std::shared_ptr<TrackView> &pTrackView);
+   static UIHandlePtr HitTest(
+      std::weak_ptr<SelectHandle> &holder,
+      const TrackPanelMouseState &state, const AudacityProject *pProject,
+      const std::shared_ptr<ChannelView> &pChannelView);
 
    SelectHandle &operator=(const SelectHandle&) = default;
    
@@ -54,7 +54,7 @@ public:
    void Enter(bool forward, AudacityProject *pProject) override;
 
    bool HasSnap() const;
-   bool HasEscape() const override;
+   bool HasEscape(AudacityProject *pProject) const override;
 
    bool Escape(AudacityProject *pProject) override;
 
@@ -84,35 +84,35 @@ private:
    void Connect(AudacityProject *pProject);
 
    void StartSelection(AudacityProject *pProject);
-   void AdjustSelection
-      (AudacityProject *pProject,
-       ViewInfo &viewInfo, int mouseXCoordinate, int trackLeftEdge,
-       Track *pTrack);
+   void AdjustSelection(
+      AudacityProject *pProject,
+      ViewInfo &viewInfo, int mouseXCoordinate, int trackLeftEdge,
+      Track *pTrack);
    void AssignSelection(ViewInfo &viewInfo, double selend, Track *pTrack);
 
-   void StartFreqSelection
-      (ViewInfo &viewInfo, int mouseYCoordinate, int trackTopEdge,
-      int trackHeight, TrackView *pTrackView);
-   void AdjustFreqSelection
-      (const WaveTrack *wt,
-       ViewInfo &viewInfo, int mouseYCoordinate, int trackTopEdge,
-       int trackHeight);
+   void StartFreqSelection(
+      ViewInfo &viewInfo, int mouseYCoordinate, int trackTopEdge,
+      int trackHeight, ChannelView *pChannelView);
+   void AdjustFreqSelection(
+      const WaveTrack *wt,
+      ViewInfo &viewInfo, int mouseYCoordinate, int trackTopEdge,
+      int trackHeight);
 
-   void HandleCenterFrequencyClick
-      (const ViewInfo &viewInfo, bool shiftDown,
-       const WaveTrack *pTrack, double value);
-   static void StartSnappingFreqSelection
-      (SpectrumAnalyst &analyst,
-       const ViewInfo &viewInfo, const WaveTrack *pTrack);
-   void MoveSnappingFreqSelection
-      (AudacityProject *pProject, ViewInfo &viewInfo, int mouseYCoordinate,
-       int trackTopEdge,
-       int trackHeight, TrackView *pTrackView);
+   void HandleCenterFrequencyClick(
+      const ViewInfo &viewInfo, bool shiftDown,
+      const WaveTrack *pTrack, double value);
+   static void StartSnappingFreqSelection(
+      SpectrumAnalyst &analyst,
+      const ViewInfo &viewInfo, const WaveTrack *pTrack);
+   void MoveSnappingFreqSelection(
+      AudacityProject *pProject, ViewInfo &viewInfo, int mouseYCoordinate,
+      int trackTopEdge,
+      int trackHeight, ChannelView *pChannelView);
 public:
    // This is needed to implement a command assignable to keystrokes
-   static void SnapCenterOnce
-      (SpectrumAnalyst &analyst,
-       ViewInfo &viewInfo, const WaveTrack *pTrack, bool up);
+   static void SnapCenterOnce(
+      SpectrumAnalyst &analyst,
+      ViewInfo &viewInfo, const WaveTrack *pTrack, bool up);
 private:
 
    // TrackPanelDrawable implementation
@@ -128,7 +128,7 @@ private:
    //   (const ViewInfo &viewInfo, double hintFrequency, bool logF);
 
 
-   std::weak_ptr<TrackView> mpView;
+   std::weak_ptr<ChannelView> mpView;
    wxRect mRect{};
    SelectedRegion mInitialSelection{};
 

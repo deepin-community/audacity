@@ -14,26 +14,33 @@
 *//*******************************************************************/
 
 
-#include "Audacity.h"
-#include "Printing.h"
-
 #include <wx/defs.h>
 #include <wx/dc.h>
-#include <wx/intl.h>
 #include <wx/print.h>
 #include <wx/printdlg.h>
 
 #include "AColor.h"
+#include "widgets/LinearUpdater.h"
+#include "ProjectWindows.h"
 #include "TrackArtist.h"
 #include "ViewInfo.h"
-#include "WaveTrack.h"
+#include "Track.h"
 #include "widgets/Ruler.h"
-#include "widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
+#include "widgets/LinearUpdater.h"
+#include "widgets/TimeFormat.h"
 
 #include "TrackPanelDrawingContext.h"
 
-#include "tracks/ui/TrackView.h"
+#include "tracks/ui/ChannelView.h"
 
+#include "commands/CommandContext.h"
+#include "commands/CommandManager.h"
+#include "CommonCommandFlags.h"
+#include "Project.h"
+#include "TrackPanel.h"
+
+namespace {
 // Globals, so that we remember settings from session to session
 wxPrintData &gPrintData()
 {
@@ -47,8 +54,8 @@ class AudacityPrintout final : public wxPrintout
    AudacityPrintout(wxString title,
                     TrackList *tracks, TrackPanel &panel):
       wxPrintout(title),
-      mTracks(tracks)
-      , mPanel(panel)
+        mPanel(panel)
+      , mTracks(tracks)
    {
    }
    bool OnPrintPage(int page);
@@ -73,16 +80,15 @@ bool AudacityPrintout::OnPrintPage(int WXUNUSED(page))
 
    int rulerScreenHeight = 40;
    int screenTotalHeight =
-      TrackView::GetTotalHeight( *mTracks ) + rulerScreenHeight;
+      ChannelView::GetTotalHeight(*mTracks) + rulerScreenHeight;
 
    double scale = height / (double)screenTotalHeight;
 
    int rulerPageHeight = (int)(rulerScreenHeight * scale);
-   Ruler ruler;
+   Ruler ruler{ LinearUpdater::Instance(), TimeFormat::Instance() };
    ruler.SetBounds(0, 0, width, rulerPageHeight);
    ruler.SetOrientation(wxHORIZONTAL);
    ruler.SetRange(0.0, mTracks->GetEndTime());
-   ruler.SetFormat(Ruler::TimeFormat);
    ruler.SetLabelEdges(true);
    ruler.Draw(*dc);
 
@@ -96,40 +102,45 @@ bool AudacityPrintout::OnPrintPage(int WXUNUSED(page))
    artist.pZoomInfo = &zoomInfo;
    int y = rulerPageHeight;
 
-   for (auto n : mTracks->Any()) {
-      auto &view = TrackView::Get( *n );
-      wxRect r;
-      r.x = 0;
-      r.y = 0;
-      r.width = width;
-      auto trackHeight = (int)(view.GetHeight() * scale);
-      r.height = trackHeight;
+   for (auto l : *mTracks) {
+      for (auto n : l->Channels()) {
+         auto &view = ChannelView::Get(*n);
+         wxRect r;
+         r.x = 0;
+         r.y = 0;
+         r.width = width;
+         // Note that the views as printed might not have the same proportional
+         // heights as displayed on the screen, because the fixed-sized separators
+         // are counted in those heights but not printed
+         auto trackHeight = (int)(view.GetHeight() * scale);
+         r.height = trackHeight;
 
-      const auto subViews = view.GetSubViews( r );
-      if (subViews.empty())
-         continue;
-   
-      auto iter = subViews.begin(), end = subViews.end(), next = iter;
-      auto yy = iter->first;
-      for ( ; iter != end; iter = next ) {
-         ++next;
-         auto nextY = ( next == end )
-            ? trackHeight
-            : next->first;
-         r.y = y + yy;
-         r.SetHeight( nextY - yy );
-         yy = nextY;
+         const auto subViews = view.GetSubViews( r );
+         if (subViews.empty())
+            continue;
+      
+         auto iter = subViews.begin(), end = subViews.end(), next = iter;
+         auto yy = iter->first;
+         for ( ; iter != end; iter = next ) {
+            ++next;
+            auto nextY = ( next == end )
+               ? trackHeight
+               : next->first;
+            r.y = y + yy;
+            r.SetHeight( nextY - yy );
+            yy = nextY;
 
-         TrackPanelDrawingContext context{
-            *dc, {}, {}, &artist
-         };
-         iter->second->Draw( context, r, TrackArtist::PassTracks );
+            TrackPanelDrawingContext context{
+               *dc, {}, {}, &artist
+            };
+            iter->second->Draw( context, r, TrackArtist::PassTracks );
+         }
+
+         dc->SetPen(*wxBLACK_PEN);
+         AColor::Line(*dc, 0, y, width, y);
+
+         y += trackHeight;
       }
-
-      dc->SetPen(*wxBLACK_PEN);
-      AColor::Line(*dc, 0, y, width, y);
-
-      y += trackHeight;
    };
 
    return true;
@@ -186,4 +197,40 @@ void HandlePrint(
    else {
       gPrintData() = printer.GetPrintDialogData().GetPrintData();
    }
+}
+
+void OnPageSetup(const CommandContext &context)
+{
+   auto &project = context.project;
+   auto &window = GetProjectFrame( project );
+   HandlePageSetup(&window);
+}
+
+void OnPrint(const CommandContext &context)
+{
+   auto &project = context.project;
+   auto name = project.GetProjectName();
+   auto &tracks = TrackList::Get( project );
+   auto &window = GetProjectFrame( project );
+   HandlePrint(&window, name, &tracks, TrackPanel::Get( project ));
+}
+
+using namespace MenuTable;
+BaseItemSharedPtr PrintingItems()
+{
+   static BaseItemSharedPtr items{
+   Section( "Print",
+      Command( wxT("PageSetup"), XXO("Pa&ge Setup..."), OnPageSetup,
+         AudioIONotBusyFlag() | TracksExistFlag() ),
+      /* i18n-hint: (verb) It's item on a menu. */
+      Command( wxT("Print"), XXO("&Print..."), OnPrint,
+         AudioIONotBusyFlag() | TracksExistFlag() )
+   ) };
+   return items;
+}
+
+AttachedItem sAttachment{ { "File", { OrderingHint::Before, "Exit" } },
+   Indirect(PrintingItems())
+};
+
 }

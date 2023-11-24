@@ -14,11 +14,12 @@
 
 #include <wx/defs.h>
 
-#include "export/Export.h"
-#include "commands/CommandFlag.h"
-#include "audacity/ComponentInterface.h" // for ComponentInterfaceSymbol
+#include "Export.h"
+#include "ComponentInterface.h" // for ComponentInterfaceSymbol
+#include "PluginProvider.h" // for PluginID
 
 class wxArrayString;
+class wxWindow;
 class Effect;
 class CommandContext;
 class CommandManager;
@@ -55,39 +56,23 @@ private:
 // Stores information for one macro
 class MacroCommands final {
  public:
-   static bool DoAudacityCommand(
-      const PluginID & ID, const CommandContext & context, unsigned flags );
-
    // constructors and destructors
    MacroCommands( AudacityProject &project );
  public:
    bool ApplyMacro( const MacroCommandsCatalog &catalog,
       const wxString & filename = {});
-   static bool HandleTextualCommand( CommandManager &commandManager,
-      const CommandID & Str,
-      const CommandContext & context, CommandFlag flags, bool alwaysEnabled);
    bool ApplyCommand( const TranslatableString &friendlyCommand,
       const CommandID & command, const wxString & params,
       CommandContext const * pContext=NULL );
    bool ApplyCommandInBatchMode( const TranslatableString &friendlyCommand,
       const CommandID & command, const wxString &params,
       CommandContext const * pContext = NULL);
-   bool ApplySpecialCommand(
-      int iCommand, const TranslatableString &friendlyCommand,
-      const CommandID & command, const wxString & params);
    bool ApplyEffectCommand(
       const PluginID & ID, const TranslatableString &friendlyCommand,
       const CommandID & command,
       const wxString & params, const CommandContext & Context);
    bool ReportAndSkip( const TranslatableString & friendlyCommand, const wxString & params );
    void AbortBatch();
-
-   // Utility functions for the special commands.
-   static wxString BuildCleanFileName(const FilePath &fileName,
-      const FileExtension &extension);
-   bool WriteMp3File( const wxString & Name, int bitrate );
-   double GetEndTime();
-   static bool IsMono( AudacityProject *project );
 
    // These commands do not depend on the command list.
    static void MigrateLegacyChains();
@@ -103,8 +88,8 @@ class MacroCommands final {
    void ResetMacro();
 
    void RestoreMacro(const wxString & name);
-   bool ReadMacro(const wxString & macro);
-   bool WriteMacro(const wxString & macro);
+   wxString ReadMacro(const wxString & macro, wxWindow *parent = nullptr);
+   wxString WriteMacro(const wxString & macro, wxWindow *parent = nullptr);
    bool AddMacro(const wxString & macro);
    bool DeleteMacro(const wxString & name);
    bool RenameMacro(const wxString & oldmacro, const wxString & newmacro);
@@ -131,8 +116,7 @@ private:
    wxArrayString mParamsMacro;
    bool mAbort;
    wxString mMessage;
-
-   Exporter mExporter;
+   
    wxString mFileName;
 };
 

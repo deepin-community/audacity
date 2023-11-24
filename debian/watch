@@ -1,4 +1,4 @@
 version=4
-         opts="uversionmangle=s/-/./,dversionmangle=s/~dfsg0.*//,repacksuffix=~dfsg0,filenamemangle=s%(?:.*?)?v?(\d[\d.]*)\.tar\.gz%audacity-$1.tar.gz%" \
-             https://github.com/audacity/audacity/tags \
-             (?:.*?/)?Audacity-?(\d[\d.]*)\.tar\.gz debian uupdate
+opts="dversionmangle=s/@DEB_EXT@//,repacksuffix=+dfsg,filenamemangle=s%(?:.*?)?v?(\d[\d.]*)\.tar\.gz%audacity-$1.tar.gz%" \
+  https://github.com/audacity/audacity/tags \
+  (?:.*?/)?Audacity-?(\d[\d.]*)\.tar\.gz debian uupdate

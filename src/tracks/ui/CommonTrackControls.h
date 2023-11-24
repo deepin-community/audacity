@@ -23,7 +23,7 @@ class TrackSelectHandle;
 namespace TrackInfo{ struct TCPLine; }
 using TCPLines = std::vector< TrackInfo::TCPLine >;
 
-class CommonTrackControls /* not final */ : public TrackControls
+class AUDACITY_DLL_API CommonTrackControls /* not final */ : public TrackControls
 {
 public:
    using TrackControls::TrackControls;
@@ -54,7 +54,7 @@ protected:
        const AudacityProject *) override = 0;
 
    unsigned DoContextMenu
-      (const wxRect &rect, wxWindow *pParent, wxPoint *pPosition,
+      (const wxRect &rect, wxWindow *pParent, const wxPoint *pPosition,
        AudacityProject *pProject) override;
    virtual PopupMenuTable *GetMenuExtension(Track *pTrack) = 0;
 

@@ -18,7 +18,9 @@
 
 #include <wx/textctrl.h> // to inherit
 #include <wx/timer.h> // member variable
-#include "export/Export.h"
+#include "Export.h"
+#include "wxPanelWrapper.h"
+#include "BasicUI.h"
 
 class wxCheckBox;
 class wxChoice;
@@ -28,7 +30,7 @@ class wxTimerEvent;
 
 class NumericTextCtrl;
 class ShuttleGui;
-class TimerRecordPathCtrl;
+class wxTextCtrlWrapper;
 
 enum TimerRecordCompletedActions {
    TR_ACTION_NOTHING = 0x00000000,
@@ -52,32 +54,11 @@ enum {
 
 class AudacityProject;
 
-class TimerRecordPathCtrl final : public wxTextCtrl
-{
-   // MY: Class that inherits from the wxTextCtrl class.
-   // We override AcceptsFocusFromKeyboard in order to add
-   // the text controls to the Tab Order.
-public:
-   TimerRecordPathCtrl(wxWindow * parent, wxWindowID id,
-      const TranslatableString &value = {},
-      const wxPoint &pos = wxDefaultPosition,
-      const wxSize &size = wxDefaultSize,
-      long  style = 0,
-      const wxValidator &validator = wxDefaultValidator,
-      const wxString &name = wxTextCtrlNameStr)
-      :wxTextCtrl(parent, id, value.Translation(), pos, size, style, validator, name)
-   {
-   };
-   ~TimerRecordPathCtrl() {};
-
-   virtual bool AcceptsFocusFromKeyboard() const override {
-      return true;
-   }
-};
-
 class TimerRecordDialog final : public wxDialogWrapper
 {
 public:
+   using ProgressResult = BasicUI::ProgressResult;
+
    TimerRecordDialog(
       wxWindow* parent, AudacityProject &project, bool bAlreadySaved);
    ~TimerRecordDialog();
@@ -116,12 +97,9 @@ private:
    // Timer Recording Automation Routines
    void EnableDisableAutoControls(bool bEnable, int iControlGoup);
    void UpdateTextBoxControls();
-   // Tidy up after Timer Recording
-   bool HaveFilesToRecover();
-   bool RemoveAllAutoSaveFiles();
 
    // Add Path Controls to Form
-   TimerRecordPathCtrl *NewPathControl(
+   wxTextCtrlWrapper *NewPathControl(
       wxWindow *wParent, const int iID,
       const TranslatableString &sCaption, const TranslatableString &sValue);
 
@@ -148,10 +126,10 @@ private:
 
    // Controls for Auto Save/Export
    wxCheckBox *m_pTimerAutoSaveCheckBoxCtrl;
-   TimerRecordPathCtrl *m_pTimerSavePathTextCtrl;
+   wxTextCtrlWrapper *m_pTimerSavePathTextCtrl;
    wxButton *m_pTimerSavePathButtonCtrl;
    wxCheckBox *m_pTimerAutoExportCheckBoxCtrl;
-   TimerRecordPathCtrl *m_pTimerExportPathTextCtrl;
+   wxTextCtrlWrapper *m_pTimerExportPathTextCtrl;
    wxButton *m_pTimerExportPathButtonCtrl;
 
    // After Timer Record Options Choice
@@ -165,9 +143,10 @@ private:
    wxFileName m_fnAutoSaveFile;
    bool m_bAutoExportEnabled;
    wxFileName m_fnAutoExportFile;
-   int m_iAutoExportFormat;
-   int m_iAutoExportSubFormat;
-   int m_iAutoExportFilterIndex;
+   wxString m_sAutoExportFormat;
+   int m_iAutoExportSampleRate{0};
+   int m_iAutoExportChannels{0};
+   ExportProcessor::Parameters m_AutoExportParameters;
    bool m_bProjectAlreadySaved;
 
    DECLARE_EVENT_TABLE()

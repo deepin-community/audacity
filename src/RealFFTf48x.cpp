@@ -54,10 +54,10 @@
 *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
-#include "Audacity.h" // for USE_* macros
+
 #include "RealFFTf48x.h"
 
-#include "Experimental.h"
+
 
 #ifdef EXPERIMENTAL_EQ_SSE_THREADED
 
@@ -70,7 +70,6 @@
 #endif
 
 #include <stdlib.h>
-#include <stdio.h>
 #include <math.h>
 #include "RealFFTf.h"
 #ifdef __WXMSW__

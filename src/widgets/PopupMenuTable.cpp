@@ -8,8 +8,10 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../Audacity.h"
+
 #include "PopupMenuTable.h"
+#include "widgets/BasicMenu.h"
+#include "wxWidgetsWindowPlacement.h"
 
 PopupMenuTableEntry::~PopupMenuTableEntry()
 {}
@@ -17,66 +19,72 @@ PopupMenuTableEntry::~PopupMenuTableEntry()
 PopupSubMenu::~PopupSubMenu()
 {}
 
-PopupSubMenu::PopupSubMenu( const Identifier &stringId,
-   const TranslatableString &caption_, PopupMenuTable &table_ )
-   : ConcreteGroupItem< false >{ stringId }
-   , WholeMenu{ caption_.empty() }
-   , caption{ caption_ }
-   , table{ table_ }
+PopupSubMenu::PopupSubMenu(const Identifier &stringId,
+   const TranslatableString &caption, PopupMenuTable &table
+)  : GroupItem{ stringId }
+   , WholeMenu{ caption.empty() }
+   , caption{ caption }
+   , table{ table }
 {
 }
 
-namespace {
-struct PopupMenu : public wxMenu
-{
-   PopupMenu(wxEvtHandler *pParent_, void *pUserData_)
-      : pParent{ pParent_ }, tables{}, pUserData{ pUserData_ } {}
+PopupMenuVisitor::~PopupMenuVisitor() = default;
 
-   ~PopupMenu() override;
+void *PopupMenuVisitor::GetComputedItemContext()
+{
+   return this;
+}
+
+PopupMenu::~PopupMenu() = default;
+
+namespace {
+struct PopupMenuImpl : PopupMenu, wxMenu
+{
+   PopupMenuImpl(void *pUserData_)
+      : pUserData{ pUserData_ } {}
+
+   ~PopupMenuImpl() override;
+
+   void Popup( wxWindow &window, const wxPoint &pos ) override;
 
    void Extend(PopupMenuTable *pTable);
-   void DisconnectTable(PopupMenuTable *pTable);
-   void Disconnect();
 
-   wxEvtHandler *pParent;
-   std::vector<PopupMenuTable*> tables;
    void *pUserData;
 };
 
 class PopupMenuBuilder : public PopupMenuVisitor {
 public:
    explicit
-   PopupMenuBuilder( PopupMenuTable &table, PopupMenu &menu, void *pUserData )
+   PopupMenuBuilder( PopupMenuTable &table, PopupMenuImpl &menu, void *pUserData )
       : PopupMenuVisitor{ table }
       , mMenu{ &menu }
       , mRoot{ mMenu }
       , mpUserData{ pUserData }
    {}
 
-   void DoBeginGroup( Registry::GroupItem &item, const Path &path ) override;
-   void DoEndGroup( Registry::GroupItem &item, const Path &path ) override;
+   void DoBeginGroup( Registry::GroupItemBase &item, const Path &path ) override;
+   void DoEndGroup( Registry::GroupItemBase &item, const Path &path ) override;
    void DoVisit( Registry::SingleItem &item, const Path &path ) override;
    void DoSeparator() override;
 
-   std::vector< std::unique_ptr<PopupMenu> > mMenus;
-   PopupMenu *mMenu, *mRoot;
+   std::vector< std::unique_ptr<PopupMenuImpl> > mMenus;
+   PopupMenuImpl *mMenu, *mRoot;
    void *const mpUserData;
 };
 
-void PopupMenuBuilder::DoBeginGroup( Registry::GroupItem &item, const Path &path )
+void PopupMenuBuilder::DoBeginGroup( Registry::GroupItemBase &item, const Path &path )
 {
    if ( auto pItem = dynamic_cast<PopupSubMenu*>(&item) ) {
       if ( !pItem->caption.empty() ) {
          auto newMenu =
-            std::make_unique<PopupMenu>( mMenu->pParent, mMenu->pUserData );
-         newMenu->tables.push_back( &pItem->table );
+            std::make_unique<PopupMenuImpl>( mMenu->pUserData );
          mMenu = newMenu.get();
          mMenus.push_back( std::move( newMenu ) );
       }
    }
 }
 
-void PopupMenuBuilder::DoEndGroup( Registry::GroupItem &item, const Path &path )
+void PopupMenuBuilder::DoEndGroup( Registry::GroupItemBase &item, const Path &path )
 {
    if ( auto pItem = dynamic_cast<PopupSubMenu*>(&item) ) {
       if ( !pItem->caption.empty() ) {
@@ -119,7 +127,7 @@ void PopupMenuBuilder::DoVisit( Registry::SingleItem &item, const Path &path )
    if ( pEntry->init )
       pEntry->init( pEntry->handler, *mMenu, pEntry->id );
 
-   mMenu->pParent->Bind(
+   mMenu->Bind(
       wxEVT_COMMAND_MENU_SELECTED, pEntry->func, &pEntry->handler, pEntry->id);
 }
 
@@ -128,18 +136,24 @@ void PopupMenuBuilder::DoSeparator()
    mMenu->AppendSeparator();
 }
 
-PopupMenu::~PopupMenu()
+PopupMenuImpl::~PopupMenuImpl()
 {
    // Event connections between the parent window and the singleton table
    // object must be broken when this menu is destroyed.
    Disconnect();
 }
+
+void PopupMenuImpl::Popup( wxWindow &window, const wxPoint &pos )
+{
+   BasicMenu::Handle{ this }.Popup(
+      wxWidgetsWindowPlacement{ &window }, { pos.x, pos.y }
+   );
+}
 }
 
-void PopupMenuTable::ExtendMenu( wxMenu &menu, PopupMenuTable &table )
+void PopupMenuTable::ExtendMenu( PopupMenu &menu, PopupMenuTable &table )
 {
-   auto &theMenu = dynamic_cast<PopupMenu&>(menu);
-   theMenu.tables.push_back( &table );
+   auto &theMenu = dynamic_cast<PopupMenuImpl&>(menu);
 
    PopupMenuBuilder visitor{ table, theMenu, theMenu.pUserData };
    Registry::Visit(
@@ -150,11 +164,6 @@ void PopupMenuTable::RegisterItem(
    const Registry::Placement &placement, Registry::BaseItemPtr pItem )
 {
    Registry::RegisterItem( *mRegistry, placement, std::move( pItem ) );
-}
-
-void PopupMenuTable::Append( Registry::BaseItemPtr pItem )
-{
-   mStack.back()->items.push_back( std::move( pItem ) );
 }
 
 void PopupMenuTable::Append(
@@ -170,7 +179,7 @@ void PopupMenuTable::BeginSection( const Identifier &name )
 {
    auto uSection = std::make_unique< PopupMenuSection >( name );
    auto section = uSection.get();
-   mStack.back()->items.push_back( std::move( uSection ) );
+   mStack.back()->push_back( std::move( uSection ) );
    mStack.push_back( section );
 }
 
@@ -179,46 +188,12 @@ void PopupMenuTable::EndSection()
    mStack.pop_back();
 }
 
-namespace{
-void PopupMenu::DisconnectTable(PopupMenuTable *pTable)
-{
-   class PopupMenuDestroyer : public PopupMenuVisitor {
-   public:
-      explicit
-      PopupMenuDestroyer( PopupMenuTable &table, PopupMenu &menu )
-         : PopupMenuVisitor{ table }
-         , mMenu{ menu }
-      {}
-
-      void DoVisit( Registry::SingleItem &item, const Path &path ) override
-      {
-         auto pEntry = static_cast<PopupMenuTableEntry*>( &item );
-         mMenu.pParent->Unbind( wxEVT_COMMAND_MENU_SELECTED,
-         pEntry->func, &pEntry->handler, pEntry->id );
-         pEntry->handler.DestroyMenu();
-      }
-
-      PopupMenu &mMenu;
-   };
-
-   PopupMenuDestroyer visitor{ *pTable, *this };
-   Registry::Visit( visitor, pTable->Get( nullptr ).get(),
-      pTable->GetRegistry() );
-}
-
-void PopupMenu::Disconnect()
-{
-   for ( auto pTable : tables )
-      DisconnectTable(pTable);
-}
-}
-
 // static
-std::unique_ptr<wxMenu> PopupMenuTable::BuildMenu
-( wxEvtHandler *pParent, PopupMenuTable *pTable, void *pUserData )
+std::unique_ptr< PopupMenu > PopupMenuTable::BuildMenu(
+   PopupMenuTable *pTable, void *pUserData )
 {
    // Rebuild as needed each time.  That makes it safe in case of language change.
-   auto theMenu = std::make_unique<PopupMenu>( pParent, pUserData );
+   auto theMenu = std::make_unique<PopupMenuImpl>( pUserData );
    ExtendMenu( *theMenu, *pTable );
    return theMenu;
 }

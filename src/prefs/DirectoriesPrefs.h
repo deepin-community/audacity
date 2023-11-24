@@ -13,6 +13,7 @@
 
 #include "PrefsPanel.h"
 
+class ReadOnlyText;
 class ShuttleGui;
 
 class wxStaticText;
@@ -25,21 +26,30 @@ class DirectoriesPrefs final : public PrefsPanel
  public:
    DirectoriesPrefs(wxWindow * parent, wxWindowID winid);
    ~DirectoriesPrefs();
-   ComponentInterfaceSymbol GetSymbol() override;
-   TranslatableString GetDescription() override;
+   ComponentInterfaceSymbol GetSymbol() const override;
+   TranslatableString GetDescription() const override;
 
    bool Commit() override;
    bool Validate() override;
-   wxString HelpPageName() override;
-   void PopulateOrExchange(ShuttleGui & S) override;
+   ManualPageID HelpPageName() override;
+   void PopulateOrExchange(ShuttleGui &S) override;
 
  private:
    void Populate();
-   void UpdateFreeSpace(wxCommandEvent & e);
-   void OnChooseTempDir(wxCommandEvent & e);
 
-   wxStaticText *mFreeSpace;
-   wxTextCtrl *mTempDir;
+   void OnTempText(wxCommandEvent &evt);
+   void OnTempBrowse(wxCommandEvent &evt);
+
+   void OnBrowse(wxCommandEvent &evt);
+   void OnText(wxCommandEvent &evt);
+
+   ReadOnlyText *mFreeSpace;
+   wxTextCtrl *mTempText;
+   wxTextCtrl *mOpenText;
+   wxTextCtrl *mSaveText;
+   wxTextCtrl *mImportText;
+   wxTextCtrl *mExportText;
+   wxTextCtrl *mMacrosText;
 
    DECLARE_EVENT_TABLE()
 };

@@ -8,26 +8,29 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "../../../../Audacity.h" // for USE_* macros
+
 
 #ifdef USE_MIDI
 #include "NoteTrackVRulerControls.h"
 
 #include "NoteTrackVZoomHandle.h"
 
+#include "../../../ui/ChannelView.h"
 #include "../../../../HitTestResult.h"
 #include "../../../../NoteTrack.h"
-#include "../../../../ProjectHistory.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanelMouseEvent.h"
 
-#include "../../../../AColor.h"
-#include "../../../../Experimental.h"
+#include "AColor.h"
 #include "../../../../TrackPanelDrawingContext.h"
+#include "../../../../widgets/LinearUpdater.h"
+#include "../../../../widgets/RealFormat.h"
 #include "../../../../widgets/Ruler.h"
 
 #include <wx/dc.h>
+#include <wx/event.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 NoteTrackVRulerControls::~NoteTrackVRulerControls()
@@ -49,7 +52,7 @@ std::vector<UIHandlePtr> NoteTrackVRulerControls::HitTest
          results.push_back(result);
    }
 
-   auto more = TrackVRulerControls::HitTest(st, pProject);
+   auto more = ChannelVRulerControls::HitTest(st, pProject);
    std::copy(more.begin(), more.end(), std::back_inserter(results));
 
    return results;
@@ -97,7 +100,7 @@ void NoteTrackVRulerControls::Draw(
    TrackPanelDrawingContext &context,
    const wxRect &rect_, unsigned iPass )
 {
-   TrackVRulerControls::Draw( context, rect_, iPass );
+   ChannelVRulerControls::Draw(context, rect_, iPass);
 
    // Draw on a later pass like other vertical rulers,
    // although the bevel is done a little differently
@@ -212,21 +215,23 @@ void NoteTrackVRulerControls::Draw(
 }
 
 
-void NoteTrackVRulerControls::UpdateRuler( const wxRect &rect )
+void NoteTrackVRulerControls::UpdateRuler(const wxRect &rect)
 {
    // The note track isn't drawing a ruler at all!
    // But it needs to!
 
-   const auto nt = std::static_pointer_cast< NoteTrack >( FindTrack() );
+   const auto nt = std::static_pointer_cast<NoteTrack>(FindTrack());
    if (!nt)
       return;
 
-   static Ruler ruler;
+   static Ruler ruler{
+      LinearUpdater::Instance(), RealFormat::LinearInstance() };
    const auto vruler = &ruler;
 
-   vruler->SetBounds(rect.x, rect.y, rect.x + 1, rect.y + rect.height-1);
+   vruler->SetBounds(rect.x, rect.y, rect.x + 1, rect.y + rect.height - 1);
    vruler->SetOrientation(wxVERTICAL);
 
-   vruler->GetMaxSize( &nt->vrulerSize.x, &nt->vrulerSize.y );
+   auto &size = ChannelView::Get(*nt).vrulerSize;
+   vruler->GetMaxSize(&size.first, &size.second);
 }
 #endif

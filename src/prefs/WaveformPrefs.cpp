@@ -13,22 +13,22 @@ Paul Licameli
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "WaveformPrefs.h"
 
 #include "GUIPrefs.h"
-#include "GUISettings.h"
+#include "Decibels.h"
 
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 
-#include "../Project.h"
+#include "Project.h"
 
 #include "../TrackPanel.h"
-#include "../ShuttleGui.h"
-#include "../WaveTrack.h"
-#include "../tracks/playabletrack/wavetrack/ui/WaveTrackView.h"
-#include "../tracks/playabletrack/wavetrack/ui/WaveTrackViewConstants.h"
+#include "ShuttleGui.h"
+#include "WaveTrack.h"
+#include "../tracks/playabletrack/wavetrack/ui/WaveChannelView.h"
+#include "../tracks/playabletrack/wavetrack/ui/WaveChannelViewConstants.h"
 
 WaveformPrefs::WaveformPrefs(wxWindow * parent, wxWindowID winid,
    AudacityProject *pProject, WaveTrack *wt)
@@ -39,7 +39,7 @@ WaveformPrefs::WaveformPrefs(wxWindow * parent, wxWindowID winid,
 , mPopulating(false)
 {
    if (mWt) {
-      WaveformSettings &settings = wt->GetWaveformSettings();
+      auto &settings = WaveformSettings::Get(*wt);
       mDefaulted = (&WaveformSettings::defaults() == &settings);
       mTempSettings = settings;
    }
@@ -56,17 +56,17 @@ WaveformPrefs::~WaveformPrefs()
 {
 }
 
-ComponentInterfaceSymbol WaveformPrefs::GetSymbol()
+ComponentInterfaceSymbol WaveformPrefs::GetSymbol() const
 {
    return WAVEFORM_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString WaveformPrefs::GetDescription()
+TranslatableString WaveformPrefs::GetDescription() const
 {
    return XO("Preferences for Waveforms");
 }
 
-wxString WaveformPrefs::HelpPageName()
+ManualPageID WaveformPrefs::HelpPageName()
 {
    return "Waveform_Preferences";
 }
@@ -166,14 +166,11 @@ bool WaveformPrefs::Commit()
    WaveformSettings::Globals::Get().SavePrefs();
 
    if (mWt) {
-      for (auto channel : TrackList::Channels(mWt)) {
-         if (mDefaulted)
-            channel->SetWaveformSettings({});
-         else {
-            WaveformSettings &settings =
-               channel->GetIndependentWaveformSettings();
-            settings = mTempSettings;
-         }
+      if (mDefaulted)
+         WaveformSettings::Set(*mWt, {});
+      else {
+         auto &settings = WaveformSettings::Get(*mWt);
+         settings = mTempSettings;
       }
    }
 
@@ -187,9 +184,7 @@ bool WaveformPrefs::Commit()
    mTempSettings.ConvertToEnumeratedDBRange();
 
    if (mWt && isOpenPage) {
-      for (auto channel : TrackList::Channels(mWt))
-         WaveTrackView::Get( *channel )
-            .SetDisplay( WaveTrackViewConstants::Waveform );
+      WaveChannelView::Get(*mWt).SetDisplay(WaveChannelViewConstants::Waveform);
    }
 
    if (isOpenPage) {
@@ -242,8 +237,8 @@ void WaveformPrefs::OnDefaults(wxCommandEvent &)
 
 void WaveformPrefs::EnableDisableRange()
 {
-   mRangeChoice->Enable
-      (mScaleChoice->GetSelection() == WaveformSettings::stLogarithmic);
+   mRangeChoice->Enable(
+      mScaleChoice->GetSelection() == WaveformSettings::stLogarithmicDb);
 }
 
 BEGIN_EVENT_TABLE(WaveformPrefs, PrefsPanel)

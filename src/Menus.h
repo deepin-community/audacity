@@ -10,34 +10,31 @@
 #ifndef __AUDACITY_MENUS__
 #define __AUDACITY_MENUS__
 
-#include "audacity/Types.h"
+#include "Identifier.h"
 
-#include <wx/string.h> // member variable
 #include "Prefs.h"
 #include "ClientData.h"
 #include "commands/CommandFlag.h"
+#include "Observer.h"
 
 class wxArrayString;
 class wxCommandEvent;
 class AudacityProject;
 class CommandContext;
 class CommandManager;
-class LabelTrack;
-class PluginDescriptor;
 class Track;
 class TrackList;
 class ViewInfo;
-class WaveClip;
-class WaveTrack;
 
 enum EffectType : int;
 
 typedef wxString PluginID;
+typedef wxString MacroID;
 typedef wxArrayString PluginIDs;
 
 namespace Registry{ class Visitor; }
 
-class MenuCreator
+class AUDACITY_DLL_API MenuCreator
 {
 public:
    MenuCreator();
@@ -51,14 +48,35 @@ public:
    CommandFlag mLastFlags;
    
    // Last effect applied to this project
+   PluginID mLastGenerator{};
    PluginID mLastEffect{};
+   PluginID mLastAnalyzer{};
+   int mLastAnalyzerRegistration;
+   int mLastAnalyzerRegisteredId;
+   PluginID mLastTool{};
+   int mLastToolRegistration;
+   int mLastToolRegisteredId;
+   enum {
+      repeattypenone = 0,
+      repeattypeplugin = 1,
+      repeattypeunique = 2,
+      repeattypeapplymacro = 3
+   };
+   unsigned mRepeatGeneratorFlags;
+   unsigned mRepeatEffectFlags;
+   unsigned mRepeatAnalyzerFlags;
+   unsigned mRepeatToolFlags;
 };
 
-struct ToolbarMenuVisitor;
+struct ProjectMenuVisitor;
 
-class MenuManager final
+//! Sent when menus update (such as for changing enablement of items)
+struct MenuUpdateMessage {};
+
+class AUDACITY_DLL_API MenuManager final
    : public MenuCreator
    , public ClientData::Base
+   , public Observer::Publisher<MenuUpdateMessage>
    , private PrefsListener
 {
 public:
@@ -68,16 +86,13 @@ public:
 
    explicit
    MenuManager( AudacityProject &project );
-   MenuManager( const MenuManager & ) PROHIBITED;
-   MenuManager &operator=( const MenuManager & ) PROHIBITED;
+   MenuManager( const MenuManager & ) = delete;
+   MenuManager &operator=( const MenuManager & ) = delete;
    ~MenuManager();
 
-   static void Visit( ToolbarMenuVisitor &visitor );
+   static void Visit(ProjectMenuVisitor &visitor);
 
    static void ModifyUndoMenuItems(AudacityProject &project);
-   static void ModifyToolbarMenus(AudacityProject &project);
-   // Calls ModifyToolbarMenus() on all projects
-   static void ModifyAllProjectToolbarMenus();
 
    // checkActive is a temporary hack that should be removed as soon as we
    // get multiple effect preview working
@@ -99,8 +114,9 @@ private:
    void TellUserWhyDisallowed(const TranslatableString & Name, CommandFlag flagsGot,
       CommandFlag flagsRequired);
 
-   void OnUndoRedo( wxCommandEvent &evt );
+   void OnUndoRedo(struct UndoRedoMessage);
 
+   Observer::Subscription mUndoSubscription;
    AudacityProject &mProject;
 
 public:

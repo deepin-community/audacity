@@ -11,47 +11,42 @@ Paul Licameli split from PrefsDialog.cpp
 #include "PrefsPanel.h"
 #include <mutex>
 
-namespace {
-const auto PathStart = wxT("Preferences");
+static const auto PathStart = L"Preferences";
 
-static Registry::GroupItem &sRegistry()
+Registry::GroupItemBase &PrefsPanel::PrefsItem::Registry()
 {
-   static Registry::TransparentGroupItem<> registry{ PathStart };
+   static Registry::GroupItem<Registry::DefaultTraits> registry{ PathStart };
    return registry;
 }
 
-struct PrefsItem final : Registry::ConcreteGroupItem<false> {
-   PrefsPanel::Factory factory;
-   bool expanded{ false };
-
-   PrefsItem( const wxString &name,
-      const PrefsPanel::Factory &factory_, bool expanded_ )
-         : ConcreteGroupItem<false>{ name }
-         , factory{ factory_ }, expanded{ expanded_ }
-   {}
-};
+PrefsPanel::PrefsItem::PrefsItem(const wxString &name,
+   const PrefsPanel::Factory &factory, bool expanded
+)  : GroupItem{ name }
+   , factory{ factory }
+   , expanded{ expanded }
+{}
 
 // Collects registry tree nodes into a vector, in preorder.
-struct PrefsItemVisitor final : Registry::Visitor {
-   PrefsItemVisitor( PrefsPanel::Factories &factories_ )
+struct PrefsPanel::PrefsItem::Visitor final : Registry::Visitor {
+   Visitor( PrefsPanel::Factories &factories_ )
       : factories{ factories_ }
    {
       childCounts.push_back( 0 );
    }
-   void BeginGroup( Registry::GroupItem &item, const Path & ) override
+   void BeginGroup( Registry::GroupItemBase &item, const Path & ) override
    {
       auto pItem = dynamic_cast<PrefsItem*>( &item );
-      if (!pItem)
+      if (!pItem || !pItem->factory)
          return;
       indices.push_back( factories.size() );
       factories.emplace_back( pItem->factory, 0, pItem->expanded );
       ++childCounts.back();
       childCounts.push_back( 0 );
    }
-   void EndGroup( Registry::GroupItem &item, const Path & ) override
+   void EndGroup( Registry::GroupItemBase &item, const Path & ) override
    {
       auto pItem = dynamic_cast<PrefsItem*>( &item );
-      if (!pItem)
+      if (!pItem || !pItem->factory)
          return;
       auto &factory = factories[ indices.back() ];
       factory.nChildren = childCounts.back();
@@ -63,23 +58,22 @@ struct PrefsItemVisitor final : Registry::Visitor {
    std::vector<size_t> childCounts;
    std::vector<size_t> indices;
 };
-}
 
-PluginPath PrefsPanel::GetPath()
+PluginPath PrefsPanel::GetPath() const
 { return BUILTIN_PREFS_PANEL_PREFIX + GetSymbol().Internal(); }
 
-VendorSymbol PrefsPanel::GetVendor()
+VendorSymbol PrefsPanel::GetVendor() const
 {  return XO("Audacity");}
 
-wxString PrefsPanel::GetVersion()
+wxString PrefsPanel::GetVersion() const
 {     return AUDACITY_VERSION_STRING;}
 
 PrefsPanel::Registration::Registration( const wxString &name,
    const Factory &factory, bool expanded,
    const Registry::Placement &placement )
+   : RegisteredItem{
+      std::make_unique< PrefsItem >( name, factory, expanded ), placement }
 {
-   Registry::RegisterItem( sRegistry(), placement,
-      std::make_unique< PrefsItem >( name, factory, expanded ) );
 }
 
 PrefsPanel::~PrefsPanel()
@@ -95,9 +89,9 @@ bool PrefsPanel::ShowsPreviewButton()
    return false;
 }
 
-wxString PrefsPanel::HelpPageName()
+ManualPageID PrefsPanel::HelpPageName()
 {
-   return wxEmptyString;
+   return {};
 }
 
 PrefsPanel::Factories
@@ -125,9 +119,9 @@ PrefsPanel::Factories
    static std::once_flag flag;
 
    std::call_once( flag, []{
-      PrefsItemVisitor visitor{ factories };
-      Registry::TransparentGroupItem<> top{ PathStart };
-      Registry::Visit( visitor, &top, &sRegistry() );
+      PrefsItem::Visitor visitor{ factories };
+      Registry::GroupItem<Registry::DefaultTraits> top{ PathStart };
+      Registry::Visit( visitor, &top, &PrefsItem::Registry() );
    } );
    return factories;
 }

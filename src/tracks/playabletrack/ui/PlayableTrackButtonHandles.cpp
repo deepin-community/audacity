@@ -7,20 +7,20 @@ PlayableTrackButtonHandles.cpp
 Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
-
-#include "../../../Audacity.h"
 #include "PlayableTrackButtonHandles.h"
-
+#include "PlayableTrack.h"
 #include "PlayableTrackControls.h"
 #include "../../../commands/CommandManager.h"
-#include "../../../Project.h"
-#include "../../../ProjectSettings.h"
+#include "Project.h"
 #include "../../../RefreshCode.h"
-#include "../../../Track.h"
+#include "../../../RealtimeEffectPanel.h"
+#include "SampleTrack.h"
 #include "../../../TrackPanelAx.h"
 #include "../../../TrackInfo.h"
 #include "../../../TrackPanelMouseEvent.h"
 #include "../../../TrackUtilities.h"
+
+#include <wx/window.h>
 
 MuteButtonHandle::MuteButtonHandle
 ( const std::shared_ptr<Track> &pTrack, const wxRect &rect )
@@ -63,7 +63,7 @@ UIHandlePtr MuteButtonHandle::HitTest
    wxRect buttonRect;
    if ( pTrack )
       PlayableTrackControls::GetMuteSoloRect(rect, buttonRect, false,
-         !ProjectSettings::Get( *pProject ).IsSoloNone(), pTrack.get());
+         (TracksBehaviorsSolo.ReadEnum() != SoloBehaviorNone), pTrack.get());
    if ( TrackInfo::HideTopItem( rect, buttonRect ) )
       return {};
 
@@ -119,13 +119,73 @@ UIHandlePtr SoloButtonHandle::HitTest
    wxRect buttonRect;
    if ( pTrack )
       PlayableTrackControls::GetMuteSoloRect(rect, buttonRect, true,
-         !ProjectSettings::Get( *pProject ).IsSoloNone(), pTrack.get());
+         (TracksBehaviorsSolo.ReadEnum() != SoloBehaviorNone), pTrack.get());
 
    if ( TrackInfo::HideTopItem( rect, buttonRect ) )
       return {};
 
    if ( pTrack && buttonRect.Contains(state.m_x, state.m_y) ) {
       auto result = std::make_shared<SoloButtonHandle>( pTrack, buttonRect );
+      result = AssignUIHandlePtr(holder, result);
+      return result;
+   }
+   else
+      return {};
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+EffectsButtonHandle::EffectsButtonHandle
+( const std::shared_ptr<Track> &pTrack, const wxRect &rect )
+   : ButtonHandle{ pTrack, rect }
+{}
+
+EffectsButtonHandle::~EffectsButtonHandle()
+{
+}
+
+UIHandle::Result EffectsButtonHandle::CommitChanges
+(const wxMouseEvent &event, AudacityProject *pProject, wxWindow *pParent)
+{
+   RealtimeEffectPanel::Get(*pProject).ShowPanel(
+      dynamic_cast<SampleTrack *>(mpTrack.lock().get()), true);
+   return RefreshCode::RefreshNone;
+}
+
+TranslatableString EffectsButtonHandle::Tip(
+   const wxMouseState &, AudacityProject &project) const
+{
+   auto name = XO("Effects");
+   auto focused =
+      TrackFocus::Get( project ).Get() == GetTrack().get();
+   if (!focused)
+      return name;
+   else {
+      return name;
+   // Instead supply shortcut when "TrackEffects" is defined
+   /*
+   auto &commandManager = CommandManager::Get( project );
+   ComponentInterfaceSymbol command{ wxT("TrackEffects"), name };
+   return commandManager.DescribeCommandsAndShortcuts( &command, 1u );
+    */
+   }
+}
+
+UIHandlePtr EffectsButtonHandle::HitTest
+(std::weak_ptr<EffectsButtonHandle> &holder,
+ const wxMouseState &state, const wxRect &rect,
+ const AudacityProject *pProject, const std::shared_ptr<Track> &pTrack)
+{
+   wxRect buttonRect;
+   if ( pTrack )
+      PlayableTrackControls::GetEffectsRect(rect, buttonRect,
+         pTrack.get());
+
+   if ( TrackInfo::HideTopItem( rect, buttonRect ) )
+      return {};
+
+   if ( pTrack && buttonRect.Contains(state.m_x, state.m_y) ) {
+      auto result = std::make_shared<EffectsButtonHandle>( pTrack, buttonRect );
       result = AssignUIHandlePtr(holder, result);
       return result;
    }

@@ -28,66 +28,126 @@ for drawing different aspects of the label and its text box.
 
 *//*******************************************************************/
 
-#include "Audacity.h" // for HAVE_GTK
+
 #include "LabelTrack.h"
 
-#include "tracks/ui/TrackView.h"
-#include "tracks/ui/TrackControls.h"
-
-#include "Experimental.h"
-
-#include <stdio.h>
 #include <algorithm>
 #include <limits.h>
 #include <float.h>
 
+#include <wx/log.h>
 #include <wx/tokenzr.h>
 
 #include "Prefs.h"
-#include "ProjectFileIORegistry.h"
+#include "Project.h"
+#include "prefs/ImportExportPrefs.h"
 
-#include "effects/TimeWarper.h"
-#include "widgets/AudacityMessageBox.h"
+#include "TimeWarper.h"
+#include "AudacityMessageBox.h"
 
-wxDEFINE_EVENT(EVT_LABELTRACK_ADDITION, LabelTrackEvent);
-wxDEFINE_EVENT(EVT_LABELTRACK_DELETION, LabelTrackEvent);
-wxDEFINE_EVENT(EVT_LABELTRACK_PERMUTED, LabelTrackEvent);
-wxDEFINE_EVENT(EVT_LABELTRACK_SELECTION, LabelTrackEvent);
+LabelTrack::Interval::~Interval() = default;
 
-static ProjectFileIORegistry::Entry registerFactory{
-   wxT( "labeltrack" ),
-   []( AudacityProject &project ){
-      auto &trackFactory = TrackFactory::Get( project );
-      auto &tracks = TrackList::Get( project );
-      auto result = tracks.Add(trackFactory.NewLabelTrack());
-      TrackView::Get( *result );
-      TrackControls::Get( *result );
-      return result;
-   }
+std::shared_ptr<ChannelInterval>
+LabelTrack::Interval::DoGetChannel(size_t iChannel)
+{
+   if (iChannel == 0)
+      return std::make_shared<ChannelInterval>();
+   return {};
+}
+
+static ProjectFileIORegistry::ObjectReaderEntry readerEntry{
+   "labeltrack",
+   LabelTrack::New
 };
 
-LabelTrack::Holder TrackFactory::NewLabelTrack()
+wxString LabelTrack::GetDefaultName()
 {
-   return std::make_shared<LabelTrack>(mDirManager);
+   return _("Labels");
 }
 
-LabelTrack::LabelTrack(const std::shared_ptr<DirManager> &projDirManager):
-   Track(projDirManager),
-   mClipLen(0.0),
-   miLastLabel(-1)
+LabelTrack *LabelTrack::New( AudacityProject &project )
 {
-   SetDefaultName(_("Label Track"));
-   SetName(GetDefaultName());
+   auto &tracks = TrackList::Get( project );
+   auto result = tracks.Add(std::make_shared<LabelTrack>());
+   result->AttachedTrackObjects::BuildAll();
+   return result;
 }
 
-LabelTrack::LabelTrack(const LabelTrack &orig) :
-   Track(orig),
-   mClipLen(0.0)
+LabelTrack* LabelTrack::Create(TrackList& trackList, const wxString& name)
+{
+   auto track = std::make_shared<LabelTrack>();
+   track->SetName(name);
+   trackList.Add(track);
+   return track.get();
+}
+
+LabelTrack* LabelTrack::Create(TrackList& trackList)
+{
+   return Create(trackList, trackList.MakeUniqueTrackName(GetDefaultName()));
+}
+
+LabelTrack::LabelTrack()
+   : UniqueChannelTrack{}
+   , mClipLen{ 0.0 }
+   , miLastLabel{ -1 }
+{
+}
+
+LabelTrack::LabelTrack(const LabelTrack &orig, ProtectedCreationArg &&a)
+   : UniqueChannelTrack{ orig, std::move(a) }
+   , mClipLen{ 0.0 }
 {
    for (auto &original: orig.mLabels) {
       LabelStruct l { original.selectedRegion, original.title };
       mLabels.push_back(l);
    }
+}
+
+static const Track::TypeInfo &typeInfo()
+{
+   static Track::TypeInfo info{
+      { "label", "label", XO("Label Track") }, true, &Track::ClassTypeInfo() };
+   return info;
+}
+
+auto LabelTrack::GetTypeInfo() const -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+auto LabelTrack::ClassTypeInfo() -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+Track::Holder LabelTrack::PasteInto(AudacityProject &, TrackList &list) const
+{
+   assert(IsLeader());
+   auto pNewTrack = std::make_shared<LabelTrack>();
+   pNewTrack->Init(*this);
+   pNewTrack->Paste(0.0, *this);
+   list.Add(pNewTrack);
+   return pNewTrack;
+}
+
+size_t LabelTrack::NIntervals() const
+{
+   return mLabels.size();
+}
+
+auto LabelTrack::MakeInterval(size_t index) -> std::shared_ptr<Interval>
+{
+   if (index >= mLabels.size())
+      return {};
+   auto &label = mLabels[index];
+   return std::make_shared<Interval>(
+      *this, label.getT0(), label.getT1(), index);
+}
+
+std::shared_ptr<WideChannelGroupInterval>
+LabelTrack::DoGetInterval(size_t iInterval)
+{
+   return MakeInterval(iInterval);
 }
 
 void LabelTrack::SetLabel( size_t iLabel, const LabelStruct &newLabel )
@@ -103,14 +163,31 @@ LabelTrack::~LabelTrack()
 {
 }
 
-void LabelTrack::SetOffset(double dOffset)
+void LabelTrack::MoveTo(double origin)
 {
-   for (auto &labelStruct: mLabels)
-      labelStruct.selectedRegion.move(dOffset);
+   if (!mLabels.empty()) {
+      const auto offset = origin - mLabels[0].selectedRegion.t0();
+      for (auto &labelStruct: mLabels) {
+         labelStruct.selectedRegion.move(offset);
+      }
+   }
+}
+
+void LabelTrack::DoOnProjectTempoChange(
+   const std::optional<double>& oldTempo, double newTempo)
+{
+   assert(IsLeader());
+   if (!oldTempo.has_value())
+      return;
+   const auto ratio = *oldTempo / newTempo;
+   for (auto& label : mLabels)
+      label.selectedRegion.setTimes(
+         label.getT0() * ratio, label.getT1() * ratio);
 }
 
 void LabelTrack::Clear(double b, double e)
 {
+   assert(IsLeader());
    // May DELETE labels, so use subscripts to iterate
    for (size_t i = 0; i < mLabels.size(); ++i) {
       auto &labelStruct = mLabels[i];
@@ -260,46 +337,17 @@ void LabelTrack::SetSelected( bool s )
 {
    bool selected = GetSelected();
    Track::SetSelected( s );
-   if ( selected != GetSelected() ) {
-      LabelTrackEvent evt{
-         EVT_LABELTRACK_SELECTION, SharedPointer<LabelTrack>(), {}, -1, -1
-      };
-      ProcessEvent( evt );
-   }
+   if ( selected != GetSelected() )
+      Publish({ LabelTrackEvent::Selection,
+         this->SharedPointer<LabelTrack>(), {}, -1, -1 });
 }
 
-double LabelTrack::GetOffset() const
+TrackListHolder LabelTrack::Clone() const
 {
-   return mOffset;
-}
-
-double LabelTrack::GetStartTime() const
-{
-   if (mLabels.empty())
-      return 0.0;
-   else
-      return mLabels[0].getT0();
-}
-
-double LabelTrack::GetEndTime() const
-{
-   //we need to scan through all the labels, because the last
-   //label might not have the right-most end (if there is overlap).
-   if (mLabels.empty())
-      return 0.0;
-
-   double end = 0.0;
-   for (auto &labelStruct: mLabels) {
-      const double t1 = labelStruct.getT1();
-      if(t1 > end)
-         end = t1;
-   }
-   return end;
-}
-
-Track::Holder LabelTrack::Clone() const
-{
-   return std::make_shared<LabelTrack>( *this );
+   assert(IsLeader());
+   auto result = std::make_shared<LabelTrack>(*this, ProtectedCreationArg{});
+   result->Init(*this);
+   return TrackList::Temporary(nullptr, result, nullptr);
 }
 
 // Adjust label's left or right boundary, depending which is requested.
@@ -360,7 +408,7 @@ LabelStruct LabelStruct::Import(wxTextFile &file, int &index)
          token = toker.GetNextToken();
 
       sr.setTimes( t0, t1 );
-      
+
       title = token;
    }
 
@@ -412,8 +460,9 @@ void LabelStruct::Export(wxTextFile &file) const
    // Do we need more lines?
    auto f0 = selectedRegion.f0();
    auto f1 = selectedRegion.f1();
-   if (f0 == SelectedRegion::UndefinedFrequency &&
-       f1 == SelectedRegion::UndefinedFrequency)
+   if ((f0 == SelectedRegion::UndefinedFrequency &&
+      f1 == SelectedRegion::UndefinedFrequency) ||
+      ImportExportPrefs::LabelStyleSetting.ReadEnum())
       return;
 
    // Write a \ character at the start of a second line,
@@ -525,33 +574,25 @@ void LabelTrack::Import(wxTextFile & in)
    SortLabels();
 }
 
-bool LabelTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
+bool LabelTrack::HandleXMLTag(const std::string_view& tag, const AttributesList &attrs)
 {
-   if (!wxStrcmp(tag, wxT("label"))) {
+   if (tag == "label") {
 
       SelectedRegion selectedRegion;
       wxString title;
 
       // loop through attrs, which is a null-terminated list of
       // attribute-value pairs
-      while(*attrs) {
-         const wxChar *attr = *attrs++;
-         const wxChar *value = *attrs++;
+      for (auto pair : attrs)
+      {
+         auto attr = pair.first;
+         auto value = pair.second;
 
-         if (!value)
-            break;
-
-         const wxString strValue = value;
-         // Bug 1905 was about long label strings.
-         if (!XMLValueChecker::IsGoodLongString(strValue))
-         {
-            return false;
-         }
-
-         if (selectedRegion.HandleXMLAttribute(attr, value, wxT("t"), wxT("t1")))
+         if (selectedRegion.HandleXMLAttribute(attr, value, "t", "t1"))
             ;
-         else if (!wxStrcmp(attr, wxT("title")))
-            title = strValue;
+         // Bug 1905 no longer applies, as valueView has no limits anyway
+         else if (attr == "title")
+            title = value.ToWString();
 
       } // while
 
@@ -567,20 +608,16 @@ bool LabelTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
 
       return true;
    }
-   else if (!wxStrcmp(tag, wxT("labeltrack"))) {
+   else if (tag == "labeltrack") {
       long nValue = -1;
-      while (*attrs) {
-         const wxChar *attr = *attrs++;
-         const wxChar *value = *attrs++;
+      for (auto pair : attrs)
+      {
+         auto attr = pair.first;
+         auto value = pair.second;
 
-         if (!value)
-            return true;
-
-         const wxString strValue = value;
-         if (this->Track::HandleCommonXMLAttribute(attr, strValue))
+         if (this->Track::HandleCommonXMLAttribute(attr, value))
             ;
-         else if (!wxStrcmp(attr, wxT("numlabels")) &&
-                     XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue))
+         else if (attr == "numlabels" && value.TryGet(nValue))
          {
             if (nValue < 0)
             {
@@ -598,9 +635,9 @@ bool LabelTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
    return false;
 }
 
-XMLTagHandler *LabelTrack::HandleXMLChild(const wxChar *tag)
+XMLTagHandler *LabelTrack::HandleXMLChild(const std::string_view& tag)
 {
-   if (!wxStrcmp(tag, wxT("label")))
+   if (tag == "label")
       return this;
    else
       return NULL;
@@ -609,6 +646,7 @@ XMLTagHandler *LabelTrack::HandleXMLChild(const wxChar *tag)
 void LabelTrack::WriteXML(XMLWriter &xmlFile) const
 // may throw
 {
+   assert(IsLeader());
    int len = mLabels.size();
 
    xmlFile.StartTag(wxT("labeltrack"));
@@ -618,7 +656,7 @@ void LabelTrack::WriteXML(XMLWriter &xmlFile) const
    for (auto &labelStruct: mLabels) {
       xmlFile.StartTag(wxT("label"));
       labelStruct.getSelectedRegion()
-         .WriteXMLAttributes(xmlFile, wxT("t"), wxT("t1"));
+         .WriteXMLAttributes(xmlFile, "t", "t1");
       // PRL: to do: write other selection fields
       xmlFile.WriteAttr(wxT("title"), labelStruct.title);
       xmlFile.EndTag(wxT("label"));
@@ -627,59 +665,11 @@ void LabelTrack::WriteXML(XMLWriter &xmlFile) const
    xmlFile.EndTag(wxT("labeltrack"));
 }
 
-#if LEGACY_PROJECT_FILE_SUPPORT
-bool LabelTrack::Load(wxTextFile * in, DirManager * dirManager)
+TrackListHolder LabelTrack::Cut(double t0, double t1)
 {
-   if (in->GetNextLine() != wxT("NumMLabels"))
-      return false;
-
-   unsigned long len;
-   if (!(in->GetNextLine().ToULong(&len)))
-      return false;
-
-   mLabels.clear();
-   mLabels.reserve(len);
-
-   for (int i = 0; i < len; i++) {
-      double t0;
-      if (!Internat::CompatibleToDouble(in->GetNextLine(), &t0))
-         return false;
-      // Legacy file format does not include label end-times.
-      // PRL: nothing NEW to do, legacy file support
-      mLabels.push_back(LabelStruct {
-         SelectedRegion{ t0, t0 }, in->GetNextLine()
-      });
-   }
-
-   if (in->GetNextLine() != wxT("MLabelsEnd"))
-      return false;
-   SortLabels();
-   return true;
-}
-
-bool LabelTrack::Save(wxTextFile * out, bool overwrite)
-{
-   out->AddLine(wxT("NumMLabels"));
-   int len = mLabels.size();
-   out->AddLine(wxString::Format(wxT("%d"), len));
-
-   for (auto pLabel : mLabels) {
-      const auto &labelStruct = *pLabel;
-      out->AddLine(wxString::Format(wxT("%lf"), labelStruct.selectedRegion.mT0));
-      out->AddLine(labelStruct.title);
-   }
-   out->AddLine(wxT("MLabelsEnd"));
-
-   return true;
-}
-#endif
-
-Track::Holder LabelTrack::Cut(double t0, double t1)
-{
+   assert(IsLeader());
    auto tmp = Copy(t0, t1);
-
    Clear(t0, t1);
-
    return tmp;
 }
 
@@ -697,9 +687,10 @@ Track::Holder LabelTrack::SplitCut(double t0, double t1)
 }
 #endif
 
-Track::Holder LabelTrack::Copy(double t0, double t1, bool) const
+TrackListHolder LabelTrack::Copy(double t0, double t1, bool) const
 {
-   auto tmp = std::make_shared<LabelTrack>(GetDirManager());
+   auto tmp = std::make_shared<LabelTrack>();
+   tmp->Init(*this);
    const auto lt = static_cast<LabelTrack*>(tmp.get());
 
    for (auto &labelStruct: mLabels) {
@@ -744,20 +735,20 @@ Track::Holder LabelTrack::Copy(double t0, double t1, bool) const
    }
    lt->mClipLen = (t1 - t0);
 
-   return tmp;
+   return TrackList::Temporary(nullptr, tmp, nullptr);
 }
 
 
-bool LabelTrack::PasteOver(double t, const Track * src)
+bool LabelTrack::PasteOver(double t, const Track &src)
 {
-   auto result = src->TypeSwitch< bool >( [&](const LabelTrack *sl) {
+   auto result = src.TypeSwitch<bool>([&](const LabelTrack &sl) {
       int len = mLabels.size();
       int pos = 0;
 
       while (pos < len && mLabels[pos].getT0() < t)
          pos++;
 
-      for (auto &labelStruct: sl->mLabels) {
+      for (auto &labelStruct: sl.mLabels) {
          LabelStruct l {
             labelStruct.selectedRegion,
             labelStruct.getT0() + t,
@@ -768,27 +759,27 @@ bool LabelTrack::PasteOver(double t, const Track * src)
       }
 
       return true;
-   } );
+   });
 
-   if (! result )
+   if (!result)
       // THROW_INCONSISTENCY_EXCEPTION; // ?
       (void)0;// intentionally do nothing
 
    return result;
 }
 
-void LabelTrack::Paste(double t, const Track *src)
+void LabelTrack::Paste(double t, const Track &src)
 {
-   bool bOk = src->TypeSwitch< bool >( [&](const LabelTrack *lt) {
-      double shiftAmt = lt->mClipLen > 0.0 ? lt->mClipLen : lt->GetEndTime();
+   bool bOk = src.TypeSwitch<bool>([&](const LabelTrack &lt) {
+      double shiftAmt = lt.mClipLen > 0.0 ? lt.mClipLen : lt.GetEndTime();
 
       ShiftLabelsOnInsert(shiftAmt, t);
       PasteOver(t, src);
 
       return true;
-   } );
+   });
 
-   if ( !bOk )
+   if (!bOk)
       // THROW_INCONSISTENCY_EXCEPTION; // ?
       (void)0;// intentionally do nothing
 }
@@ -848,6 +839,7 @@ bool LabelTrack::Repeat(double t0, double t1, int n)
 
 void LabelTrack::SyncLockAdjust(double oldT1, double newT1)
 {
+   assert(IsLeader());
    if (newT1 > oldT1) {
       // Insert space within the track
 
@@ -863,9 +855,9 @@ void LabelTrack::SyncLockAdjust(double oldT1, double newT1)
    }
 }
 
-
-void LabelTrack::Silence(double t0, double t1)
+void LabelTrack::Silence(double t0, double t1, ProgressReporter)
 {
+   assert(IsLeader());
    int len = mLabels.size();
 
    // mLabels may resize as we iterate, so use subscripting
@@ -912,6 +904,7 @@ void LabelTrack::Silence(double t0, double t1)
 
 void LabelTrack::InsertSilence(double t, double len)
 {
+   assert(IsLeader());
    for (auto &labelStruct: mLabels) {
       double t0 = labelStruct.getT0();
       double t1 = labelStruct.getT1();
@@ -947,10 +940,8 @@ int LabelTrack::AddLabel(const SelectedRegion &selectedRegion,
 
    mLabels.insert(mLabels.begin() + pos, l);
 
-   LabelTrackEvent evt{
-      EVT_LABELTRACK_ADDITION, SharedPointer<LabelTrack>(), title, -1, pos
-   };
-   ProcessEvent( evt );
+   Publish({ LabelTrackEvent::Addition,
+      this->SharedPointer<LabelTrack>(), title, -1, pos });
 
    return pos;
 }
@@ -962,10 +953,8 @@ void LabelTrack::DeleteLabel(int index)
    const auto title = iter->title;
    mLabels.erase(iter);
 
-   LabelTrackEvent evt{
-      EVT_LABELTRACK_DELETION, SharedPointer<LabelTrack>(), title, index, -1
-   };
-   ProcessEvent( evt );
+   Publish({ LabelTrackEvent::Deletion,
+      this->SharedPointer<LabelTrack>(), title, index, -1 });
 }
 
 /// Sorts the labels in order of their starting times.
@@ -999,11 +988,8 @@ void LabelTrack::SortLabels()
       );
 
       // Let listeners update their stored indices
-      LabelTrackEvent evt{
-         EVT_LABELTRACK_PERMUTED, SharedPointer<LabelTrack>(),
-         mLabels[j].title, i, j
-      };
-      ProcessEvent( evt );
+      Publish({ LabelTrackEvent::Permutation,
+         this->SharedPointer<LabelTrack>(), mLabels[j].title, i, j });
    }
 }
 

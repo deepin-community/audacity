@@ -14,16 +14,15 @@
 *//*******************************************************************/
 
 
-#include "Audacity.h" // for USE_* macros
+
 #include "NoteTrack.h"
 
-#include "Experimental.h"
+
 
 #include <wx/wxcrtvararg.h>
 #include <wx/dc.h>
 #include <wx/brush.h>
 #include <wx/pen.h>
-#include <wx/intl.h>
 
 #if defined(USE_MIDI)
 #include "../lib-src/header-substitutes/allegro.h"
@@ -33,22 +32,19 @@
 #define ROUND(x) ((int) ((x) + 0.5))
 
 #include "AColor.h"
-#include "DirManager.h"
 #include "Prefs.h"
-#include "ProjectFileIORegistry.h"
+#include "Project.h"
 #include "prefs/ImportExportPrefs.h"
 
 #include "InconsistencyException.h"
 
-#include "effects/TimeWarper.h"
-#include "tracks/ui/TrackView.h"
-#include "tracks/ui/TrackControls.h"
+#include "TimeWarper.h"
 
 #include "AllThemeResources.h"
 #include "Theme.h"
 
 #ifdef SONIFY
-#include "../lib-src/portmidi/pm_common/portmidi.h"
+#include <portmidi.h>
 
 #define SON_PROGRAM 0
 #define SON_AutoSave 67
@@ -108,41 +104,39 @@ SONFNS(AutoSave)
 
 #endif
 
+NoteTrack::Interval::~Interval() = default;
 
-
-static ProjectFileIORegistry::Entry registerFactory{
-   wxT( "notetrack" ),
-   []( AudacityProject &project ){
-      auto &trackFactory = TrackFactory::Get( project );
-      auto &tracks = TrackList::Get( project );
-      auto result = tracks.Add(trackFactory.NewNoteTrack());
-      TrackView::Get( *result );
-      TrackControls::Get( *result );
-      return result;
-   }
-};
-
-NoteTrack::Holder TrackFactory::NewNoteTrack()
+std::shared_ptr<ChannelInterval>
+NoteTrack::Interval::DoGetChannel(size_t iChannel)
 {
-   return std::make_shared<NoteTrack>(mDirManager);
+   if (iChannel == 0)
+      return std::make_shared<ChannelInterval>();
+   return {};
 }
 
-NoteTrack::NoteTrack(const std::shared_ptr<DirManager> &projDirManager)
-   : NoteTrackBase(projDirManager)
+static ProjectFileIORegistry::ObjectReaderEntry readerEntry{
+   "notetrack",
+   NoteTrack::New
+};
+
+NoteTrack *NoteTrack::New( AudacityProject &project )
 {
-   SetDefaultName(_("Note Track"));
-   SetName(GetDefaultName());
+   auto &tracks = TrackList::Get( project );
+   auto result = tracks.Add( std::make_shared<NoteTrack>());
+   result->AttachedTrackObjects::BuildAll();
+   return result;
+}
+
+NoteTrack::NoteTrack()
+   : UniqueChannelTrack{}
+{
+   SetName(_("Note Track"));
 
    mSeq = NULL;
    mSerializationLength = 0;
 
-#ifdef EXPERIMENTAL_MIDI_OUT
-   mVelocity = 0;
-#endif
    mBottomNote = MinPitch;
    mTopNote = MaxPitch;
-
-   mVisibleChannels = ALL_CHANNELS;
 }
 
 NoteTrack::~NoteTrack()
@@ -171,9 +165,9 @@ Alg_seq &NoteTrack::GetSeq() const
    return *mSeq;
 }
 
-Track::Holder NoteTrack::Clone() const
+TrackListHolder NoteTrack::Clone() const
 {
-   auto duplicate = std::make_shared<NoteTrack>(mDirManager);
+   auto duplicate = std::make_shared<NoteTrack>();
    duplicate->Init(*this);
    // The duplicate begins life in serialized state.  Often the duplicate is
    // pushed on the Undo stack.  Then we want to un-serialize it (or a further
@@ -203,35 +197,36 @@ Track::Holder NoteTrack::Clone() const
    // copy some other fields here
    duplicate->SetBottomNote(mBottomNote);
    duplicate->SetTopNote(mTopNote);
-   duplicate->mVisibleChannels = mVisibleChannels;
-   duplicate->SetOffset(GetOffset());
+   duplicate->SetVisibleChannels(GetVisibleChannels());
+   duplicate->MoveTo(mOrigin);
 #ifdef EXPERIMENTAL_MIDI_OUT
    duplicate->SetVelocity(GetVelocity());
 #endif
-   return duplicate;
+   return TrackList::Temporary(nullptr, duplicate, nullptr);
 }
 
 
-double NoteTrack::GetOffset() const
+void NoteTrack::DoOnProjectTempoChange(
+   const std::optional<double>& oldTempo, double newTempo)
 {
-   return mOffset;
-}
-
-double NoteTrack::GetStartTime() const
-{
-   return GetOffset();
-}
-
-double NoteTrack::GetEndTime() const
-{
-   return GetStartTime() + GetSeq().get_real_dur();
+   assert(IsLeader());
+   if (!oldTempo.has_value())
+      return;
+   const auto ratio = *oldTempo / newTempo;
+   auto& seq = GetSeq();
+   seq.convert_to_beats();
+   const auto b1 = seq.get_dur();
+   seq.convert_to_seconds();
+   const auto newDuration = seq.get_dur() * ratio;
+   seq.stretch_region(0, b1, newDuration);
+   seq.set_real_dur(newDuration);
 }
 
 void NoteTrack::WarpAndTransposeNotes(double t0, double t1,
                                       const TimeWarper &warper,
                                       double semitones)
 {
-   double offset = this->GetOffset(); // track is shifted this amount
+   double offset = this->mOrigin; // track is shifted this amount
    auto &seq = GetSeq();
    seq.convert_to_seconds(); // make sure time units are right
    t1 -= offset; // adjust time range to compensate for track offset
@@ -454,8 +449,9 @@ void NoteTrack::PrintSequence()
    fclose(debugOutput);
 }
 
-Track::Holder NoteTrack::Cut(double t0, double t1)
+TrackListHolder NoteTrack::Cut(double t0, double t1)
 {
+   assert(IsLeader());
    if (t1 < t0)
       THROW_INCONSISTENCY_EXCEPTION;
 
@@ -464,47 +460,47 @@ Track::Holder NoteTrack::Cut(double t0, double t1)
       //( std::min( t1, GetEndTime() ) ) - ( std::max( t0, GetStartTime() ) )
    //);
 
-   auto newTrack = std::make_shared<NoteTrack>(mDirManager);
+   auto newTrack = std::make_shared<NoteTrack>();
 
    newTrack->Init(*this);
 
    auto &seq = GetSeq();
    seq.convert_to_seconds();
-   newTrack->mSeq.reset(seq.cut(t0 - GetOffset(), len, false));
-   newTrack->SetOffset(0);
+   newTrack->mSeq.reset(seq.cut(t0 - mOrigin, len, false));
+   newTrack->MoveTo(0);
 
    // Not needed
    // Alg_seq::cut seems to handle this
    //AddToDuration( delta );
 
    // What should be done with the rest of newTrack's members?
-   //(mBottomNote, mDirManager,
+   //(mBottomNote,
    // mSerializationBuffer, mSerializationLength, mVisibleChannels)
 
-   return newTrack;
+   return TrackList::Temporary(nullptr, newTrack, nullptr);
 }
 
-Track::Holder NoteTrack::Copy(double t0, double t1, bool) const
+TrackListHolder NoteTrack::Copy(double t0, double t1, bool) const
 {
    if (t1 < t0)
       THROW_INCONSISTENCY_EXCEPTION;
 
    double len = t1-t0;
 
-   auto newTrack = std::make_shared<NoteTrack>(mDirManager);
+   auto newTrack = std::make_shared<NoteTrack>();
 
    newTrack->Init(*this);
 
    auto &seq = GetSeq();
    seq.convert_to_seconds();
-   newTrack->mSeq.reset(seq.copy(t0 - GetOffset(), len, false));
-   newTrack->SetOffset(0);
+   newTrack->mSeq.reset(seq.copy(t0 - mOrigin, len, false));
+   newTrack->MoveTo(0);
 
    // What should be done with the rest of newTrack's members?
-   // (mBottomNote, mDirManager, mSerializationBuffer,
+   // (mBottomNote, mSerializationBuffer,
    // mSerializationLength, mVisibleChannels)
 
-   return newTrack;
+   return TrackList::Temporary(nullptr, newTrack, nullptr);
 }
 
 bool NoteTrack::Trim(double t0, double t1)
@@ -518,11 +514,11 @@ bool NoteTrack::Trim(double t0, double t1)
    //);
    seq.convert_to_seconds();
    // DELETE way beyond duration just in case something is out there:
-   seq.clear(t1 - GetOffset(), seq.get_dur() + 10000.0, false);
+   seq.clear(t1 - mOrigin, seq.get_dur() + 10000.0, false);
    // Now that stuff beyond selection is cleared, clear before selection:
-   seq.clear(0.0, t0 - GetOffset(), false);
+   seq.clear(0.0, t0 - mOrigin, false);
    // want starting time to be t0
-   SetOffset(t0);
+   MoveTo(t0);
 
    // Not needed
    // Alg_seq::clear seems to handle this
@@ -533,6 +529,7 @@ bool NoteTrack::Trim(double t0, double t1)
 
 void NoteTrack::Clear(double t0, double t1)
 {
+   assert(IsLeader());
    if (t1 < t0)
       THROW_INCONSISTENCY_EXCEPTION;
 
@@ -540,17 +537,17 @@ void NoteTrack::Clear(double t0, double t1)
 
    auto &seq = GetSeq();
 
-   auto offset = GetOffset();
+   auto offset = mOrigin;
    auto start = t0 - offset;
    if (start < 0.0) {
       // AlgSeq::clear will shift the cleared interval, not changing len, if
       // start is negative.  That's not what we want to happen.
       if (len > -start) {
          seq.clear(0, len + start, false);
-         SetOffset(t0);
+         MoveTo(t0);
       }
       else
-         SetOffset(offset - len);
+         MoveTo(offset - len);
    }
    else {
       //auto delta = -(
@@ -564,7 +561,7 @@ void NoteTrack::Clear(double t0, double t1)
    }
 }
 
-void NoteTrack::Paste(double t, const Track *src)
+void NoteTrack::Paste(double t, const Track &src)
 {
    // Paste inserts src at time t. If src has a positive offset,
    // the offset is treated as silence which is also inserted. If
@@ -575,47 +572,48 @@ void NoteTrack::Paste(double t, const Track *src)
    // the destination track).
 
    //Check that src is a non-NULL NoteTrack
-   bool bOk = src && src->TypeSwitch< bool >( [&](const NoteTrack *other) {
+   bool bOk = src.TypeSwitch<bool>( [&](const NoteTrack &other) {
 
-      auto myOffset = this->GetOffset();
+      auto myOffset = this->mOrigin;
       if (t < myOffset) {
          // workaround strange behavior described at
          // http://bugzilla.audacityteam.org/show_bug.cgi?id=1735#c3
-         SetOffset(t);
+         MoveTo(t);
          InsertSilence(t, myOffset - t);
       }
 
       double delta = 0.0;
       auto &seq = GetSeq();
-      auto offset = other->GetOffset();
-      if ( offset > 0 ) {
+      auto offset = other.mOrigin;
+      if (offset > 0) {
          seq.convert_to_seconds();
-         seq.insert_silence( t - GetOffset(), offset );
+         seq.insert_silence(t - mOrigin, offset);
          t += offset;
          // Is this needed or does Alg_seq::insert_silence take care of it?
          //delta += offset;
       }
 
       // This seems to be needed:
-      delta += std::max( 0.0, t - GetEndTime() );
+      delta += std::max(0.0, t - GetEndTime());
 
       // This, not:
-      //delta += other->GetSeq().get_real_dur();
+      //delta += other.GetSeq().get_real_dur();
 
-      seq.paste(t - GetOffset(), &other->GetSeq());
+      seq.paste(t - mOrigin, &other.GetSeq());
 
-      AddToDuration( delta );
+      AddToDuration(delta);
 
       return true;
    });
 
-   if ( !bOk )
+   if (!bOk)
       // THROW_INCONSISTENCY_EXCEPTION; // ?
       (void)0;// intentionally do nothing
 }
 
-void NoteTrack::Silence(double t0, double t1)
+void NoteTrack::Silence(double t0, double t1, ProgressReporter)
 {
+   assert(IsLeader());
    if (t1 < t0)
       THROW_INCONSISTENCY_EXCEPTION;
 
@@ -626,29 +624,37 @@ void NoteTrack::Silence(double t0, double t1)
    // XXX: do we want to set the all param?
    // If it's set, then it seems like notes are silenced if they start or end in the range,
    // otherwise only if they start in the range. --Poke
-   seq.silence(t0 - GetOffset(), len, false);
+   seq.silence(t0 - mOrigin, len, false);
 }
 
 void NoteTrack::InsertSilence(double t, double len)
 {
+   assert(IsLeader());
    if (len < 0)
       THROW_INCONSISTENCY_EXCEPTION;
 
    auto &seq = GetSeq();
    seq.convert_to_seconds();
-   seq.insert_silence(t - GetOffset(), len);
+   seq.insert_silence(t - mOrigin, len);
 
    // is this needed?
    // AddToDuration( len );
 }
 
+#ifdef EXPERIMENTAL_MIDI_OUT
 void NoteTrack::SetVelocity(float velocity)
 {
-   if (mVelocity != velocity) {
-      mVelocity = velocity;
-      Notify();
+   if (GetVelocity() != velocity) {
+      DoSetVelocity(velocity);
+      Notify(false);
    }
 }
+
+void NoteTrack::DoSetVelocity(float velocity)
+{
+   mVelocity.store(velocity, std::memory_order_relaxed);
+}
+#endif
 
 // Call this function to manipulate the underlying sequence data. This is
 // NOT the function that handles horizontal dragging.
@@ -682,12 +688,57 @@ bool NoteTrack::Shift(double t) // t is always seconds
 QuantizedTimeAndBeat NoteTrack::NearestBeatTime( double time ) const
 {
    // Alg_seq knows nothing about offset, so remove offset time
-   double seq_time = time - GetOffset();
+   double seq_time = time - mOrigin;
    double beat;
    auto &seq = GetSeq();
    seq_time = seq.nearest_beat_time(seq_time, &beat);
    // add the offset back in to get "actual" audacity track time
-   return { seq_time + GetOffset(), beat };
+   return { seq_time + mOrigin, beat };
+}
+
+static const Track::TypeInfo &typeInfo()
+{
+   static const Track::TypeInfo info{
+      { "note", "midi", XO("Note Track") }, true,
+      &PlayableTrack::ClassTypeInfo() };
+   return info;
+}
+
+auto NoteTrack::GetTypeInfo() const -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+auto NoteTrack::ClassTypeInfo() -> const TypeInfo &
+{
+   return typeInfo();
+}
+
+Track::Holder NoteTrack::PasteInto(AudacityProject &, TrackList &list) const
+{
+   assert(IsLeader());
+   auto pNewTrack = std::make_shared<NoteTrack>();
+   pNewTrack->Init(*this);
+   pNewTrack->Paste(0.0, *this);
+   list.Add(pNewTrack);
+   return pNewTrack;
+}
+
+size_t NoteTrack::NIntervals() const
+{
+   return 1;
+}
+
+std::shared_ptr<WideChannelGroupInterval>
+NoteTrack::DoGetInterval(size_t iInterval)
+{
+   if (iInterval == 0) {
+      // Just one, and no extra info in it!
+      const auto start = mOrigin;
+      const auto end = start + GetSeq().get_real_dur();
+      return std::make_shared<Interval>(*this, start, end);
+   }
+   return {};
 }
 
 void NoteTrack::AddToDuration( double delta )
@@ -727,7 +778,7 @@ namespace
 Alg_seq *NoteTrack::MakeExportableSeq(std::unique_ptr<Alg_seq> &cleanup) const
 {
    cleanup.reset();
-   double offset = GetOffset();
+   double offset = mOrigin;
    if (offset == 0)
       return &GetSeq();
    // make a copy, deleting events that are shifted before time 0
@@ -857,7 +908,7 @@ bool NoteTrack::ExportMIDI(const wxString &f) const
 
 bool NoteTrack::ExportAllegro(const wxString &f) const
 {
-   double offset = GetOffset();
+   double offset = mOrigin;
    auto in_seconds = ImportExportPrefs::AllegroStyleSetting.ReadEnum();
    auto &seq = GetSeq();
    if (in_seconds) {
@@ -869,46 +920,45 @@ bool NoteTrack::ExportAllegro(const wxString &f) const
 }
 
 
-bool NoteTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
+namespace {
+bool IsValidVisibleChannels(const int nValue)
 {
-   if (!wxStrcmp(tag, wxT("notetrack"))) {
-      while (*attrs) {
-         const wxChar *attr = *attrs++;
-         const wxChar *value = *attrs++;
-         if (!value)
-            break;
-         const wxString strValue = value;
+    return (nValue >= 0 && nValue < (1 << 16));
+}
+}
+
+bool NoteTrack::HandleXMLTag(const std::string_view& tag, const AttributesList &attrs)
+{
+   if (tag == "notetrack") {
+      for (auto pair : attrs)
+      {
+         auto attr = pair.first;
+         auto value = pair.second;
+
          long nValue;
          double dblValue;
-         if (this->Track::HandleCommonXMLAttribute(attr, strValue))
+         if (this->Track::HandleCommonXMLAttribute(attr, value))
             ;
          else if (this->NoteTrackBase::HandleXMLAttribute(attr, value))
          {}
-         else if (!wxStrcmp(attr, wxT("offset")) &&
-                  XMLValueChecker::IsGoodString(strValue) &&
-                  Internat::CompatibleToDouble(strValue, &dblValue))
-            SetOffset(dblValue);
-         else if (!wxStrcmp(attr, wxT("visiblechannels"))) {
-             if (!XMLValueChecker::IsGoodInt(strValue) ||
-                 !strValue.ToLong(&nValue) ||
-                 !XMLValueChecker::IsValidVisibleChannels(nValue))
+         else if (attr == "offset" && value.TryGet(dblValue))
+            MoveTo(dblValue);
+         else if (attr == "visiblechannels") {
+             if (!value.TryGet(nValue) ||
+                 !IsValidVisibleChannels(nValue))
                  return false;
-             mVisibleChannels = nValue;
+             SetVisibleChannels(nValue);
          }
 #ifdef EXPERIMENTAL_MIDI_OUT
-         else if (!wxStrcmp(attr, wxT("velocity")) &&
-                  XMLValueChecker::IsGoodString(strValue) &&
-                  Internat::CompatibleToDouble(strValue, &dblValue))
-            mVelocity = (float) dblValue;
+         else if (attr == "velocity" && value.TryGet(dblValue))
+            DoSetVelocity(static_cast<float>(dblValue));
 #endif
-         else if (!wxStrcmp(attr, wxT("bottomnote")) &&
-                  XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue))
+         else if (attr == "bottomnote" && value.TryGet(nValue))
             SetBottomNote(nValue);
-         else if (!wxStrcmp(attr, wxT("topnote")) &&
-                  XMLValueChecker::IsGoodInt(strValue) && strValue.ToLong(&nValue))
+         else if (attr == "topnote" && value.TryGet(nValue))
             SetTopNote(nValue);
-         else if (!wxStrcmp(attr, wxT("data"))) {
-             std::string s(strValue.mb_str(wxConvUTF8));
+         else if (attr == "data") {
+             std::string s(value.ToWString());
              std::istringstream data(s);
              mSeq = std::make_unique<Alg_seq>(data, false);
          }
@@ -918,7 +968,7 @@ bool NoteTrack::HandleXMLTag(const wxChar *tag, const wxChar **attrs)
    return false;
 }
 
-XMLTagHandler *NoteTrack::HandleXMLChild(const wxChar * WXUNUSED(tag))
+XMLTagHandler *NoteTrack::HandleXMLChild(const std::string_view&  WXUNUSED(tag))
 {
    return NULL;
 }
@@ -926,24 +976,27 @@ XMLTagHandler *NoteTrack::HandleXMLChild(const wxChar * WXUNUSED(tag))
 void NoteTrack::WriteXML(XMLWriter &xmlFile) const
 // may throw
 {
+   assert(IsLeader());
    std::ostringstream data;
    Track::Holder holder;
    const NoteTrack *saveme = this;
    if (!mSeq) {
       // replace saveme with an (unserialized) duplicate, which is
       // destroyed at end of function.
-      holder = Clone();
+      holder = (*Clone()->begin())->SharedPointer();
       saveme = static_cast<NoteTrack*>(holder.get());
    }
    saveme->GetSeq().write(data, true);
    xmlFile.StartTag(wxT("notetrack"));
    saveme->Track::WriteCommonXMLAttributes( xmlFile );
    this->NoteTrackBase::WriteXMLAttributes(xmlFile);
-   xmlFile.WriteAttr(wxT("offset"), saveme->GetOffset());
-   xmlFile.WriteAttr(wxT("visiblechannels"), saveme->mVisibleChannels);
+   xmlFile.WriteAttr(wxT("offset"), saveme->mOrigin);
+   xmlFile.WriteAttr(wxT("visiblechannels"),
+      static_cast<int>(saveme->GetVisibleChannels()));
 
 #ifdef EXPERIMENTAL_MIDI_OUT
-   xmlFile.WriteAttr(wxT("velocity"), (double) saveme->mVelocity);
+   xmlFile.WriteAttr(wxT("velocity"),
+      static_cast<double>(saveme->GetVelocity()));
 #endif
    xmlFile.WriteAttr(wxT("bottomnote"), saveme->mBottomNote);
    xmlFile.WriteAttr(wxT("topnote"), saveme->mTopNote);
@@ -1135,5 +1188,120 @@ int NoteTrackDisplayData::YToIPitch(int y) const
 }
 
 const float NoteTrack::ZoomStep = powf( 2.0f, 0.25f );
+
+#include <wx/log.h>
+#include <wx/sstream.h>
+#include <wx/txtstrm.h>
+#include "AudioIOBase.h"
+#include "portmidi.h"
+
+// FIXME: When EXPERIMENTAL_MIDI_IN is added (eventually) this should also be enabled -- Poke
+wxString GetMIDIDeviceInfo()
+{
+   wxStringOutputStream o;
+   wxTextOutputStream s(o, wxEOL_UNIX);
+
+   if (AudioIOBase::Get()->IsStreamActive()) {
+      return XO("Stream is active ... unable to gather information.\n")
+         .Translation();
+   }
+
+
+   // XXX: May need to trap errors as with the normal device info
+   int recDeviceNum = Pm_GetDefaultInputDeviceID();
+   int playDeviceNum = Pm_GetDefaultOutputDeviceID();
+   int cnt = Pm_CountDevices();
+
+   // PRL:  why only into the log?
+   wxLogDebug(wxT("PortMidi reports %d MIDI devices"), cnt);
+
+   s << wxT("==============================\n");
+   s << XO("Default recording device number: %d\n").Format( recDeviceNum );
+   s << XO("Default playback device number: %d\n").Format( playDeviceNum );
+
+   auto recDevice = MIDIRecordingDevice.Read();
+   auto playDevice = MIDIPlaybackDevice.Read();
+
+   // This gets info on all available audio devices (input and output)
+   if (cnt <= 0) {
+      s << XO("No devices found\n");
+      return o.GetString();
+   }
+
+   for (int i = 0; i < cnt; i++) {
+      s << wxT("==============================\n");
+
+      const PmDeviceInfo* info = Pm_GetDeviceInfo(i);
+      if (!info) {
+         s << XO("Device info unavailable for: %d\n").Format( i );
+         continue;
+      }
+
+      wxString name = wxSafeConvertMB2WX(info->name);
+      wxString hostName = wxSafeConvertMB2WX(info->interf);
+
+      s << XO("Device ID: %d\n").Format( i );
+      s << XO("Device name: %s\n").Format( name );
+      s << XO("Host name: %s\n").Format( hostName );
+      /* i18n-hint: Supported, meaning made available by the system */
+      s << XO("Supports output: %d\n").Format( info->output );
+      /* i18n-hint: Supported, meaning made available by the system */
+      s << XO("Supports input: %d\n").Format( info->input );
+      s << XO("Opened: %d\n").Format( info->opened );
+
+      if (name == playDevice && info->output)
+         playDeviceNum = i;
+
+      if (name == recDevice && info->input)
+         recDeviceNum = i;
+
+      // XXX: This is only done because the same was applied with PortAudio
+      // If PortMidi returns -1 for the default device, use the first one
+      if (recDeviceNum < 0 && info->input){
+         recDeviceNum = i;
+      }
+      if (playDeviceNum < 0 && info->output){
+         playDeviceNum = i;
+      }
+   }
+
+   bool haveRecDevice = (recDeviceNum >= 0);
+   bool havePlayDevice = (playDeviceNum >= 0);
+
+   s << wxT("==============================\n");
+   if (haveRecDevice)
+      s << XO("Selected MIDI recording device: %d - %s\n").Format( recDeviceNum, recDevice );
+   else
+      s << XO("No MIDI recording device found for '%s'.\n").Format( recDevice );
+
+   if (havePlayDevice)
+      s << XO("Selected MIDI playback device: %d - %s\n").Format( playDeviceNum, playDevice );
+   else
+      s << XO("No MIDI playback device found for '%s'.\n").Format( playDevice );
+
+   // Mention our conditional compilation flags for Alpha only
+#ifdef IS_ALPHA
+
+   // Not internationalizing these alpha-only messages
+   s << wxT("==============================\n");
+#ifdef EXPERIMENTAL_MIDI_OUT
+   s << wxT("EXPERIMENTAL_MIDI_OUT is enabled\n");
+#else
+   s << wxT("EXPERIMENTAL_MIDI_OUT is NOT enabled\n");
+#endif
+#ifdef EXPERIMENTAL_MIDI_IN
+   s << wxT("EXPERIMENTAL_MIDI_IN is enabled\n");
+#else
+   s << wxT("EXPERIMENTAL_MIDI_IN is NOT enabled\n");
+#endif
+
+#endif
+
+   return o.GetString();
+}
+
+StringSetting MIDIPlaybackDevice{ L"/MidiIO/PlaybackDevice", L"" };
+StringSetting MIDIRecordingDevice{ L"/MidiIO/RecordingDevice", L"" };
+IntSetting MIDISynthLatency_ms{ L"/MidiIO/SynthLatency", 5 };
 
 #endif // USE_MIDI

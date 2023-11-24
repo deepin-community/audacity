@@ -4,22 +4,27 @@ Audacity: A Digital Audio Editor
 
 SpectrumVRulerControls.cpp
 
-Paul Licameli split from WaveTrackVRulerControls.cpp
+Paul Licameli split from WaveChannelVRulerControls.cpp
 
 **********************************************************************/
 
 #include "SpectrumVRulerControls.h"
 
 #include "SpectrumVZoomHandle.h"
-#include "WaveTrackVRulerControls.h"
+#include "WaveChannelVRulerControls.h"
 
-#include "../../../../NumberScale.h"
-#include "../../../../ProjectHistory.h"
+#include "../../../ui/ChannelView.h"
+#include "NumberScale.h"
+#include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
 #include "../../../../TrackPanelMouseEvent.h"
-#include "../../../../WaveTrack.h"
+#include "WaveTrack.h"
 #include "../../../../prefs/SpectrogramSettings.h"
 #include "../../../../widgets/Ruler.h"
+#include "../../../../widgets/LinearUpdater.h"
+#include "../../../../widgets/LogarithmicUpdater.h"
+#include "../../../../widgets/IntFormat.h"
+#include "../../../../widgets/RealFormat.h"
 
 SpectrumVRulerControls::~SpectrumVRulerControls() = default;
 
@@ -39,7 +44,7 @@ std::vector<UIHandlePtr> SpectrumVRulerControls::HitTest(
       }
    }
 
-   auto more = TrackVRulerControls::HitTest(st, pProject);
+   auto more = ChannelVRulerControls::HitTest(st, pProject);
    std::copy(more.begin(), more.end(), std::back_inserter(results));
 
    return results;
@@ -71,7 +76,7 @@ unsigned SpectrumVRulerControls::DoHandleWheelRotation(
    
    auto steps = evt.steps;
    
-   using namespace WaveTrackViewConstants;
+   using namespace WaveChannelViewConstants;
    if (event.CmdDown() && !event.ShiftDown()) {
       const int yy = event.m_y;
       SpectrumVZoomHandle::DoZoom(
@@ -87,10 +92,10 @@ unsigned SpectrumVRulerControls::DoHandleWheelRotation(
       const int height = evt.rect.GetHeight();
       {
          const float delta = steps * movement / height;
-         SpectrogramSettings &settings = wt->GetIndependentSpectrogramSettings();
+         SpectrogramSettings &settings = SpectrogramSettings::Own(*wt);
          const bool isLinear = settings.scaleType == SpectrogramSettings::stLinear;
          float bottom, top;
-         wt->GetSpectrumBounds(&bottom, &top);
+         SpectrogramBounds::Get(*wt).GetBounds(*wt, bottom, top);
          const double rate = wt->GetRate();
          const float bound = rate / 2;
          const NumberScale numberScale(settings.GetScale(bottom, top));
@@ -103,8 +108,7 @@ unsigned SpectrumVRulerControls::DoHandleWheelRotation(
          std::min(bound,
                   numberScale.PositionToValue(numberScale.ValueToPosition(newBottom) + 1.0f));
          
-         for (auto channel : TrackList::Channels(wt))
-            channel->SetSpectrumBounds(newBottom, newTop);
+         SpectrogramBounds::Get(*wt).SetBounds(newBottom, newTop);
       }
    }
    else
@@ -119,8 +123,8 @@ void SpectrumVRulerControls::Draw(
    TrackPanelDrawingContext &context,
    const wxRect &rect_, unsigned iPass )
 {
-   TrackVRulerControls::Draw( context, rect_, iPass );
-   WaveTrackVRulerControls::DoDraw( *this, context, rect_, iPass );
+   ChannelVRulerControls::Draw(context, rect_, iPass);
+   WaveChannelVRulerControls::DoDraw(*this, context, rect_, iPass);
 }
 
 void SpectrumVRulerControls::UpdateRuler( const wxRect &rect )
@@ -134,11 +138,11 @@ void SpectrumVRulerControls::UpdateRuler( const wxRect &rect )
 void SpectrumVRulerControls::DoUpdateVRuler(
    const wxRect &rect, const WaveTrack *wt )
 {
-   auto vruler = &WaveTrackVRulerControls::ScratchRuler();
-   const SpectrogramSettings &settings = wt->GetSpectrogramSettings();
+   auto vruler = &WaveChannelVRulerControls::ScratchRuler();
+   const auto &settings = SpectrogramSettings::Get(*wt);
    float minFreq, maxFreq;
-   wt->GetSpectrumBounds(&minFreq, &maxFreq);
-   vruler->SetDbMirrorValue( 0.0 );
+   SpectrogramBounds::Get(*wt).GetBounds(*wt, minFreq, maxFreq);
+   vruler->SetDbMirrorValue(0.0);
    
    switch (settings.scaleType) {
       default:
@@ -152,9 +156,10 @@ void SpectrumVRulerControls::DoUpdateVRuler(
           we will use Hz if maxFreq is < 2000, otherwise we represent kHz,
           and append to the numbers a "k"
           */
-         vruler->SetBounds(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height - 1);
+         vruler->SetBounds(
+            rect.x, rect.y, rect.x + rect.width, rect.y + rect.height - 1);
          vruler->SetOrientation(wxVERTICAL);
-         vruler->SetFormat(Ruler::RealFormat);
+         vruler->SetFormat(&RealFormat::LinearInstance());
          vruler->SetLabelEdges(true);
          // use kHz in scale, if appropriate
          if (maxFreq >= 2000) {
@@ -167,7 +172,7 @@ void SpectrumVRulerControls::DoUpdateVRuler(
             vruler->SetRange((int)(maxFreq), (int)(minFreq));
             vruler->SetUnits({});
          }
-         vruler->SetLog(false);
+         vruler->SetUpdater(&LinearUpdater::Instance());
       }
          break;
       case SpectrogramSettings::stLogarithmic:
@@ -183,19 +188,19 @@ void SpectrumVRulerControls::DoUpdateVRuler(
           we will use Hz if maxFreq is < 2000, otherwise we represent kHz,
           and append to the numbers a "k"
           */
-         vruler->SetBounds(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height - 1);
+         vruler->SetBounds(
+            rect.x, rect.y, rect.x + rect.width, rect.y + rect.height - 1);
          vruler->SetOrientation(wxVERTICAL);
-         vruler->SetFormat(Ruler::IntFormat);
+         vruler->SetFormat(&IntFormat::Instance());
          vruler->SetLabelEdges(true);
          vruler->SetRange(maxFreq, minFreq);
          vruler->SetUnits({});
-         vruler->SetLog(true);
-         NumberScale scale(
-            wt->GetSpectrogramSettings().GetScale( minFreq, maxFreq )
-               .Reversal() );
+         vruler->SetUpdater(&LogarithmicUpdater::Instance());
+         NumberScale scale(settings.GetScale(minFreq, maxFreq).Reversal());
          vruler->SetNumberScale(scale);
       }
          break;
    }
-   vruler->GetMaxSize( &wt->vrulerSize.x, &wt->vrulerSize.y );
+   auto &size = ChannelView::Get(*wt).vrulerSize;
+   vruler->GetMaxSize(&size.first, &size.second);
 }

@@ -19,7 +19,7 @@
 // headers
 // ----------------------------------------------------------------------------
 
-#include "../Audacity.h"
+
 #include "valnum.h"
 
 // For compilers that support precompilation, includes "wx.h".
@@ -28,7 +28,7 @@
 #include <wx/setup.h> // for wxUSE_* macros
 
 #include "AudacityMessageBox.h"
-#include "../Internat.h"
+#include "Internat.h"
 
 #ifdef __BORLANDC__
     #pragma hdrstop
@@ -225,8 +225,8 @@ void NumValidatorBase::OnPaste(wxClipboardTextEvent& event)
    }
 
    wxClipboardLocker cb;
-//    if (!wxClipboard::Get()->IsSupported(wxDataFormat(wxDF_TEXT)))
-   if (!wxClipboard::Get()->IsSupported(wxDF_TEXT))
+//    if (!wxClipboard::Get()->IsSupported(wxDataFormat(wxDF_UNICODETEXT)))
+   if (!wxClipboard::Get()->IsSupported(wxDF_UNICODETEXT))
    {
       return;
    }

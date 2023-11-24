@@ -7,33 +7,31 @@ NoteTrackView.cpp
 Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
-
-#include "../../../../Audacity.h" // for USE_* macros
 #include "NoteTrackView.h"
 
 #ifdef USE_MIDI
 #include "../lib-src/header-substitutes/allegro.h"
 
-#include "../../../../Experimental.h"
-
 #include "NoteTrackVRulerControls.h"
 #include "../../../../NoteTrack.h"
 
-#include "../../../../AColor.h"
-#include "../../../../AllThemeResources.h"
+#include "AColor.h"
+#include "AllThemeResources.h"
 #include "../../../../HitTestResult.h"
-#include "../../../../Theme.h"
+#include "Theme.h"
+#include "../../../../TrackArt.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanelDrawingContext.h"
 #include "../../../../TrackPanelMouseEvent.h"
-#include "../../../../ViewInfo.h"
+#include "ViewInfo.h"
 #include "../../../ui/SelectHandle.h"
 #include "StretchHandle.h"
+#include "NoteTrackAffordanceControls.h"
 
 #include <wx/dc.h>
 
 NoteTrackView::NoteTrackView( const std::shared_ptr<Track> &pTrack )
-   : CommonTrackView{ pTrack }
+   : CommonChannelView{ pTrack, 0 }
 {
 }
 
@@ -60,15 +58,14 @@ std::vector<UIHandlePtr> NoteTrackView::DetailedHitTest
    return results;
 }
 
-using DoGetNoteTrackView = DoGetView::Override< NoteTrack >;
-template<> template<> auto DoGetNoteTrackView::Implementation() -> Function {
-   return [](NoteTrack &track) {
+using DoGetNoteTrackView = DoGetView::Override<NoteTrack>;
+DEFINE_ATTACHED_VIRTUAL_OVERRIDE(DoGetNoteTrackView) {
+   return [](NoteTrack &track, size_t) {
       return std::make_shared<NoteTrackView>( track.SharedPointer() );
    };
 }
-static DoGetNoteTrackView registerDoGetNoteTrackView;
 
-std::shared_ptr<TrackVRulerControls> NoteTrackView::DoGetVRulerControls()
+std::shared_ptr<ChannelVRulerControls> NoteTrackView::DoGetVRulerControls()
 {
    return
       std::make_shared<NoteTrackVRulerControls>( shared_from_this() );
@@ -76,6 +73,15 @@ std::shared_ptr<TrackVRulerControls> NoteTrackView::DoGetVRulerControls()
 
 #define TIME_TO_X(t) (zoomInfo.TimeToPosition((t), rect.x))
 #define X_TO_TIME(xx) (zoomInfo.PositionToTime((xx), rect.x))
+
+std::shared_ptr<CommonTrackCell> NoteTrackView::GetAffordanceControls()
+{
+   if (mpAffordanceCellControl == nullptr)
+   {
+      mpAffordanceCellControl = std::make_shared<NoteTrackAffordanceControls>(DoFindTrack());
+   }
+   return mpAffordanceCellControl;
+}
 
 namespace {
 
@@ -267,10 +273,10 @@ void DrawNoteBackground(TrackPanelDrawingContext &context,
    dc.DrawRectangle(sel); // fill rectangle with white keys background
 #endif
 
-   int left = TIME_TO_X(track->GetOffset());
+   int left = TIME_TO_X(track->GetStartTime());
    if (left < sel.x) left = sel.x; // clip on left
 
-   int right = TIME_TO_X(track->GetOffset() + track->GetSeq().get_real_dur());
+   int right = TIME_TO_X(track->GetStartTime() + track->GetSeq().get_real_dur());
    if (right > sel.x + sel.width) right = sel.x + sel.width; // clip on right
 
    // need overlap between MIDI data and the background region
@@ -338,7 +344,7 @@ void DrawNoteBackground(TrackPanelDrawingContext &context,
       // map beat to time
       double t = seq->get_time_map()->beat_to_time(next_bar_beat);
       // map time to position
-      int xx = TIME_TO_X(t + track->GetOffset());
+      int xx = TIME_TO_X(t + track->GetStartTime());
       if (xx > right) break;
       AColor::Line(dc, xx, sel.y, xx, sel.y + sel.height);
       next_bar_beat += beats_per_measure;
@@ -354,7 +360,8 @@ window and draw out-of-bounds notes here instead.
 void DrawNoteTrack(TrackPanelDrawingContext &context,
                                 const NoteTrack *track,
                                 const wxRect & rect,
-                                bool muted)
+                                bool muted,
+                                bool selected)
 {
    auto &dc = context.dc;
    const auto artist = TrackArtist::Get( context );
@@ -379,11 +386,6 @@ void DrawNoteTrack(TrackPanelDrawingContext &context,
    // out-of-bounds notes
    int numPitches = (rect.height) / data.GetPitchHeight(1);
    if (numPitches < 0) numPitches = 0; // cannot be negative
-
-#ifdef EXPERIMENTAL_NOTETRACK_OVERLAY
-   TrackArt::DrawBackgroundWithSelection(context, rect, track,
-         AColor::labelSelectedBrush, AColor::labelUnselectedBrush);
-#endif
 
    // Background comes in 4 colors, that are now themed.
    //   214, 214,214 -- unselected white keys
@@ -474,7 +476,7 @@ void DrawNoteTrack(TrackPanelDrawingContext &context,
          Alg_note_ptr note = (Alg_note_ptr) evt;
          // if the note's channel is visible
          if (track->IsVisibleChan(evt->chan)) {
-            double xx = note->time + track->GetOffset();
+            double xx = note->time + track->GetStartTime();
             double x1 = xx + note->dur;
             if (xx < h1 && x1 > h) { // omit if outside box
                const char *shape = NULL;
@@ -702,8 +704,16 @@ void DrawNoteTrack(TrackPanelDrawingContext &context,
    AColor::Line(dc, rect.x, rect.y + rect.height - marg - 1, // subtract 1 to get
                 rect.x + rect.width, rect.y + rect.height - marg - 1); // top of line
 
-   if (h == 0.0 && track->GetOffset() < 0.0) {
+   if (h == 0.0 && track->GetStartTime() < 0.0) {
       TrackArt::DrawNegativeOffsetTrackArrows( context, rect );
+   }
+
+   //draw clip edges
+   {
+      int left = TIME_TO_X(track->GetStartTime());
+      int right = TIME_TO_X(track->GetStartTime() + track->GetSeq().get_real_dur());
+
+      TrackArt::DrawClipEdges(dc, wxRect(left, rect.GetTop(), right - left + 1, rect.GetHeight()), selected);
    }
 
    dc.DestroyClippingRegion();
@@ -725,8 +735,26 @@ void NoteTrackView::Draw(
       const auto hasSolo = artist->hasSolo;
       muted = (hasSolo || nt->GetMute()) && !nt->GetSolo();
 #endif
-      DrawNoteTrack( context, nt.get(), rect, muted );
+
+#ifdef EXPERIMENTAL_NOTETRACK_OVERLAY
+      TrackArt::DrawBackgroundWithSelection(context, rect, nt.get(), AColor::labelSelectedBrush, AColor::labelUnselectedBrush);
+#endif
+      bool selected{ false };
+      if (auto affordance = std::dynamic_pointer_cast<NoteTrackAffordanceControls>(GetAffordanceControls()))
+      {
+         selected = affordance->IsSelected();
+      }
+
+      DrawNoteTrack(context, nt.get(), rect, muted, selected);
    }
-   CommonTrackView::Draw( context, rect, iPass );
+   CommonChannelView::Draw(context, rect, iPass);
+}
+
+#include "SyncLock.h"
+
+using GetNoteTrackSyncLockPolicy =
+   GetSyncLockPolicy::Override< const NoteTrack >;
+DEFINE_ATTACHED_VIRTUAL_OVERRIDE(GetNoteTrackSyncLockPolicy) {
+   return [](auto &) { return SyncLockPolicy::Grouped; };
 }
 #endif

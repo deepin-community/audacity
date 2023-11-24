@@ -2,7 +2,7 @@
 
    Audacity - A Digital Audio Editor
    Copyright 1999-2018 Audacity Team
-   License: GPL v2 - see LICENSE.txt
+   License: GPL v2 or later - see LICENSE.txt
 
    Dominic Mazzoni
    Dan Horgan
@@ -17,13 +17,15 @@ small calculations of rectangles.
 
 *//*******************************************************************/
 
-#include "../Audacity.h"
+
 #include "ScreenshotCommand.h"
 
 #include <mutex>
+#include <thread>
 
 #include "LoadCommands.h"
-#include "../Project.h"
+#include "Project.h"
+#include <wx/app.h>
 #include <wx/toplevel.h>
 #include <wx/dcscreen.h>
 #include <wx/dcmemory.h>
@@ -31,18 +33,20 @@ small calculations of rectangles.
 #include <wx/bitmap.h>
 #include <wx/valgen.h>
 
+#include "ActiveProject.h"
 #include "../AdornedRulerPanel.h"
-#include "../BatchCommands.h"
 #include "../TrackPanel.h"
-#include "../effects/Effect.h"
 #include "../toolbars/ToolManager.h"
-#include "../Prefs.h"
+#include "Prefs.h"
 #include "../ProjectWindow.h"
-#include "../Shuttle.h"
-#include "../ShuttleGui.h"
-#include "../Track.h"
+#include "SettingsVisitor.h"
+#include "ShuttleGui.h"
+#include "Track.h"
+#include "../widgets/VetoDialogHook.h"
 #include "CommandContext.h"
 #include "CommandManager.h"
+#include "CommandDispatch.h"
+#include "../CommonCommandFlags.h"
 
 const ComponentInterfaceSymbol ScreenshotCommand::Symbol
 { XO("Screenshot") };
@@ -50,42 +54,56 @@ const ComponentInterfaceSymbol ScreenshotCommand::Symbol
 namespace{ BuiltinCommandsModule::Registration< ScreenshotCommand > reg; }
 
 
-static const EnumValueSymbol
-kCaptureWhatStrings[ ScreenshotCommand::nCaptureWhats ] =
+EnumValueSymbols ScreenshotCommand::kCaptureWhatStrings()
 {
-   { XO("Window") },
-   { wxT("FullWindow"), XO("Full Window") },
-   { wxT("WindowPlus"), XO("Window Plus") },
-   { XO("Fullscreen") },
-   { XO("Toolbars") },
-   { XO("Effects") },
-   { XO("Scriptables") },
-   { XO("Preferences") },
-   { XO("Selectionbar") },
-   { wxT("SpectralSelection"), XO("Spectral Selection") },
-   { XO("Timer") },
-   { XO("Tools") },
-   { XO("Transport") },
-   { XO("Mixer") },
-   { XO("Meter") },
-   { wxT("PlayMeter"), XO("Play Meter") },
-   { wxT("RecordMeter"), XO("Record Meter") },
-   { XO("Edit") },
-   { XO("Device") },
-   { XO("Scrub") },
-   { XO("Play-at-Speed") },
-   { XO("Trackpanel") },
-   { XO("Ruler") },
-   { XO("Tracks") },
-   { wxT("FirstTrack"),       XO("First Track") },
-   { wxT("FirstTwoTracks"),   XO("First Two Tracks") },
-   { wxT("FirstThreeTracks"), XO("First Three Tracks") },
-   { wxT("FirstFourTracks"),  XO("First Four Tracks") },
-   { wxT("SecondTrack"),      XO("Second Track") },
-   { wxT("TracksPlus"),       XO("Tracks Plus") },
-   { wxT("FirstTrackPlus"),   XO("First Track Plus") },
-   { wxT("AllTracks"),        XO("All Tracks") },
-   { wxT("AllTracksPlus"),    XO("All Tracks Plus") },
+   static EnumValueSymbol symbols[]{
+      { XO("Window") },
+      { wxT("FullWindow"), XO("Full Window") },
+      { wxT("WindowPlus"), XO("Window Plus") },
+      { XO("Fullscreen") },
+      { XO("Toolbars") },
+      { XO("Effects") },
+      { XO("Scriptables") },
+      { XO("Preferences") },
+      { XO("Trackpanel") },
+      { XO("Ruler") },
+      { XO("Tracks") },
+      { wxT("FirstTrack"),       XO("First Track") },
+      { wxT("FirstTwoTracks"),   XO("First Two Tracks") },
+      { wxT("FirstThreeTracks"), XO("First Three Tracks") },
+      { wxT("FirstFourTracks"),  XO("First Four Tracks") },
+      { wxT("SecondTrack"),      XO("Second Track") },
+      { wxT("TracksPlus"),       XO("Tracks Plus") },
+      { wxT("FirstTrackPlus"),   XO("First Track Plus") },
+      { wxT("AllTracks"),        XO("All Tracks") },
+      { wxT("AllTracksPlus"),    XO("All Tracks Plus") },
+   };
+
+   if (mSymbols.empty()) {
+      // Compute the table of strings once
+
+      // Some fixed choices
+      copy(std::begin(symbols), std::end(symbols), back_inserter(mSymbols));
+      auto nFixed = mSymbols.size();
+
+      // Discover the set of toolbars -- don't hard-code it here
+      /*
+       There is no context passed in for a project.
+       So this need to use the active project is unfortunate, but the set of
+       toolbars and their identifying strings should not vary among projects
+       */
+      auto pProject = ::GetActiveProject().lock();
+      if ( pProject ) {
+         // Toolbars will be sorted by textual ID.
+         // Macro programmers do use these English ids no matter what their
+         // preferred language is.
+         ToolManager::Get(*pProject).ForEach([&](ToolBar *pBar){
+            mSymbols.emplace_back( pBar->GetSection(), pBar->GetLabel() );
+         });
+      }
+   }
+
+   return mSymbols;
 };
 
 
@@ -105,30 +123,35 @@ ScreenshotCommand::ScreenshotCommand()
    mbBringToTop=true;
    mIgnore=NULL;
    
-   static std::once_flag flag;
-   std::call_once( flag, []{
-      AudacityCommand::SetVetoDialogHook( MayCapture );
-      Effect::SetVetoDialogHook( MayCapture );
-   });
+   static VetoDialogHook::Scope scope{ MayCapture };
 }
 
-bool ScreenshotCommand::DefineParams( ShuttleParams & S ){
-   S.Define(                               mPath,        wxT("Path"),         wxT(""));
-   S.DefineEnum(                           mWhat,        wxT("CaptureWhat"),  kwindow,kCaptureWhatStrings, nCaptureWhats );
+template<bool Const>
+bool ScreenshotCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
+   auto strings = kCaptureWhatStrings();
+   S.Define(                               mPath,        wxT("Path"),         wxString{});
+   S.DefineEnum(                           mWhat,        wxT("CaptureWhat"),  kwindow, strings.data(), strings.size() );
    S.DefineEnum(                           mBack,        wxT("Background"),   kNone, kBackgroundStrings, nBackgrounds );
    S.Define(                               mbBringToTop, wxT("ToTop"), true );
    return true;
 };
 
+bool ScreenshotCommand::VisitSettings( SettingsVisitor & S )
+   { return VisitSettings<false>(S); }
+
+bool ScreenshotCommand::VisitSettings( ConstSettingsVisitor & S )
+   { return VisitSettings<true>(S); }
+
 void ScreenshotCommand::PopulateOrExchange(ShuttleGui & S)
 {
+   auto strings = kCaptureWhatStrings();
    S.AddSpace(0, 5);
 
    S.StartMultiColumn(2, wxALIGN_CENTER);
    {
       S.TieTextBox(  XXO("Path:"), mPath);
       S.TieChoice(   XXO("Capture What:"),
-         mWhat, Msgids(kCaptureWhatStrings, nCaptureWhats));
+         mWhat, Msgids(strings.data(), strings.size()));
       S.TieChoice(   XXO("Background:"),
          mBack, Msgids(kBackgroundStrings, nBackgrounds));
       S.TieCheckBox( XXO("Bring To Top"), mbBringToTop);
@@ -168,37 +191,14 @@ wxTopLevelWindow *ScreenshotCommand::GetFrontWindow(AudacityProject *project)
    wxWindow *front = NULL;
    wxWindow *proj = wxGetTopLevelParent( ProjectWindow::Find( project ) );
 
-
-   // JKC: The code below is no longer such a good idea.
-   // We now have options to directly capture toolbars, effects, preferences.
-   // We now also may have more than one dialog open, so who is to say 
-   // which one we want to capture?  Additionally, as currently written,
-   // it may capture the screenshot dialog itself (on Linux)
-   // IF we still keep this code in future, it needs a rethink.
-   // Possibly as well as the kWindow options, we should offer kDialog options, 
-   // which attempt to do what this once did.
-#if 0
-   // This is kind of an odd hack.  There's no method to enumerate all
-   // possible windows, so we search the whole screen for any windows
-   // that are not this one and not the given Audacity project and
-   // if we find anything, we assume that's the dialog the user wants
-   // to capture.
-
-   int width, height, x, y;
-   wxDisplaySize(&width, &height);
-   for (x = 0; x < width; x += 50) {
-      for (y = 0; y < height; y += 50) {
-         wxWindow *win = wxFindWindowAtPoint(wxPoint(x, y));
-         if (win) {
-            win = wxGetTopLevelParent(win);
-            if (win != mIgnore && win != proj  && win->IsShown()) {
-               front = win;
-               break;
-            }
-         }
+   for (auto & win : wxTopLevelWindows)
+   {
+      win = wxGetTopLevelParent(win);
+      if (win != mIgnore && win != proj  && win->IsShown()) {
+         front = win;
+         break;
       }
    }
-#endif
 
    if (!front || !front->IsTopLevel()) {
       return (wxTopLevelWindow *)proj;
@@ -221,14 +221,13 @@ wxRect ScreenshotCommand::GetBackgroundRect()
 
 static void Yield()
 {
+   using namespace std::chrono;
    int cnt;
-   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--) {
-      wxMilliSleep(10);
-   }
-   wxMilliSleep(200);
-   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--) {
-      wxMilliSleep(10);
-   }
+   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--)
+      std::this_thread::sleep_for(10ms);
+   std::this_thread::sleep_for(200ms);
+   for (cnt = 10; cnt && !wxTheApp->Yield(true); cnt--)
+      std::this_thread::sleep_for(10ms);
 }
 
 bool ScreenshotCommand::Capture(
@@ -323,7 +322,7 @@ bool ScreenshotCommand::Capture(
 
 bool ScreenshotCommand::CaptureToolbar(
    const CommandContext & context,
-   ToolManager *man, int type, const wxString &name)
+   ToolManager *man, Identifier type, const wxString &name)
 {
    bool visible = man->IsVisible(type);
    if (!visible) {
@@ -332,6 +331,9 @@ bool ScreenshotCommand::CaptureToolbar(
    }
 
    wxWindow *w = man->GetToolBar(type);
+   if (!w)
+      return false;
+
    int x = 0, y = 0;
    int width, height;
 
@@ -378,6 +380,7 @@ void ScreenshotCommand::CaptureWindowOnIdle(
    const CommandContext & context,
    wxWindow * pWin )
 {
+   using namespace std::chrono;
    wxDialog * pDlg = dynamic_cast<wxDialog*>(pWin);
    if( !pDlg ){
       wxLogDebug("Event from bogus dlg" );
@@ -397,7 +400,7 @@ void ScreenshotCommand::CaptureWindowOnIdle(
    wxLogDebug("Taking screenshot of window %s (%i,%i,%i,%i)", Name, 
          Pos.x, Pos.y, Siz.x, Siz.y );
    // This delay is needed, as dialogs take a moment or two to fade in.
-   wxMilliSleep( 400 );
+   std::this_thread::sleep_for(400ms);
    // JKC: The border of 7 pixels was determined from a trial capture and then measuring
    // in the GIMP.  I'm unsure where the border comes from.
    Capture( context, Name, pDlg, wxRect((int)Pos.x+7, (int)Pos.y, (int)Siz.x-14, (int)Siz.y-7) );
@@ -409,7 +412,9 @@ void ScreenshotCommand::CaptureWindowOnIdle(
 
 void ScreenshotCommand::CapturePreferences( 
    const CommandContext & context,
-   AudacityProject * pProject, const wxString &FileName ){
+   AudacityProject * pProject, const wxString &FileName )
+{
+   using namespace std::chrono;
    (void)&FileName;//compiler food.
    (void)&context;
    CommandManager &commandManager = CommandManager::Get( *pProject );
@@ -431,7 +436,7 @@ void ScreenshotCommand::CapturePreferences(
       gPrefs->Flush();
       CommandID Command{ wxT("Preferences") };
       const CommandContext projectContext( *pProject );
-      if( !MacroCommands::HandleTextualCommand( commandManager,
+      if( !CommandDispatch::HandleTextualCommand( commandManager,
          Command, projectContext, AlwaysEnabledFlag, true ) )
       {
          // using GET in a log message for devs' eyes only
@@ -439,7 +444,7 @@ void ScreenshotCommand::CapturePreferences(
       }
       // This sleep is not needed, but gives user a chance to see the
       // dialogs as they whizz by.
-      wxMilliSleep( 200 );
+      std::this_thread::sleep_for(200ms);
    }
 }
 
@@ -462,9 +467,9 @@ void ScreenshotCommand::CaptureEffects(
       "PlotSpectrum",
 
       "Auto Duck...",  // needs a track below.
-      //"Spectral edit multi tool",
-      "Spectral edit parametric EQ...", // Needs a spectral selection.
-      "Spectral edit shelves...",
+      //"Spectral Edit Multi Tool",
+      "Spectral Edit Parametric EQ...", // Needs a spectral selection.
+      "Spectral Edit Shelves...",
 
       //"Noise Reduction...", // Exits twice...
       //"SC4...", //Has 'Close' rather than 'Cancel'.
@@ -528,10 +533,9 @@ void ScreenshotCommand::CaptureEffects(
       "Find Clipping...",
 #ifdef CAPTURE_NYQUIST_TOO
       "Beat Finder...",
+      "Label Sounds...",
       "Regular Interval Labels...",
       "Sample Data Export...",
-      "Silence Finder...",
-      "Sound Finder...",
 #endif
    } );
 }
@@ -576,7 +580,9 @@ void ScreenshotCommand::CaptureScriptables(
 
 
 void ScreenshotCommand::CaptureCommands( 
-   const CommandContext & context, const wxArrayStringEx & Commands ){
+   const CommandContext & context, const wxArrayStringEx & Commands )
+{
+   using namespace std::chrono;
    AudacityProject * pProject = &context.project;
    CommandManager &manager = CommandManager::Get( *pProject );
    wxString Str;
@@ -600,7 +606,7 @@ void ScreenshotCommand::CaptureCommands(
       }
       // This particular sleep is not needed, but gives user a chance to see the
       // dialogs as they whizz by.
-      wxMilliSleep( 200 );
+      std::this_thread::sleep_for(200ms);
    }
 }
 
@@ -635,7 +641,7 @@ void ScreenshotCommand::GetDerivedParams()
 
    // Build a suitable filename
    mFileName = MakeFileName(mFilePath,
-      kCaptureWhatStrings[ mCaptureMode ].Translation() );
+      kCaptureWhatStrings()[ mCaptureMode ].Translation() );
 
    if (mBack == kBlue)
    {
@@ -733,27 +739,7 @@ wxRect ScreenshotCommand::GetTracksRect(TrackPanel * panel){
 wxRect ScreenshotCommand::GetTrackRect( AudacityProject * pProj, TrackPanel * panel, int n){
    auto FindRectangle = []( TrackPanel &panel, Track &t )
    {
-      // This rectangle omits the focus ring about the track, and
-      // also within that, a narrow black border with a "shadow" below and
-      // to the right
-      wxRect rect = panel.FindTrackRect( &t );
-
-      // Enlarge horizontally.
-      // PRL:  perhaps it's one pixel too much each side, including some gray
-      // beyond the yellow?
-      rect.x = 0;
-      panel.GetClientSize(&rect.width, nullptr);
-
-      // Enlarge vertically, enough to enclose the yellow focus border pixels
-      // Omit the outermost ring of gray pixels
-
-      // (Note that TrackPanel paints its focus over the "top margin" of the
-      // rectangle allotted to the track, according to TrackView::GetY() and
-      // TrackView::GetHeight(), but also over the margin of the next track.)
-
-      rect.height += kBottomMargin;
-      int dy = kTopMargin - 1;
-      rect.Inflate( 0, dy );
+      wxRect rect = panel.FindFocusedTrackRect( &t );
 
       // Reposition it relative to parent of panel
       rect.SetPosition(
@@ -765,7 +751,7 @@ wxRect ScreenshotCommand::GetTrackRect( AudacityProject * pProj, TrackPanel * pa
    };
 
    int count = 0;
-   for (auto t : TrackList::Get( *pProj ).Leaders()) {
+   for (auto t : TrackList::Get( *pProj )) {
       count +=  1;
       if( count > n )
       {
@@ -779,7 +765,7 @@ wxRect ScreenshotCommand::GetTrackRect( AudacityProject * pProj, TrackPanel * pa
 wxString ScreenshotCommand::WindowFileName(AudacityProject * proj, wxTopLevelWindow *w){
    if (w != ProjectWindow::Find( proj ) && !w->GetTitle().empty()) {
       mFileName = MakeFileName(mFilePath,
-         kCaptureWhatStrings[ mCaptureMode ].Translation() +
+         kCaptureWhatStrings()[ mCaptureMode ].Translation() +
             (wxT("-") + w->GetTitle() + wxT("-")));
    }
    return mFileName;
@@ -799,7 +785,7 @@ bool ScreenshotCommand::Apply(const CommandContext & context)
    TrackPanel *panel = &TrackPanel::Get( context.project );
    AdornedRulerPanel *ruler = panel->GetRuler();
 
-   int nTracks = TrackList::Get( context.project ).size();
+   int nTracks = TrackList::Get(context.project).Size();
 
    int x1,y1,x2,y2;
    w->ClientToScreen(&x1, &y1);
@@ -809,103 +795,100 @@ bool ScreenshotCommand::Apply(const CommandContext & context)
 
    auto &toolManager = ToolManager::Get( context.project );
 
-   switch (mCaptureMode) {
-   case kwindow:
-      return Capture(context,  WindowFileName( &context.project, w ) , w, GetWindowRect(w));
-   case kfullwindow:
-   case kwindowplus:
-      return Capture(context,  WindowFileName( &context.project, w ) , w, GetFullWindowRect(w));
-   case kfullscreen:
-      return Capture(context, mFileName, w,GetScreenRect());
-   case ktoolbars:
-      return CaptureDock(context, toolManager.GetTopDock(), mFileName);
-   case kscriptables:
-      CaptureScriptables(context, &context.project, mFileName);
-      break;
-   case keffects:
-      CaptureEffects(context, &context.project, mFileName);
-      break;
-   case kpreferences:
-      CapturePreferences(context, &context.project, mFileName);
-      break;
-   case kselectionbar:
-      return CaptureToolbar(context, &toolManager, SelectionBarID, mFileName);
-   case kspectralselection:
-      return CaptureToolbar(context, &toolManager, SpectralSelectionBarID, mFileName);
-   case ktimer:
-      return CaptureToolbar(context, &toolManager, TimeBarID, mFileName);
-   case ktools:
-      return CaptureToolbar(context, &toolManager, ToolsBarID, mFileName);
-   case ktransport:
-      return CaptureToolbar(context, &toolManager, TransportBarID, mFileName);
-   case kmixer:
-      return CaptureToolbar(context, &toolManager, MixerBarID, mFileName);
-   case kmeter:
-      return CaptureToolbar(context, &toolManager, MeterBarID, mFileName);
-   case krecordmeter:
-      return CaptureToolbar(context, &toolManager, RecordMeterBarID, mFileName);
-   case kplaymeter:
-      return CaptureToolbar(context, &toolManager, PlayMeterBarID, mFileName);
-   case kedit:
-      return CaptureToolbar(context, &toolManager, EditBarID, mFileName);
-   case kdevice:
-      return CaptureToolbar(context, &toolManager, DeviceBarID, mFileName);
-   case ktranscription:
-      return CaptureToolbar(context, &toolManager, TranscriptionBarID, mFileName);
-   case kscrub:
-      return CaptureToolbar(context, &toolManager, ScrubbingBarID, mFileName);
-   case ktrackpanel:
-      return Capture(context, mFileName, panel, GetPanelRect(panel));
-   case kruler:
-      return Capture(context, mFileName, ruler, GetRulerRect(ruler) );
-   case ktracks:
-      return Capture(context, mFileName, panel, GetTracksRect(panel));
-   case kfirsttrack:
-      return Capture(context, mFileName, panel, GetTrackRect( &context.project, panel, 0 ) );
-   case ksecondtrack:
-      return Capture(context, mFileName, panel, GetTrackRect( &context.project, panel, 1 ) );
-   case ktracksplus:
-   {  wxRect r = GetTracksRect(panel);
-      r.SetTop( r.GetTop() - ruler->GetRulerHeight() );
-      r.SetHeight( r.GetHeight() + ruler->GetRulerHeight() );
-      return Capture(context, mFileName, panel, r);
+   if (mCaptureMode < nCaptureWhats) {
+      switch (mCaptureMode) {
+      case kwindow:
+         return Capture(context,  WindowFileName( &context.project, w ) , w, GetWindowRect(w));
+      case kfullwindow:
+      case kwindowplus:
+         return Capture(context,  WindowFileName( &context.project, w ) , w, GetFullWindowRect(w));
+      case kfullscreen:
+         return Capture(context, mFileName, w,GetScreenRect());
+      case ktoolbars:
+         return CaptureDock(context, toolManager.GetTopDock(), mFileName);
+      case kscriptables:
+         CaptureScriptables(context, &context.project, mFileName);
+         return true;
+      case keffects:
+         CaptureEffects(context, &context.project, mFileName);
+         return true;
+      case kpreferences:
+         CapturePreferences(context, &context.project, mFileName);
+         return true;
+      case ktrackpanel:
+         return Capture(context, mFileName, panel, GetPanelRect(panel));
+      case kruler:
+         return Capture(context, mFileName, ruler, GetRulerRect(ruler) );
+      case ktracks:
+         return Capture(context, mFileName, panel, GetTracksRect(panel));
+      case kfirsttrack:
+         return Capture(context, mFileName, panel, GetTrackRect( &context.project, panel, 0 ) );
+      case ksecondtrack:
+         return Capture(context, mFileName, panel, GetTrackRect( &context.project, panel, 1 ) );
+      case ktracksplus:
+      {  wxRect r = GetTracksRect(panel);
+         r.SetTop( r.GetTop() - ruler->GetRulerHeight() );
+         r.SetHeight( r.GetHeight() + ruler->GetRulerHeight() );
+         return Capture(context, mFileName, panel, r);
+      }
+      case kfirsttrackplus:
+      {  wxRect r = GetTrackRect(&context.project, panel, 0 );
+         r.SetTop( r.GetTop() - ruler->GetRulerHeight() );
+         r.SetHeight( r.GetHeight() + ruler->GetRulerHeight() );
+         return Capture(context, mFileName, panel, r );
+      }
+      case kfirsttwotracks:
+      {  wxRect r = GetTrackRect( &context.project, panel, 0 );
+         r = r.Union( GetTrackRect( &context.project, panel, 1 ));
+         return Capture(context, mFileName, panel, r );
+      }
+      case kfirstthreetracks:
+      {  wxRect r = GetTrackRect( &context.project, panel, 0 );
+         r = r.Union( GetTrackRect( &context.project, panel, 2 ));
+         return Capture(context, mFileName, panel, r );
+      }
+      case kfirstfourtracks:
+      {  wxRect r = GetTrackRect( &context.project, panel, 0 );
+         r = r.Union( GetTrackRect( &context.project, panel, 3 ));
+         return Capture(context, mFileName, panel, r );
+      }
+      case kalltracks:
+      {  wxRect r = GetTrackRect( &context.project, panel, 0 );
+         r = r.Union( GetTrackRect( &context.project, panel, nTracks-1 ));
+         return Capture(context, mFileName, panel, r );
+      }
+      case kalltracksplus:
+      {  wxRect r = GetTrackRect( &context.project, panel, 0 );
+         r.SetTop( r.GetTop() - ruler->GetRulerHeight() );
+         r.SetHeight( r.GetHeight() + ruler->GetRulerHeight() );
+         r = r.Union( GetTrackRect( &context.project, panel, nTracks-1 ));
+         return Capture(context, mFileName, panel, r );
+      }
+      default:
+         return false;
+      }
    }
-   case kfirsttrackplus:
-   {  wxRect r = GetTrackRect(&context.project, panel, 0 );
-      r.SetTop( r.GetTop() - ruler->GetRulerHeight() );
-      r.SetHeight( r.GetHeight() + ruler->GetRulerHeight() );
-      return Capture(context, mFileName, panel, r );
+   else if (mCaptureMode < nCaptureWhats + toolManager.CountBars()) {
+      auto id = kCaptureWhatStrings()[mCaptureMode].Internal();
+      return CaptureToolbar(context, &toolManager, id, mFileName);
    }
-   case kfirsttwotracks:
-   {  wxRect r = GetTrackRect( &context.project, panel, 0 );
-      r = r.Union( GetTrackRect( &context.project, panel, 1 ));
-      return Capture(context, mFileName, panel, r );
-   }
-   case kfirstthreetracks:
-   {  wxRect r = GetTrackRect( &context.project, panel, 0 );
-      r = r.Union( GetTrackRect( &context.project, panel, 2 ));
-      return Capture(context, mFileName, panel, r );
-   }
-   case kfirstfourtracks:
-   {  wxRect r = GetTrackRect( &context.project, panel, 0 );
-      r = r.Union( GetTrackRect( &context.project, panel, 3 ));
-      return Capture(context, mFileName, panel, r );
-   }
-   case kalltracks:
-   {  wxRect r = GetTrackRect( &context.project, panel, 0 );
-      r = r.Union( GetTrackRect( &context.project, panel, nTracks-1 ));
-      return Capture(context, mFileName, panel, r );
-   }
-   case kalltracksplus:
-   {  wxRect r = GetTrackRect( &context.project, panel, 0 );
-      r.SetTop( r.GetTop() - ruler->GetRulerHeight() );
-      r.SetHeight( r.GetHeight() + ruler->GetRulerHeight() );
-      r = r.Union( GetTrackRect( &context.project, panel, nTracks-1 ));
-      return Capture(context, mFileName, panel, r );
-   }
-   default:
+   else
       return false;
-   }
+}
 
-   return true;
+namespace {
+using namespace MenuTable;
+
+// Register menu items
+
+AttachedItem sAttachment{
+   wxT("Optional/Extra/Part2/Scriptables2"),
+   // Note that the PLUGIN_SYMBOL must have a space between words,
+   // whereas the short-form used here must not.
+   // (So if you did write "Compare Audio" for the PLUGIN_SYMBOL name, then
+   // you would have to use "CompareAudio" here.)
+   // i18n-hint: Screenshot in the help menu has a much bigger dialog.
+   Command( wxT("Screenshot"), XXO("Screenshot (short format)..."),
+      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
+};
 }

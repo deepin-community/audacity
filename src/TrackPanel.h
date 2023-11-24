@@ -11,9 +11,7 @@
 #ifndef __AUDACITY_TRACK_PANEL__
 #define __AUDACITY_TRACK_PANEL__
 
-#include "Audacity.h" // for USE_* macros
-#include "Experimental.h"
-
+#include <chrono>
 #include <vector>
 
 #include <wx/setup.h> // for wxUSE_* macros
@@ -25,13 +23,19 @@
 #include "SelectedRegion.h"
 
 #include "CellularPanel.h"
+#include "Observer.h"
 
 #include "commands/CommandManagerWindowClasses.h"
 
 
 class wxRect;
 
-class LabelTrack;
+struct AudioIOEvent;
+
+// All cells of the TrackPanel are subclasses of this
+class CommonTrackPanelCell;
+
+class Channel;
 class SpectrumAnalyst;
 class Track;
 class TrackList;
@@ -39,15 +43,10 @@ struct TrackListEvent;
 class TrackPanel;
 class TrackArtist;
 class Ruler;
-class SnapManager;
 class AdornedRulerPanel;
 class LWSlider;
 
 class TrackPanelAx;
-
-class NoteTrack;
-class WaveTrack;
-class WaveClip;
 
 // Declared elsewhere, to reduce compilation dependencies
 class TrackPanelListener;
@@ -56,9 +55,7 @@ struct TrackPanelDrawingContext;
 
 enum class UndoPush : unsigned char;
 
-enum {
-   kTimerInterval = 50, // milliseconds
-};
+static constexpr auto  kTimerInterval = std::chrono::milliseconds{50};
 
 const int DragThreshold = 3;// Anything over 3 pixels is a drag, else a click.
 
@@ -85,15 +82,15 @@ class AUDACITY_DLL_API TrackPanel final
 
    void UpdatePrefs() override;
 
-   void OnAudioIO(wxCommandEvent & evt);
+   void OnAudioIO(AudioIOEvent);
 
    void OnPaint(wxPaintEvent & event);
    void OnMouseEvent(wxMouseEvent & event);
    void OnKeyDown(wxKeyEvent & event);
 
-   void OnTrackListResizing(TrackListEvent & event);
-   void OnTrackListDeletion(wxEvent & event);
-   void OnEnsureVisible(TrackListEvent & event);
+   void OnTrackListResizing(const TrackListEvent &event);
+   void OnTrackListDeletion();
+   void OnEnsureVisible(const TrackListEvent & event);
    void UpdateViewIfNoTracks(); // Call this to update mViewInfo, etc, after track(s) removal, before Refresh().
 
    double GetMostRecentXPos();
@@ -101,11 +98,10 @@ class AUDACITY_DLL_API TrackPanel final
    void OnSize( wxSizeEvent & );
    void OnIdle(wxIdleEvent & event);
    void OnTimer(wxTimerEvent& event);
-   void OnODTask(wxCommandEvent &event);
-   void OnProjectSettingsChange(wxCommandEvent &event);
-   void OnTrackFocusChange( wxCommandEvent &event );
+   void OnSyncLockChange(struct SyncLockChangeMessage);
+   void OnTrackFocusChange(struct TrackFocusChangeMessage);
 
-   void OnUndoReset( wxCommandEvent &event );
+   void OnUndoReset(struct UndoRedoMessage);
 
    void Refresh
       (bool eraseBackground = true, const wxRect *rect = (const wxRect *) NULL)
@@ -126,7 +122,10 @@ class AUDACITY_DLL_API TrackPanel final
 
    void UpdateVRulers();
    void UpdateVRuler(Track *t);
-   void UpdateTrackVRuler(Track *t);
+   /*!
+    @pre `t.IsLeader()`
+    */
+   void UpdateTrackVRuler(Track &t);
    void UpdateVRulerSize();
 
  protected:
@@ -141,14 +140,28 @@ protected:
 public:
    void MakeParentRedrawScrollbars();
 
-   // Rectangle includes track control panel, and the vertical ruler, and
-   // the proper track area of all channels, and the separators between them.
+   /*!
+    @return includes track control panel, and the vertical ruler, and
+    the proper track area of all channels, and the separators between them.
+    If target is nullptr, returns empty rectangle.
+   */
    wxRect FindTrackRect( const Track * target );
 
-protected:
-   void MakeParentModifyState(bool bWantsAutoSave);    // if true, writes auto-save file. Should set only if you really want the state change restored after
-                                                               // a crash, as it can take many seconds for large (eg. 10 track-hours) projects
+   /*!
+    @return includes what's in `FindTrackRect(target)` and the focus ring
+    area around it.
+    If target is nullptr, returns empty rectangle.
+   */
+   wxRect FindFocusedTrackRect( const Track * target );
 
+   /*!
+    @return extents of the vertical rulers of one channel, top to bottom.
+    (There may be multiple sub-views, each with a ruler.)
+    If target is nullptr, returns an empty vector.
+    */
+   std::vector<wxRect> FindRulerRects(const Channel &target);
+
+protected:
    // Get the root object defining a recursive subdivision of the panel's
    // area into cells
    std::shared_ptr<TrackPanelNode> Root() override;
@@ -169,12 +182,21 @@ public:
    // Set the object that performs catch-all event handling when the pointer
    // is not in any track or ruler or control panel.
    void SetBackgroundCell
-      (const std::shared_ptr< TrackPanelCell > &pCell);
-   std::shared_ptr< TrackPanelCell > GetBackgroundCell();
+      (const std::shared_ptr< CommonTrackPanelCell > &pCell);
+   std::shared_ptr< CommonTrackPanelCell > GetBackgroundCell();
 
 public:
 
 protected:
+   Observer::Subscription mTrackListSubscription
+      , mAudioIOSubscription
+      , mUndoSubscription
+      , mFocusChangeSubscription
+      , mRealtimeEffectManagerSubscription
+      , mSyncLockSubscription
+      , mProjectRulerInvalidatedSubscription
+   ;
+
    TrackPanelListener *mListener;
 
    std::shared_ptr<TrackList> mTracks;
@@ -203,13 +225,6 @@ protected:
 
    bool mRefreshBacking;
 
-#ifdef EXPERIMENTAL_SPECTRAL_EDITING
-
-protected:
-
-#endif
-
-   bool mRedrawAfterStop;
 
 protected:
 
@@ -217,7 +232,7 @@ protected:
 
  protected:
 
-   std::shared_ptr<TrackPanelCell> mpBackground;
+   std::shared_ptr<CommonTrackPanelCell> mpBackground;
 
    DECLARE_EVENT_TABLE()
 
@@ -226,16 +241,6 @@ protected:
        unsigned refreshResult) override;
 
    void UpdateStatusMessage( const TranslatableString &status ) override;
-};
-
-// A predicate class
-struct IsVisibleTrack
-{
-   IsVisibleTrack(AudacityProject *project);
-
-   bool operator () (const Track *pTrack) const;
-
-   wxRect mPanelRect;
 };
 
 #endif

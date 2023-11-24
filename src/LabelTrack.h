@@ -16,18 +16,16 @@
 #include "SelectedRegion.h"
 #include "Track.h"
 
-
 class wxTextFile;
 
 class AudacityProject;
-class DirManager;
-class NotifyingSelectedRegion;
 class TimeWarper;
 
+class LabelTrack;
 struct LabelTrackHit;
 struct TrackPanelDrawingContext;
 
-class LabelStruct
+class AUDACITY_DLL_API LabelStruct
 {
 public:
    LabelStruct() = default;
@@ -84,48 +82,60 @@ public:
 using LabelArray = std::vector<LabelStruct>;
 
 class AUDACITY_DLL_API LabelTrack final
-   : public Track
-   , public wxEvtHandler
+   : public UniqueChannelTrack<>
+   , public Observer::Publisher<struct LabelTrackEvent>
 {
  public:
-   LabelTrack(const std::shared_ptr<DirManager> &projDirManager);
-   LabelTrack(const LabelTrack &orig);
+   static wxString GetDefaultName();
+
+   // Construct and also build all attachments
+   static LabelTrack *New(AudacityProject &project);
+
+   /**
+    * \brief Create a new LabelTrack with specified @p name and append it to the @p trackList
+    * \return New LabelTrack with custom name
+    */
+   static LabelTrack* Create(TrackList& trackList, const wxString& name);
+
+   /**
+    * \brief Create a new LabelTrack with unique default name and append it to the @p trackList
+    * \return New LabelTrack with unique default name
+    */
+   static LabelTrack* Create(TrackList& trackList);
+
+   LabelTrack();
+   LabelTrack(const LabelTrack &orig, ProtectedCreationArg&&);
 
    virtual ~ LabelTrack();
 
    void SetLabel( size_t iLabel, const LabelStruct &newLabel );
 
-   void SetOffset(double dOffset) override;
+   void MoveTo(double dOffset) override;
 
    void SetSelected(bool s) override;
 
-   double GetOffset() const override;
-   double GetStartTime() const override;
-   double GetEndTime() const override;
-
    using Holder = std::shared_ptr<LabelTrack>;
-   
+
 private:
-   Track::Holder Clone() const override;
+   TrackListHolder Clone() const override;
+   void DoOnProjectTempoChange(
+      const std::optional<double>& oldTempo, double newTempo) override;
 
 public:
-   bool HandleXMLTag(const wxChar *tag, const wxChar **attrs) override;
-   XMLTagHandler *HandleXMLChild(const wxChar *tag) override;
+   bool HandleXMLTag(const std::string_view& tag, const AttributesList& attrs) override;
+   XMLTagHandler *HandleXMLChild(const std::string_view& tag) override;
    void WriteXML(XMLWriter &xmlFile) const override;
 
-#if LEGACY_PROJECT_FILE_SUPPORT
-   bool Load(wxTextFile * in, DirManager * dirManager) override;
-   bool Save(wxTextFile * out, bool overwrite) override;
-#endif
-
-   Track::Holder Cut  (double t0, double t1) override;
-   Track::Holder Copy (double t0, double t1, bool forClipboard = true) const override;
+   TrackListHolder Cut(double t0, double t1) override;
+   TrackListHolder Copy(double t0, double t1, bool forClipboard = true)
+      const override;
    void Clear(double t0, double t1) override;
-   void Paste(double t, const Track * src) override;
+   void Paste(double t, const Track &src) override;
    bool Repeat(double t0, double t1, int n);
    void SyncLockAdjust(double oldT1, double newT1) override;
 
-   void Silence(double t0, double t1) override;
+   void
+   Silence(double t0, double t1, ProgressReporter reportProgress = {}) override;
    void InsertSilence(double t, double len) override;
 
    void Import(wxTextFile & f);
@@ -143,7 +153,7 @@ public:
    void DeleteLabel(int index);
 
    // This pastes labels without shifting existing ones
-   bool PasteOver(double t, const Track *src);
+   bool PasteOver(double t, const Track &src);
 
    // PRL:  These functions were not used because they were not overrides!  Was that right?
    //Track::Holder SplitCut(double b, double e) /* not override */;
@@ -161,11 +171,34 @@ public:
    int FindNextLabel(const SelectedRegion& currentSelection);
    int FindPrevLabel(const SelectedRegion& currentSelection);
 
- public:
+   const TypeInfo &GetTypeInfo() const override;
+   static const TypeInfo &ClassTypeInfo();
+
+   Track::Holder PasteInto(AudacityProject &project, TrackList &list)
+      const override;
+
+   struct Interval final : WideChannelGroupInterval {
+      Interval(const ChannelGroup &group,
+         double start, double end, size_t index
+      )  : WideChannelGroupInterval{ group, start, end }
+         , index{ index }
+      {}
+
+      ~Interval() override;
+      std::shared_ptr<ChannelInterval> DoGetChannel(size_t iChannel) override;
+
+      size_t index;
+   };
+   std::shared_ptr<Interval> MakeInterval(size_t index);
+
+public:
    void SortLabels();
 
- private:
-   TrackKind GetKind() const override { return TrackKind::Label; }
+   size_t NIntervals() const override;
+
+private:
+   std::shared_ptr<WideChannelGroupInterval> DoGetInterval(size_t iInterval)
+      override;
 
    LabelArray mLabels;
 
@@ -175,49 +208,38 @@ public:
    int miLastLabel;                 // used by FindNextLabel and FindPrevLabel
 };
 
-struct LabelTrackEvent : TrackListEvent
-{
-   explicit
-   LabelTrackEvent(
-      wxEventType commandType, const std::shared_ptr<LabelTrack> &pTrack,
-      const wxString &title,
-      int formerPosition,
-      int presentPosition
-   )
-   : TrackListEvent{ commandType, pTrack }
-   , mTitle{ title }
-   , mFormerPosition{ formerPosition }
-   , mPresentPosition{ presentPosition }
-   {}
+ENUMERATE_TRACK_TYPE(LabelTrack);
 
-   LabelTrackEvent( const LabelTrackEvent& ) = default;
-   wxEvent *Clone() const override {
-      // wxWidgets will own the event object
-      return safenew LabelTrackEvent(*this); }
+struct LabelTrackEvent
+{
+   enum Type {
+      Addition,
+      Deletion,
+      Permutation,
+      Selection,
+   } type;
+
+   const std::weak_ptr<Track> mpTrack;
 
    // invalid for selection events
    wxString mTitle;
 
    // invalid for addition and selection events
-   int mFormerPosition{ -1 };
+   int mFormerPosition;
 
    // invalid for deletion and selection events
-   int mPresentPosition{ -1 };
+   int mPresentPosition;
+
+   LabelTrackEvent( Type type, const std::shared_ptr<LabelTrack> &pTrack,
+      const wxString &title,
+      int formerPosition,
+      int presentPosition)
+   : type{ type }
+   , mpTrack{ pTrack }
+   , mTitle{ title }
+   , mFormerPosition{ formerPosition }
+   , mPresentPosition{ presentPosition }
+   {}
 };
 
-// Posted when a label is added.
-wxDECLARE_EXPORTED_EVENT(AUDACITY_DLL_API,
-                         EVT_LABELTRACK_ADDITION, LabelTrackEvent);
-
-// Posted when a label is deleted.
-wxDECLARE_EXPORTED_EVENT(AUDACITY_DLL_API,
-                         EVT_LABELTRACK_DELETION, LabelTrackEvent);
-
-// Posted when a label is repositioned in the sequence of labels.
-wxDECLARE_EXPORTED_EVENT(AUDACITY_DLL_API,
-                         EVT_LABELTRACK_PERMUTED, LabelTrackEvent);
-
-// Posted when the track is selected or unselected.
-wxDECLARE_EXPORTED_EVENT(AUDACITY_DLL_API,
-                         EVT_LABELTRACK_SELECTION, LabelTrackEvent);
 #endif

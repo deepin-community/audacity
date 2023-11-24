@@ -14,10 +14,12 @@ Paul Licameli split from ProjectManager.cpp
 #include "ClientData.h" // to inherit
 #include "toolbars/SelectionBarListener.h" // to inherit
 #include "toolbars/SpectralSelectionBarListener.h" // to inherit
+#include "ComponentInterfaceSymbol.h"
+#include "Observer.h"
 
 class AudacityProject;
 
-class ProjectSelectionManager final
+class AUDACITY_DLL_API ProjectSelectionManager final
    : public ClientData::Base
    , public SelectionBarListener
    , public SpectralSelectionBarListener
@@ -28,16 +30,12 @@ public:
    static const ProjectSelectionManager &Get( const AudacityProject &project );
 
    explicit ProjectSelectionManager( AudacityProject &project );
-   ProjectSelectionManager( const ProjectSelectionManager & ) PROHIBITED;
+   ProjectSelectionManager( const ProjectSelectionManager & ) = delete;
    ProjectSelectionManager &operator=(
-      const ProjectSelectionManager & ) PROHIBITED;
+      const ProjectSelectionManager & ) = delete;
    ~ProjectSelectionManager() override;
 
    // SelectionBarListener callback methods
-   double AS_GetRate() override;
-   void AS_SetRate(double rate) override;
-   int AS_GetSnapTo() override;
-   void AS_SetSnapTo(int snap) override;
    const NumericFormatSymbol & AS_GetSelectionFormat() override;
    void AS_SetSelectionFormat(const NumericFormatSymbol & format) override;
    const NumericFormatSymbol & TT_GetAudioTimeFormat() override;
@@ -56,9 +54,13 @@ public:
       double &bottom, double &top, bool done) override;
 
 private:
-   bool SnapSelection();
+   void SnapSelection();
 
    AudacityProject &mProject;
+
+   Observer::Subscription mSnappingChangedSubscription;
+   Observer::Subscription mTimeSignatureChangedSubscription;
+   Observer::Subscription mProjectRateChangedSubscription;
 };
 
 #endif

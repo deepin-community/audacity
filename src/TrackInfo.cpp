@@ -25,36 +25,32 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "Audacity.h"
+
 #include "TrackInfo.h"
 
-#include "Experimental.h"
-
+#include <wx/app.h>
 #include <wx/dc.h>
 #include <wx/frame.h>
 
 #include "AColor.h"
 #include "AllThemeResources.h"
+#include "PlayableTrack.h"
 #include "Prefs.h"
 #include "Project.h"
+#include "SyncLock.h"
 #include "Theme.h"
-#include "Track.h"
 #include "TrackPanelDrawingContext.h"
 #include "ViewInfo.h"
-#include "prefs/TracksBehaviorsPrefs.h"
-#include "tracks/ui/TrackView.h"
+#include "tracks/ui/ChannelView.h"
 
 // Subscribe to preference changes to update static variables
 struct Settings : PrefsListener {
-   wxString gSoloPref;
    wxFont gFont;
 
    bool mInitialized{ false };
 
    void UpdatePrefs() override
    {
-      gSoloPref = TracksBehaviorsSolo.Read();
-
       // Calculation of best font size depends on language, so it should be redone in case
       // the language preference changed.
 
@@ -94,7 +90,7 @@ static Settings &settings()
 
 bool TrackInfo::HasSoloButton()
 {
-   return settings().gSoloPref != wxT("None");
+   return TracksBehaviorsSolo.ReadEnum() != SoloBehaviorNone;
 }
 
 #define RANGE(array) (array), (array) + sizeof(array)/sizeof(*(array))
@@ -202,7 +198,7 @@ unsigned TrackInfo::MinimumTrackHeight()
       height += commonTrackTCPBottomLines.front().height;
    // + 1 prevents the top item from disappearing for want of enough space,
    // according to the rules in HideTopItem.
-   return height + kTopMargin + kBottomMargin + 1;
+   return height + kVerticalPadding + 1;
 }
 
 bool TrackInfo::HideTopItem( const wxRect &rect, const wxRect &subRect,
@@ -377,9 +373,9 @@ void TrackInfo::MinimizeSyncLockDrawFunction
 {
    auto dc = &context.dc;
    bool selected = pTrack ? pTrack->GetSelected() : true;
-   bool syncLockSelected = pTrack ? pTrack->IsSyncLockSelected() : true;
+   bool syncLockSelected = pTrack ? SyncLock::IsSyncLockSelected(pTrack) : true;
    bool minimized =
-      pTrack ? TrackView::Get( *pTrack ).GetMinimized() : false;
+      pTrack ? ChannelView::Get(*pTrack->GetChannel(0)).GetMinimized() : false;
    {
       wxRect bev = rect;
       GetMinimizeHorizontalBounds(rect, bev);
@@ -566,8 +562,8 @@ void TrackInfo::SetTrackInfoFont(wxDC * dc)
 unsigned TrackInfo::DefaultTrackHeight( const TCPLines &topLines )
 {
    int needed =
-      kTopMargin + kBottomMargin +
+      kVerticalPadding +
       totalTCPLines( topLines, true ) +
       totalTCPLines( commonTrackTCPBottomLines, false ) + 1;
-   return (unsigned) std::max( needed, (int) TrackView::DefaultHeight );
+   return (unsigned) std::max(needed, (int) ChannelView::DefaultHeight);
 }

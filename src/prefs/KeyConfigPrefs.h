@@ -35,12 +35,12 @@ public:
    KeyConfigPrefs(wxWindow * parent, wxWindowID winid,
       AudacityProject *pProject,
       const CommandID &name);
-   ComponentInterfaceSymbol GetSymbol() override;
-   TranslatableString GetDescription() override;
+   ComponentInterfaceSymbol GetSymbol() const override;
+   TranslatableString GetDescription() const override;
 
    bool Commit() override;
    void Cancel() override;
-   wxString HelpPageName() override;
+   ManualPageID HelpPageName() override;
    void PopulateOrExchange(ShuttleGui & S) override;
 
 private:
@@ -72,6 +72,7 @@ private:
    void OnHotkeyKeyDown(wxKeyEvent & e);
    void OnHotkeyChar(wxEvent & e);
    void OnHotkeyKillFocus(wxEvent & e);
+   void OnHotkeyContext(wxEvent & e);
 
    void OnFilterTimer(wxTimerEvent & e);
    void OnFilterKeyDown(wxKeyEvent & e);

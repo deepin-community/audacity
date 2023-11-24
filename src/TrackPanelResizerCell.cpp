@@ -8,7 +8,7 @@ Paul Licameli split from TrackPanel.cpp
 
 **********************************************************************/
 
-#include "Audacity.h"
+
 #include "TrackPanelResizerCell.h"
 
 #include "AColor.h"
@@ -21,14 +21,11 @@ Paul Licameli split from TrackPanel.cpp
 #include "ViewInfo.h"
 #include "widgets/OverlayPanel.h"
 
-#include "tracks/ui/TrackView.h"
-
 #include <wx/dc.h>
 #include <wx/mousestate.h>
 
-TrackPanelResizerCell::TrackPanelResizerCell(
-   const std::shared_ptr<Track> &pTrack )
-   : mwTrack{ pTrack }
+TrackPanelResizerCell::TrackPanelResizerCell(Channel &channel)
+   : CommonTrackCell{ channel.GetChannelGroup(), channel.GetChannelIndex() }
 {}
 
 std::vector<UIHandlePtr> TrackPanelResizerCell::HitTest
@@ -39,16 +36,11 @@ std::vector<UIHandlePtr> TrackPanelResizerCell::HitTest
    auto pTrack = FindTrack();
    if (pTrack) {
       auto result = std::make_shared<TrackPanelResizeHandle>(
-         pTrack, st.state.m_y );
+         pTrack->GetChannel(0), st.state.m_y );
       result = AssignUIHandlePtr(mResizeHandle, result);
       results.push_back(result);
    }
    return results;
-}
-
-std::shared_ptr<Track> TrackPanelResizerCell::DoFindTrack()
-{
-   return mwTrack.lock();
 }
 
 void TrackPanelResizerCell::Draw(
@@ -76,7 +68,7 @@ void TrackPanelResizerCell::Draw(
             
             // Paint the left part of the background
             const auto artist = TrackArtist::Get( context );
-            auto labelw = artist->pZoomInfo->GetLabelWidth();
+            auto labelw = artist->pZoomInfo->GetLeftOffset() - 1;
             AColor::MediumTrackInfo( dc, pTrack->GetSelected() );
             dc->DrawRectangle(
                rect.GetX(), rect.GetY(), labelw, rect.GetHeight() );
@@ -111,19 +103,29 @@ void TrackPanelResizerCell::Draw(
    }
 }
 
+using ResizerCellAttachments = ChannelAttachments<TrackPanelResizerCell>;
+
 static const AttachedTrackObjects::RegisteredFactory key{
-   []( Track &track ){
-      return std::make_shared<TrackPanelResizerCell>(
-         track.shared_from_this() );
+   [](Track &track){
+      return std::make_shared<ResizerCellAttachments>(track,
+         [](Track &track, size_t iChannel) {
+            // ChannelAttachments promises this precondition
+            assert(iChannel <= track.NChannels());
+            return std::make_shared<TrackPanelResizerCell>(
+               *track.GetChannel(iChannel));
+         }
+      );
    }
 };
 
-TrackPanelResizerCell &TrackPanelResizerCell::Get( Track &track )
+TrackPanelResizerCell &TrackPanelResizerCell::Get(Channel &channel)
 {
-   return track.AttachedObjects::Get< TrackPanelResizerCell >( key );
+   return ResizerCellAttachments::Get(key,
+      static_cast<Track &>(channel.GetChannelGroup()),
+      channel.GetChannelIndex());
 }
 
-const TrackPanelResizerCell &TrackPanelResizerCell::Get( const Track &track )
+const TrackPanelResizerCell &TrackPanelResizerCell::Get(const Channel &channel)
 {
-   return Get( const_cast< Track & >( track ) );
+   return Get(const_cast<Channel &>(channel));
 }

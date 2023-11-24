@@ -23,15 +23,20 @@ class wxCommandEvent;
 #include <functional>
 #include <vector>
 #include <wx/menu.h> // to inherit wxMenu
-#include "../MemoryX.h"
+#include <memory>
 
-#include "../Internat.h"
+#include "Internat.h"
 #include "../commands/CommandManager.h"
 
 class PopupMenuHandler;
 class PopupMenuTable;
+struct PopupMenuVisitor;
+struct PopupMenuTableTraits : Registry::DefaultTraits {
+   using ComputedItemContextType = PopupMenuVisitor;
+};
+using PopupMenuGroupItem = Registry::GroupItem<PopupMenuTableTraits>;
 
-struct PopupMenuTableEntry : Registry::SingleItem
+struct AUDACITY_DLL_API PopupMenuTableEntry : Registry::SingleItem
 {
    enum Type { Item, RadioItem, CheckItem };
    using InitFunction =
@@ -44,6 +49,7 @@ struct PopupMenuTableEntry : Registry::SingleItem
    PopupMenuHandler &handler;
    InitFunction init;
 
+   //! @pre func is not null
    PopupMenuTableEntry( const Identifier &stringId,
       Type type_, int id_, const TranslatableString &caption_,
       wxCommandEventFunction func_, PopupMenuHandler &handler_,
@@ -55,13 +61,14 @@ struct PopupMenuTableEntry : Registry::SingleItem
       , func(func_)
       , handler( handler_ )
       , init( init_ )
-   {}
+   {
+      wxASSERT(func);
+   }
 
    ~PopupMenuTableEntry() override;
 };
 
-struct PopupSubMenu : Registry::ConcreteGroupItem< false >
-   , MenuTable::WholeMenu
+struct AUDACITY_DLL_API PopupSubMenu : PopupMenuGroupItem, MenuTable::WholeMenu
 {
    TranslatableString caption;
    PopupMenuTable &table;
@@ -72,10 +79,9 @@ struct PopupSubMenu : Registry::ConcreteGroupItem< false >
    ~PopupSubMenu() override;
 };
 
-struct PopupMenuSection
-   : Registry::ConcreteGroupItem< false >
-   , MenuTable::MenuSection {
-   using ConcreteGroupItem< false >::ConcreteGroupItem;
+struct PopupMenuSection : PopupMenuGroupItem, MenuTable::MenuSection
+{
+   using PopupMenuGroupItem::PopupMenuGroupItem;
 };
 
 class PopupMenuHandler : public wxEvtHandler
@@ -85,22 +91,32 @@ public:
    PopupMenuHandler( const PopupMenuHandler& ) = delete;
    PopupMenuHandler& operator=( const PopupMenuHandler& ) = delete;
 
-   // Called before the menu items are appended.
-   // Store context data, if needed.
-   // May be called more than once before the menu opens.
+   //! Called before the menu items are appended.
+   /*! Store context data, if needed.
+      May be called more than once before the menu opens.
+      Pointer remains valid for the duration of any callback, if
+      PopupMenuTable::BuildMenu() is called and the result's Popup() is called
+      before any other menus are built.
+    */
    virtual void InitUserData(void *pUserData) = 0;
-
-   // Called when menu is destroyed.
-   // May be called more than once.
-   virtual void DestroyMenu() = 0;
 };
 
 struct PopupMenuVisitor : public MenuVisitor {
    explicit PopupMenuVisitor( PopupMenuTable &table ) : mTable{ table } {}
+   ~PopupMenuVisitor() override;
+   void *GetComputedItemContext() override;
    PopupMenuTable &mTable;
 };
 
-class PopupMenuTable : public PopupMenuHandler
+// Opaque structure built by PopupMenuTable::BuildMenu
+class AUDACITY_DLL_API PopupMenu
+{
+public:
+   virtual ~PopupMenu();
+   virtual void Popup( wxWindow &window, const wxPoint &pos ) = 0;
+};
+
+class AUDACITY_DLL_API PopupMenuTable : public PopupMenuHandler
 {
 public:
    using Entry = PopupMenuTableEntry;
@@ -109,17 +125,18 @@ public:
    PopupMenuTable( const Identifier &id, const TranslatableString &caption = {} )
       : mId{ id }
       , mCaption{ caption }
-      , mRegistry{ std::make_unique<Registry::TransparentGroupItem<>>( mId ) }
+      , mRegistry{
+         std::make_unique<PopupMenuGroupItem>(mId) }
    {}
 
    // Optional pUserData gets passed to the InitUserData routines of tables.
    // No memory management responsibility is assumed by this function.
-   static std::unique_ptr<wxMenu> BuildMenu
-      (wxEvtHandler *pParent, PopupMenuTable *pTable, void *pUserData = NULL);
+   static std::unique_ptr<PopupMenu> BuildMenu(
+      PopupMenuTable *pTable, void *pUserData = NULL);
 
    const Identifier &Id() const { return mId; }
    const TranslatableString &Caption() const { return mCaption; }
-   const Registry::GroupItem *GetRegistry() const { return mRegistry.get(); }
+   const auto *GetRegistry() const { return mRegistry.get(); }
 
    // Typically statically constructed:
    struct AttachedItem {
@@ -130,9 +147,9 @@ public:
 
    // menu must have been built by BuildMenu
    // More items get added to the end of it
-   static void ExtendMenu( wxMenu &menu, PopupMenuTable &otherTable );
+   static void ExtendMenu( PopupMenu &menu, PopupMenuTable &otherTable );
    
-   const std::shared_ptr< Registry::GroupItem > &Get( void *pUserData )
+   const auto &Get(void *pUserData)
    {
       if ( pUserData )
          this->InitUserData( pUserData );
@@ -146,20 +163,14 @@ public:
       mTop.reset();
    }
 
-   // Forms a computed item, which may be omitted when function returns null
-   // and thus can be a conditional item
-   template< typename Table >
-   static Registry::BaseItemPtr Computed(
-      const std::function< Registry::BaseItemPtr( Table& ) > &factory )
+   // Adapts a factory for a table sub-type
+   template<typename Table, typename Factory>
+   static auto Adapt(const Factory &factory)
    {
-      using namespace Registry;
-      return std::make_unique< ComputedItem >(
-         [factory]( Visitor &baseVisitor ){
-            auto &visitor = static_cast< PopupMenuVisitor& >( baseVisitor );
-            auto &table =  static_cast< Table& >( visitor.mTable );
-            return factory( table );
-         }
-      );
+      return [factory](PopupMenuVisitor &visitor){
+         auto &table = static_cast<Table&>(visitor.mTable);
+         return std::shared_ptr{ factory(table) };
+      };
    }
 
 private:
@@ -180,7 +191,8 @@ protected:
    virtual void Populate() = 0;
 
    // To be used in implementations of Populate():
-   void Append( Registry::BaseItemPtr pItem );
+   template<typename Ptr>
+   void Append(Ptr pItem) { mStack.back()->push_back(std::move(pItem)); }
    
    void Append(
       const Identifier &stringId, PopupMenuTableEntry::Type type, int id,
@@ -208,41 +220,17 @@ protected:
    void BeginSection( const Identifier &name );
    void EndSection();
 
-   std::shared_ptr< Registry::GroupItem > mTop;
-   std::vector< Registry::GroupItem* > mStack;
+   std::shared_ptr<PopupMenuGroupItem> mTop;
+   std::vector<PopupMenuGroupItem*> mStack;
    Identifier mId;
    TranslatableString mCaption;
-   std::unique_ptr<Registry::GroupItem> mRegistry;
-};
-
-// A "CRTP" class that injects a convenience function, which appends a menu item
-// computed lazily by a function that is passed the table (after it has stored
-// its user data)
-template< typename Derived, typename Base = PopupMenuTable >
-class ComputedPopupMenuTable : public Base
-{
-public:
-   using Base::Base;
-   using Base::Append;
-
-   // Appends a computed item, which may be omitted when function returns null
-   // and thus can be a conditional item
-   using Factory = std::function< Registry::BaseItemPtr( Derived& ) >;
-   static Registry::BaseItemPtr Computed( const Factory &factory )
-   {
-      return Base::Computed( factory );
-   }
-
-   void Append( const Factory &factory )
-   {
-      Append( Computed( factory ) );
-   }
+   std::unique_ptr<PopupMenuGroupItem> mRegistry;
 };
 
 /*
 The following macros make it easy to attach a popup menu to a window.
 
-Exmple of usage:
+Example of usage:
 
 In class MyTable (maybe in the private section),
 which inherits from PopupMenuTable,
@@ -293,7 +281,7 @@ auto pMenu = PopupMenuTable::BuildMenu(pParent, &myTable, &data);
 OtherTable otherTable;
 PopupMenuTable::ExtendMenu( *pMenu, otherTable );
 
-pParent->PopupMenu(pMenu.get(), event.m_x, event.m_y);
+pMenu->Popup( *pParent, { event.m_x, event.m_y } );
 
 That's all!
 */
@@ -313,8 +301,8 @@ void HandlerClass::Populate() { \
 #define POPUP_MENU_FN( memFn ) ( (wxCommandEventFunction) (&My::memFn) )
 
 #define POPUP_MENU_SUB_MENU(stringId, classname, pUserData ) \
-   mStack.back()->items.push_back( \
-      Registry::Shared( classname::Instance().Get( pUserData ) ) );
+   mStack.back()->push_back( \
+      Registry::Indirect(classname::Instance().Get(pUserData)));
 
 // ends function
 #define END_POPUP_MENU() }

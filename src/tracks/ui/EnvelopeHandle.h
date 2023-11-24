@@ -24,7 +24,7 @@ class ViewInfo;
 class TimeTrack;
 class WaveTrack;
 
-class EnvelopeHandle final : public UIHandle
+class AUDACITY_DLL_API EnvelopeHandle final : public UIHandle
 {
    EnvelopeHandle(const EnvelopeHandle&) = delete;
    EnvelopeHandle &operator=(const EnvelopeHandle&) = delete;
@@ -38,6 +38,9 @@ class EnvelopeHandle final : public UIHandle
 
 public:
    explicit EnvelopeHandle( Envelope *pEnvelope );
+   
+   EnvelopeHandle(EnvelopeHandle&&) = default;
+   EnvelopeHandle& operator=(EnvelopeHandle&&) = default;
 
    virtual ~EnvelopeHandle();
 
@@ -85,7 +88,7 @@ private:
    double mdBRange{};
 
    Envelope *mEnvelope{};
-   std::vector< std::unique_ptr<EnvelopeEditor> > mEnvelopeEditors;
+   std::unique_ptr<EnvelopeEditor> mpEnvelopeEditor;
 
    bool mTimeTrack{};
 };

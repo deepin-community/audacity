@@ -32,17 +32,14 @@
 
 *//********************************************************************/
 
-#include "../Audacity.h"
+
 #include "MousePrefs.h"
 
-#include "../Experimental.h"
-
 #include <wx/defs.h>
-#include <wx/intl.h>
 #include <wx/listctrl.h>
 
-#include "../Prefs.h"
-#include "../ShuttleGui.h"
+#include "Prefs.h"
+#include "ShuttleGui.h"
 
 // The numbers of the columns of the mList.
 enum
@@ -74,17 +71,17 @@ MousePrefs::~MousePrefs()
 {
 }
 
-ComponentInterfaceSymbol MousePrefs::GetSymbol()
+ComponentInterfaceSymbol MousePrefs::GetSymbol() const
 {
    return MOUSE_PREFS_PLUGIN_SYMBOL;
 }
 
-TranslatableString MousePrefs::GetDescription()
+TranslatableString MousePrefs::GetDescription() const
 {
    return XO("Preferences for Mouse");
 }
 
-wxString MousePrefs::HelpPageName()
+ManualPageID MousePrefs::HelpPageName()
 {
    return "Mouse_Preferences";
 }
@@ -154,9 +151,6 @@ void MousePrefs::CreateList()
    AddItem(XO("Shift-Drag"),       XO("Zoom"),      XO("Zoom out on a Range"));
    AddItem(XO("Middle-Click"),     XO("Zoom"),      XO("Zoom default"));
 
-   AddItem(XO("Left-Drag"),        XO("Time-Shift"),XO("Move clip left/right or between tracks"));
-   AddItem(XO("Shift-Left-Drag"),  XO("Time-Shift"),XO("Move all clips in track left/right"));
-   AddItem(CTRL + XO("-Left-Drag"),XO("Time-Shift"),XO("Move clip up/down between tracks"));
 
    AddItem(XO("Left-Drag"),
    /* i18n-hint: The envelope is a curve that controls the audio loudness.*/
@@ -185,6 +179,10 @@ void MousePrefs::CreateList()
    AddItem(XO("Shift-Wheel-Rotate"),          XO("Any"),   XO("Scroll waveform"));
    AddItem(CTRL + XO("-Wheel-Rotate"),        XO("Any"),   XO("Zoom waveform in or out"));
    AddItem(CTRL + XO("-Shift-Wheel-Rotate"),  XO("Any"),   XO("Vertical Scale Waveform (dB) range"));
+   
+   AddItem(XO("Shift-Left-Drag"),  XO("Any"),XO("Move all clips in track left/right"), XO("using clip handles"));
+   AddItem(CTRL + XO("-Left-Drag"),XO("Any"),XO("Move clip up/down between tracks"), XO("using clip handles"));
+   AddItem(XO("Left-Drag"),        XO("Any"),XO("Move clip left/right or between tracks"), XO("using clip handles"));
 
    mList->SetColumnWidth(ToolColumn, wxLIST_AUTOSIZE);
    mList->SetColumnWidth(ActionColumn, wxLIST_AUTOSIZE);
