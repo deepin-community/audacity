@@ -1,3 +1,9 @@
+audacity (3.4.2+dfsg-1deepin0) unstable; urgency=medium
+
+  * No source change upload against GCC 12.
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Thu, 19 Sep 2024 22:42:26 +0800
+
 audacity (3.4.2+dfsg-1) unstable; urgency=medium
 
   * New upstream version 3.4.2+dfsg
