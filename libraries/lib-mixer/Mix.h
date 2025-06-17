@@ -13,19 +13,23 @@
 #define __AUDACITY_MIX__
 
 #include "AudioGraphBuffers.h"
+#include "AudioGraphSource.h"
 #include "MixerOptions.h"
 #include "SampleFormat.h"
+#include <optional>
+
+#include "DownmixStage.h"
 
 class sampleCount;
 class BoundedEnvelope;
 class EffectStage;
-namespace AudioGraph{ class Source; }
 class MixerSource;
 class TrackList;
 class WideSampleSequence;
 
-class MIXER_API Mixer {
- public:
+class MIXER_API Mixer final
+{
+public:
    using WarpOptions = MixerOptions::Warp;
    using MixerSpec = MixerOptions::Downmix;
    using ResampleParameters = MixerOptions::ResampleParameters;
@@ -44,30 +48,33 @@ class MIXER_API Mixer {
    };
    using Inputs = std::vector<Input>;
 
+   using ApplyVolume = DownmixStage::ApplyVolume;
+
    //
    // Constructor / Destructor
    //
 
    /*!
+    * When creating with master effects stages `applyGain` is ignored
     @pre all sequences in `inputs` are non-null
-    @pre any left channels in inputs are immediately followed by their
-       partners
+    @pre !!masterEffects && mixerSpec == nullptr && numOutChannels <= 2
     @post `BufferSize() <= outBufferSize` (equality when no inputs have stages)
     */
-   Mixer(Inputs inputs, bool mayThrow,
-         const WarpOptions &warpOptions,
-         double startTime, double stopTime,
-         unsigned numOutChannels, size_t outBufferSize, bool outInterleaved,
-         double outRate, sampleFormat outFormat,
-         bool highQuality = true,
-         //! Null or else must have a lifetime enclosing this object's
-         MixerSpec *mixerSpec = nullptr,
-         bool applytTrackGains = true);
+   Mixer(
+      Inputs inputs, std::optional<Stages> masterEffects, bool mayThrow,
+      const WarpOptions& warpOptions, double startTime, double stopTime,
+      unsigned numOutChannels, size_t outBufferSize, bool outInterleaved,
+      double outRate, sampleFormat outFormat, bool highQuality = true,
+      //! Null or else must have a lifetime enclosing this object's
+      MixerSpec* mixerSpec = nullptr,
+      ApplyVolume applyVolume = ApplyVolume::MapChannels);
 
    Mixer(const Mixer&) = delete;
+   Mixer(Mixer&&) noexcept = delete;
    Mixer &operator=(const Mixer&) = delete;
+   Mixer &operator=(Mixer&&) noexcept = delete;
 
-   virtual ~ Mixer();
+   ~Mixer();
 
    size_t BufferSize() const { return mBufferSize; }
 
@@ -115,11 +122,14 @@ class MIXER_API Mixer {
 
    void Clear();
 
- private:
+   std::unique_ptr<EffectStage>& RegisterEffectStage(
+      AudioGraph::Source& upstream, size_t numChannels,
+      const MixerOptions::StageSpecification& stage, double outRate);
 
    // Input
    const unsigned   mNumChannels;
    Inputs           mInputs;
+   const std::optional<Stages> mMasterEffects;
 
    // Transformations
    const size_t     mBufferSize;
@@ -130,7 +140,7 @@ class MIXER_API Mixer {
  private:
 
    // Output
-   const bool       mApplyTrackGains;
+   const ApplyVolume mApplyVolume;
    const bool       mHighQuality; // dithering
    const sampleFormat mFormat; // output format also influences dithering
    const bool       mInterleaved;
@@ -138,18 +148,16 @@ class MIXER_API Mixer {
    // INPUT
    sampleFormat     mEffectiveFormat;
    bool             mNeedsDither;
+   bool             mHasMixerSpec{false};
 
    const std::shared_ptr<TimesAndSpeed> mTimesAndSpeed;
 
    // BUFFERS
 
-   // Resample into these buffers, or produce directly when not resampling
-   AudioGraph::Buffers mFloatBuffers;
-
    // Each channel's data is transformed, including application of
    // gains and pans, and then (maybe many-to-one) mixer specifications
    // determine where in mTemp it is accumulated
-   std::vector<std::vector<float>> mTemp;
+   AudioGraph::Buffers mTemp;
 
    // Final result applies dithering and interleaving
    const std::vector<SampleBuffer> mBuffer;
@@ -158,8 +166,8 @@ class MIXER_API Mixer {
    std::vector<EffectSettings> mSettings;
    std::vector<AudioGraph::Buffers> mStageBuffers;
    std::vector<std::unique_ptr<EffectStage>> mStages;
-
-   struct Source { MixerSource &upstream; AudioGraph::Source &downstream; };
-   std::vector<Source> mDecoratedSources;
+   std::unique_ptr<AudioGraph::Source> mDownmixStage;
+   std::unique_ptr<AudioGraph::Source> mMasterDownmixStage;
+   AudioGraph::Source* mDownstream{};
 };
 #endif

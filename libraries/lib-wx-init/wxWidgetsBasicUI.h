@@ -24,6 +24,7 @@ public:
 protected:
    void DoCallAfter(const BasicUI::Action &action) override;
    void DoYield() override;
+   void DoProcessIdle() override;
    void DoShowErrorDialog(const BasicUI::WindowPlacement &placement,
       const TranslatableString &dlogTitle,
       const TranslatableString &message,
@@ -40,7 +41,8 @@ protected:
    std::unique_ptr<BasicUI::GenericProgressDialog>
    DoMakeGenericProgress(const BasicUI::WindowPlacement &placement,
       const TranslatableString &title,
-      const TranslatableString &message) override;
+      const TranslatableString &message,
+      int style) override;
    int DoMultiDialog(const TranslatableString &message,
       const TranslatableString &title,
       const TranslatableStrings &buttons,
@@ -51,6 +53,10 @@ protected:
 
    std::unique_ptr<BasicUI::WindowPlacement> DoFindFocus() override;
    void DoSetFocus(const BasicUI::WindowPlacement &focus) override;
+
+   bool IsUsingRtlLayout() const override;
+
+   bool IsUiThread() const override;
 };
 
 #endif

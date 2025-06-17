@@ -16,7 +16,7 @@ Files-Excluded:
 
 Files: *
 Copyright: 2000-2001, Apple Computer, Inc
-           1999-2023, Audacity Team
+           1999-2024, Audacity Team
            1989-1994, Carnegie Mellon University
            1985-1986, David Betz
            1985-1987, David Michael Betz
@@ -62,27 +62,17 @@ Files: libraries/lib-audio-devices/DeviceManager.h
        libraries/lib-theme/AllThemeResources.h
        linux/packages/fedora34/audacity.spec
        mac/Wrapper.c
-       modules/mod-ffmpeg/FFmpeg.cpp
-       modules/mod-ffmpeg/FFmpeg.h
-       modules/mod-ffmpeg/ExportFFmpeg.cpp
        src/CrossFade.h
        src/Dependencies.cpp
        src/Dependencies.h
-       src/PitchName.cpp
-       src/PitchName.h
        src/Profiler.cpp
        src/Profiler.h
        src/commands/CommandMisc.h
-       src/commands/CommandTargets.h
-       src/commands/ScreenshotCommand.cpp
-       src/commands/ScreenshotCommand.h
        src/commands/SelectCommand.h
        src/effects/BassTreble.cpp
        src/effects/BassTreble.h
        src/effects/ChangePitch.cpp
        src/effects/ChangePitch.h
-       src/effects/EffectManager.cpp
-       src/effects/EffectManager.h
        src/effects/EffectUI.cpp
        src/effects/EffectUI.h
        src/effects/Reverb.cpp
@@ -96,10 +86,7 @@ License: GPL-2
 
 Files: lib-src/libnyquist/nyquist/nyqsrc/fftw.h
        lib-src/libnyquist/nyquist/nyqsrc/rfftw.h
-       libraries/lib-math/RealFFTf.cpp
        libraries/lib-vst/aeffectx.h
-       modules/mod-mp2/ExportMP2.cpp
-       modules/mod-mp3/ExportMP3.cpp
        src/RealFFTf48x.cpp
        src/SoundActivatedRecord.cpp
        src/SoundActivatedRecord.h
@@ -133,7 +120,7 @@ Copyright:
  2004-2006 Matt Brubeck <mbrubeck@cs.hmc.edu>
  2007-2009 Free Ekanayaka <freee@debian.org>
  2009-2022 Benjamin Drung <bdrung@debian.org>
- 2020-2023 Dennis Braun <snd@debian.org>
+ 2020-2024 Dennis Braun <snd@debian.org>
  David Henningsson <diwic@ubuntu.com>
 
 Files: lib-src/libscorealign/autotools/*

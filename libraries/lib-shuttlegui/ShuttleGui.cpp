@@ -97,9 +97,11 @@ for registering for changes.
 
 
 
-#include "MemoryX.h"
+#include "IteratorX.h"
 #include "Prefs.h"
 #include "ShuttlePrefs.h"
+#include "SpinControl.h"
+#include "GradientButton.h"
 #include "Theme.h"
 
 #include <wx/setup.h> // for wxUSE_* macros
@@ -396,6 +398,37 @@ wxBitmapButton * ShuttleGuiBase::AddBitmapButton(
    return pBtn;
 }
 
+GradientButton * ShuttleGuiBase::AddGradientButton(
+   const TranslatableString & Text, int PositionFlags, bool setDefault, bool setPadding)
+{
+   UseUpId();
+   if( mShuttleMode != eIsCreating )
+      return wxDynamicCast(wxWindow::FindWindowById( miId, mpDlg), GradientButton);
+   GradientButton * pBtn;
+   const auto translated = Text.Translation();
+   mpWind = pBtn = safenew GradientButton(GetParent(), miId,
+      translated, wxDefaultPosition, wxDefaultSize);
+#if defined(__WXMSW__)
+   wxFont labelFont(11, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+#else
+   wxFont labelFont(14, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+#endif
+   pBtn->SetFont(labelFont);
+   if (setPadding) {
+      wxSize size = pBtn->GetSize();
+#if defined(__WXMSW__)
+      pBtn->SetMinSize(wxSize(size.GetWidth() + 30, size.GetHeight() + 20));
+#else
+      pBtn->SetMinSize(wxSize(size.GetWidth() + 25, size.GetHeight() + 15));
+#endif
+   }
+   miProp=0;
+   UpdateSizersCore(false, PositionFlags | wxALL);
+   if (setDefault)
+      pBtn->SetDefault();
+   return pBtn;
+}
+
 wxChoice * ShuttleGuiBase::AddChoice( const TranslatableString &Prompt,
    const TranslatableStrings &choices, int Selected )
 {
@@ -636,6 +669,25 @@ wxSpinCtrl * ShuttleGuiBase::AddSpinCtrl(
    return pSpinCtrl;
 }
 
+SpinControl* ShuttleGuiBase::AddSpinControl(
+   const wxSize& size, const TranslatableString& Prompt, double Value,
+   double Max, double Min)
+{
+   const auto translated = Prompt.Translation();
+   HandleOptionality( Prompt );
+   AddPrompt( Prompt );
+   UseUpId();
+   if( mShuttleMode != eIsCreating )
+      return dynamic_cast<SpinControl*>(wxWindow::FindWindowById(miId, mpDlg));
+   SpinControl * pSpinCtrl;
+   mpWind = pSpinCtrl = safenew SpinControl(
+      GetParent(), miId, Value, Min, Max, 1.0, true, wxDefaultPosition, size,
+      Prompt);
+   miProp=1;
+   UpdateSizers();
+   return pSpinCtrl;
+}
+
 wxTextCtrl * ShuttleGuiBase::AddTextBox(
    const TranslatableString &Caption, const wxString &Value, const int nChars)
 {
@@ -816,7 +868,7 @@ wxListCtrl * ShuttleGuiBase::AddListControlReportMode(
    SetProportions( 1 );
    mpWind = pListCtrl = safenew wxListCtrl(GetParent(), miId,
       wxDefaultPosition, wxSize(230,120),//wxDefaultSize,
-      GetStyle( wxLC_REPORT | wxLC_HRULES | wxLC_VRULES | wxSUNKEN_BORDER ));
+      GetStyle( wxLC_REPORT | wxLC_HRULES | wxLC_VRULES ));
 //   pListCtrl->SetMinSize( wxSize( 120,150 ));
    UpdateSizers();
 
@@ -947,8 +999,7 @@ wxScrolledWindow * ShuttleGuiBase::StartScroller(int iStyle)
       return wxDynamicCast(wxWindow::FindWindowById( miId, mpDlg), wxScrolledWindow);
 
    wxScrolledWindow * pScroller;
-   mpWind = pScroller = safenew wxScrolledWindow(GetParent(), miId, wxDefaultPosition, wxDefaultSize,
-      GetStyle( wxSUNKEN_BORDER ) );
+   mpWind = pScroller = safenew wxScrolledWindow(GetParent(), miId, wxDefaultPosition, wxDefaultSize);
    pScroller->SetScrollRate( 20,20 );
 
    // This fools NVDA into not saying "Panel" when the dialog gets focus
@@ -1372,6 +1423,45 @@ wxSpinCtrl * ShuttleGuiBase::DoTieSpinCtrl(
    return pSpinCtrl;
 }
 
+SpinControl* ShuttleGuiBase::DoTieSpinControl(
+   const wxSize& size, const TranslatableString& Prompt,
+   WrappedType& WrappedRef, const double max, const double min)
+{
+   HandleOptionality( Prompt );
+   // The Add function does a UseUpId(), so don't do it here in that case.
+   if( mShuttleMode == eIsCreating )
+      return AddSpinControl(size, Prompt, WrappedRef.ReadAsDouble(), max, min);
+
+   UseUpId();
+   SpinControl * pSpinCtrl=NULL;
+
+   wxWindow * pWnd  = wxWindow::FindWindowById( miId, mpDlg);
+   pSpinCtrl = dynamic_cast<SpinControl*>(pWnd);
+
+   switch( mShuttleMode )
+   {
+      // IF setting internal storage from the controls.
+   case eIsGettingMetadata:
+      break;
+   case eIsGettingFromDialog:
+      {
+         wxASSERT( pSpinCtrl );
+         WrappedRef.WriteToAsDouble( pSpinCtrl->GetValue() );
+      }
+      break;
+   case eIsSettingToDialog:
+      {
+         wxASSERT( pSpinCtrl );
+         pSpinCtrl->SetValue( WrappedRef.ReadAsDouble() );
+      }
+      break;
+   default:
+      wxASSERT( false );
+      break;
+   }
+   return pSpinCtrl;
+}
+
 wxTextCtrl * ShuttleGuiBase::DoTieTextBox(
    const TranslatableString &Prompt, WrappedType & WrappedRef, const int nChars)
 {
@@ -1653,6 +1743,14 @@ wxSpinCtrl * ShuttleGuiBase::TieSpinCtrl(
 {
    WrappedType WrappedRef(Value);
    return DoTieSpinCtrl( Prompt, WrappedRef, max, min );
+}
+
+SpinControl* ShuttleGuiBase::TieSpinControl(
+   const wxSize& size, const TranslatableString& Prompt, double& Value,
+   const double max, const double min)
+{
+   WrappedType WrappedRef(Value);
+   return DoTieSpinControl(size, Prompt, WrappedRef, max, min);
 }
 
 wxTextCtrl * ShuttleGuiBase::TieTextBox(
@@ -2091,7 +2189,7 @@ void ShuttleGuiBase::SetProportions( int Default )
 
 void ShuttleGuiBase::ApplyItem( int step, const DialogDefinition::Item &item,
    wxWindow *pWind, wxWindow *pDlg )
-{  
+{
    if ( step == 0 ) {
       // Do these steps before adding the window to the sizer
       if( item.mUseBestSize )
@@ -2277,7 +2375,7 @@ ShuttleGui & ShuttleGui::Id(int id )
 }
 
 ShuttleGui & ShuttleGui::Optional( bool &bVar ){
-   mpbOptionalFlag = &bVar; 
+   mpbOptionalFlag = &bVar;
    return *this;
 };
 
@@ -2303,7 +2401,7 @@ std::unique_ptr<wxSizer> CreateStdButtonSizer(wxWindow *parent, long buttons, wx
 
    wxButton *b = NULL;
    auto bs = std::make_unique<wxStdDialogButtonSizer>();
-   
+
    const auto makeButton =
    [parent]( wxWindowID id, const wxString label = {} ) {
       auto result = safenew wxButton( parent, id, label );

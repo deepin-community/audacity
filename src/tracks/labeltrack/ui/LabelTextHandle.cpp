@@ -14,7 +14,7 @@ Paul Licameli split from TrackPanel.cpp
 #include "LabelTrackView.h"
 
 #include "../../../HitTestResult.h"
-#include "../../../LabelTrack.h"
+#include "LabelTrack.h"
 #include "ProjectAudioIO.h"
 #include "ProjectHistory.h"
 #include "../../../RefreshCode.h"
@@ -68,6 +68,11 @@ UIHandlePtr LabelTextHandle::HitTest
 
 LabelTextHandle::~LabelTextHandle()
 {
+}
+
+std::shared_ptr<const Track> LabelTextHandle::FindTrack() const
+{
+   return mpLT.lock();
 }
 
 void LabelTextHandle::HandleTextClick(AudacityProject &project, const wxMouseEvent & evt)
@@ -205,7 +210,7 @@ void LabelTextHandle::HandleTextDragRelease(
    {
       auto index = view.GetTextEditIndex(project);
       if(index != -1 &&
-         LabelTrackView::OverTextBox(pTrack->GetLabel(index), evt.m_x, evt.m_y)) 
+         LabelTrackView::OverTextBox(pTrack->GetLabel(index), evt.m_x, evt.m_y))
       {
          // popup menu for editing
          // TODO: handle context menus via CellularPanel?

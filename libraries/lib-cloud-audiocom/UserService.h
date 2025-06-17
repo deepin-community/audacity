@@ -14,10 +14,10 @@
 
 #include "Observer.h"
 
-namespace cloud::audiocom
+namespace audacity::cloud::audiocom
 {
 //! Message that is sent when user data changes.
-//! This message is always sent on UI thread.   
+//! This message is always sent on UI thread.
 struct CLOUD_AUDIOCOM_API UserDataChanged final
 {
 };
@@ -32,6 +32,8 @@ public:
    //! Reset the user profile data
    void ClearUserData();
 
+   //! Gets user id
+   wxString GetUserId() const;
    //! "Slug" used to construct shareable URLs
    wxString GetUserSlug() const;
    //! Get the user name to display in the dialog
@@ -41,8 +43,8 @@ public:
 
 private:
    void DownloadAvatar(std::string_view url);
-      
+
 }; // class UserService
 
 CLOUD_AUDIOCOM_API UserService& GetUserService();
-} // namespace cloud::audiocom
+} // namespace audacity::cloud::audiocom

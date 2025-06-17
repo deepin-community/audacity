@@ -65,7 +65,7 @@ static auto intChoicesMethod = {
 EnumSetting< int > Resample::FastMethodSetting{
    wxT("/Quality/LibsoxrSampleRateConverterChoice"),
    methodNames,
-   1,  // Medium Quality
+   3,  // Also best quality as modern PCs are probably fast enough. 
 
    // for migrating old preferences:
    intChoicesMethod,
@@ -85,12 +85,12 @@ EnumSetting< int > Resample::BestMethodSetting
 
 //////////
 std::pair<size_t, size_t>
-      Resample::Process(double  factor,
-                        float  *inBuffer,
-                        size_t  inBufferLen,
-                        bool    lastFlag,
-                        float  *outBuffer,
-                        size_t  outBufferLen)
+      Resample::Process(double       factor,
+                        const float *inBuffer,
+                        size_t       inBufferLen,
+                        bool         lastFlag,
+                        float       *outBuffer,
+                        size_t       outBufferLen)
 {
    size_t idone, odone;
    if (mbWantConstRateResampling)

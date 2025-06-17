@@ -12,7 +12,7 @@ PreferenceInitializer is a callback for the reinitialization of preferences.
 
 FileConfig decorates wxFileConfig, with a member function to
 alert the user of failure to initialize it (as when the file is read-only).
-]]#
+]]
 
 set( SOURCES
    BasicSettings.cpp
@@ -20,7 +20,7 @@ set( SOURCES
    Prefs.cpp
    Prefs.h
 )
-set( LIBRARIES 
+set( LIBRARIES
    lib-basic-ui-interface
    lib-components-interface
 )

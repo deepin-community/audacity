@@ -18,8 +18,10 @@
 #include "Identifier.h"
 #include "Observer.h"
 #include "Theme.h"
+#include "AppEvents.h"
 
 #include <wx/app.h> // to inherit
+#include <wx/splash.h> // member variable
 #include <wx/timer.h> // member variable
 
 #include <memory>
@@ -34,7 +36,10 @@ class CommandHandler;
 class AppCommandEvent;
 class AudacityProject;
 
-class AudacityApp final : public wxApp {
+class AudacityApp final
+   : public wxApp
+   , private AppEvents::ProviderBase
+{
  public:
    AudacityApp();
    ~AudacityApp();
@@ -115,11 +120,15 @@ class AudacityApp final : public wxApp {
    std::unique_ptr<wxSingleInstanceChecker> mChecker;
 
    wxTimer mTimer;
+   wxTimer mSplashTimer;
+   std::unique_ptr<wxSplashScreen> mSplashScreen;
 
    void InitCommandHandler();
 
    bool InitTempDir();
    bool CreateSingleInstanceChecker(const wxString &dir);
+   void ShowSplashScreen();
+   void HideSplashScreen(bool fadeOut=true);
 
    std::unique_ptr<wxCmdLineParser> ParseCommandLine();
 

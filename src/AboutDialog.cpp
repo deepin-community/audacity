@@ -62,7 +62,7 @@ hold information about one contributor to Audacity.
 #endif
 
 #ifdef REV_LONG
-#define REV_IDENT wxString( "[[https://github.com/audacity/audacity/commit/" )+ REV_LONG + "|" + wxString( REV_LONG ).Left(6) + "]] of " +  REV_TIME 
+#define REV_IDENT wxString( "[[https://github.com/audacity/audacity/commit/" )+ REV_LONG + "|" + wxString( REV_LONG ).Left(6) + "]] of " +  REV_TIME
 #else
 #define REV_IDENT (XO("No revision identifier was provided").Translation())
 #endif
@@ -126,22 +126,24 @@ void AboutDialog::CreateCreditsList()
    const auto graphicsFormat =
    /* i18n-hint: For "About Audacity..." credits, substituting a person's proper name */
       XO("%s, graphics");
+   const auto presetsFormat =
+   /* i18n-hint: For "About Audacity..." credits, substituting a person's proper name */
+      XO("%s, effects presets");
 
    // The Audacity Team: developers and support
+   AddCredit(wxT("Antons \u010cinakovs"), testerFormat, roleTeamMember);
    AddCredit(wxT("Matthieu Hodgkinson"), developerFormat, roleTeamMember);
    AddCredit(wxT("Peter Jonas"), developerFormat, roleTeamMember);
    AddCredit(wxT("Martin Keary"), roleTeamMember);
    AddCredit(wxT("Sergey Lapysh"), testerFormat, roleTeamMember);
    AddCredit(wxT("Yana Larina"), roleTeamMember);
-   AddCredit(wxT("Paul Licameli"), developerFormat, roleTeamMember);
+   AddCredit(wxT("Dmitry Makarenko"), developerFormat, roleTeamMember);
    AddCredit(wxT("Dilson's Pickles"), designerFormat, roleTeamMember);
-   AddCredit(wxT("K. Soze"), developerFormat, roleTeamMember);
-   AddCredit(wxT("Anita Sudan"), roleTeamMember);
-   AddCredit(wxT("Vitaly Sverchinsky"), developerFormat, roleTeamMember);
-   AddCredit(wxT("Dmitry Vedenko"), developerFormat, roleTeamMember);
    AddCredit(wxT("Leo Wattenberg"), designerFormat, roleTeamMember);
    AddCredit(wxT("Jessica Williamson"), designerFormat, roleTeamMember);
-   
+   AddCredit(wxT("Grzegorz Wojciechowski"), developerFormat, roleTeamMember);
+
+
    // Emeritus: people who were "lead developers" or made an
    // otherwise distinguished contribution, but who are no
    // longer active.
@@ -161,6 +163,7 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Ruslan Ijbulatov"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Vaughan Johnson"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Greg Kozikowski"), documentationAndSupportFormat, roleEmeritusTeam);
+   AddCredit(wxT("Paul Licameli"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Leland Lucius"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Dominic Mazzoni"), coFounderFormat, roleEmeritusTeam);
    AddCredit(wxT("Markus Meyer"), developerFormat, roleEmeritusTeam);
@@ -170,13 +173,16 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Alexandre Prokoudine"), documentationAndSupportFormat, roleEmeritusTeam);
    AddCredit(wxT("Peter Sampson"), qaDocumentationAndSupportFormat, roleEmeritusTeam);
    AddCredit(wxT("Martyn Shaw"), developerFormat, roleEmeritusTeam);
+   AddCredit(wxT("Dmitry Vedenko"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Bill Wharrie"), documentationAndSupportFormat, roleEmeritusTeam);
 
    // Contributors
    AddCredit(wxT("Lynn Allan"), developerFormat, roleContributor);
+   AddCredit(wxT("Johan Althoff (teetow)"), designerFormat, roleContributor);
    AddCredit(wxT("Brian Armstrong"), developerFormat, roleContributor);
    AddCredit(wxT("David Avery"), developerFormat, roleContributor);
    AddCredit(wxT("David Bailes"), accessibilityAdvisorFormat, roleContributor);
+   AddCredit(wxT("Brian Beard (Kurtsley)"), developerFormat, roleContributor);
    AddCredit(wxT("William Bland"), developerFormat, roleContributor);
    AddCredit(wxT("Sami Boukortt"), developerFormat, roleContributor);
    AddCredit(wxT("Jeremy R. Brown"), developerFormat, roleContributor);
@@ -197,6 +203,8 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Daniel Horgan"), developerFormat, roleContributor);
    AddCredit(wxT("David Hostetler"), developerFormat, roleContributor);
    AddCredit(wxT("Edward Hui"), developerFormat, roleContributor);
+   AddCredit(wxT("Vladislav Isaev"), presetsFormat, roleContributor);
+   AddCredit(wxT("Marek Iwaszkiewicz"), presetsFormat, roleContributor);
    AddCredit(wxT("Steve Jolly"), developerFormat, roleContributor);
    AddCredit(wxT("Steven Jones"), developerFormat, roleContributor);
    AddCredit(wxT("Henric Jungheim"), developerFormat, roleContributor);
@@ -221,6 +229,10 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Benjamin Schwartz"), developerFormat, roleContributor);
    AddCredit(wxT("Cliff Scott"), testerFormat, roleContributor);
    AddCredit(wxT("David R. Sky"), NyquistPluginsFormat, roleContributor);
+   AddCredit(wxT("Joe Souza"), developerFormat, roleContributor);
+   AddCredit(wxT("K. Soze"), developerFormat, roleContributor);
+   AddCredit(wxT("Anita Sudan"), roleContributor);
+   AddCredit(wxT("Vitaly Sverchinsky"), developerFormat, roleContributor);
    AddCredit(wxT("Rob Sykes"), developerFormat, roleContributor);
    AddCredit(wxT("Mike Underwood"), developerFormat, roleContributor);
    AddCredit(wxT("Philip Van Baren"), developerFormat, roleContributor);
@@ -241,7 +253,6 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("[[https://libexpat.github.io/|expat]]"), roleLibrary);
    AddCredit(wxT("[[https://xiph.org/flac/|FLAC]]"), roleLibrary);
    AddCredit(wxT("[[http://lame.sourceforge.net/|LAME]]"), roleLibrary);
-   AddCredit(wxT("[[https://www.underbit.com/products/mad/|libmad]]"), roleLibrary);
    AddCredit(wxT("[[http://www.mega-nerd.com/libsndfile/|libsndfile]]"), roleLibrary);
    AddCredit(wxT("[[https://sourceforge.net/p/soxr/wiki/Home/|libsoxr]]"), roleLibrary);
    AddCredit(
@@ -431,7 +442,7 @@ void AboutDialog::PopulateAudacityPage( ShuttleGui & S )
       << wxT("<p><br>&nbsp; &nbsp; ")
       /* i18n-hint Audacity's name substitutes for first and third %s,
        and a "copyright" symbol for the second */
-      << XO("%s software is copyright %s 1999-2023 %s Team.")
+      << XO("%s software is copyright %s 1999-2024 %s Team.")
          .Format(
             Verbatim("<b>%s<sup>&reg;</sup></b>").Format( ProgramName ),
             wxT("&copy;"),
@@ -478,7 +489,7 @@ void AboutDialog::PopulateAudacityPage( ShuttleGui & S )
    HtmlWindow *html = safenew LinkingHtmlWindow(S.GetParent(), -1,
                                          wxDefaultPosition,
                                          wxSize(ABOUT_DIALOG_WIDTH, 359),
-                                         wxHW_SCROLLBAR_AUTO | wxSUNKEN_BORDER);
+                                         wxHW_SCROLLBAR_AUTO);
    html->SetPage( FormatHtmlText( o.GetString() ) );
 
    /* locate the html renderer where it fits in the dialogue */
@@ -503,7 +514,7 @@ void AboutDialog::PopulateInformationPage( ShuttleGui & S )
    S.StartVerticalLay(2);  // create the window
    HtmlWindow *html = safenew LinkingHtmlWindow(S.GetParent(), -1, wxDefaultPosition,
                            wxSize(ABOUT_DIALOG_WIDTH, 264),
-                           wxHW_SCROLLBAR_AUTO | wxSUNKEN_BORDER);
+                           wxHW_SCROLLBAR_AUTO );
    // create a html pane in it to put the content in.
    auto enabled = XO("Enabled");
    auto disabled = XO("Disabled");
@@ -511,7 +522,7 @@ void AboutDialog::PopulateInformationPage( ShuttleGui & S )
 
    /* this builds up the list of information to go in the window in the string
     * informationStr */
- 
+
    informationStr
       << wxT("<h3>")
    /* i18n-hint: Information about when audacity was compiled follows */
@@ -781,7 +792,7 @@ void AboutDialog::PopulateLicensePage( ShuttleGui & S )
 #else
    S.StartNotebookPage(XO("GPL License"));
 #endif
-   
+
 #if defined(HAS_PRIVACY_POLICY)
    S.Prop(0).StartPanel();
    {
@@ -799,7 +810,7 @@ void AboutDialog::PopulateLicensePage( ShuttleGui & S )
       privacyPolicy.FormatLink(
          /* i18n-hint: Title of hyperlink to the privacy policy. This is an object of "See". */
          wxT("%s"), XO("our Privacy Policy"),
-         "https://www.audacityteam.org/about/desktop-privacy-notice/");
+         "https://www.audacityteam.org/desktop-privacy-notice/");
 
       privacyPolicy.Populate(S);
    }
@@ -812,7 +823,7 @@ void AboutDialog::PopulateLicensePage( ShuttleGui & S )
    {
       HtmlWindow* html = safenew LinkingHtmlWindow(
          S.GetParent(), -1, wxDefaultPosition, wxSize(ABOUT_DIALOG_WIDTH, 264),
-         wxHW_SCROLLBAR_AUTO | wxSUNKEN_BORDER);
+         wxHW_SCROLLBAR_AUTO );
 
       html->SetPage(FormatHtmlText(GPL_TEXT()));
 

@@ -9,30 +9,37 @@
 
 #include "UpdateManager.h"
 
+#include "Prefs.h"
 #include "UpdatePopupDialog.h"
 #include "UpdateNoticeDialog.h"
 #include "NoUpdatesAvailableDialog.h"
 
 #include "AudioIO.h"
 #include "BasicUI.h"
+#include "HeadersList.h"
 #include "NetworkManager.h"
 #include "IResponse.h"
 #include "Request.h"
+#include "Uuid.h"
 
+#include <wx/log.h>
 #include <wx/utils.h>
 #include <wx/frame.h>
 #include <wx/app.h>
 #include <wx/stdpaths.h>
 #include <wx/filename.h>
 
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include <cstdint>
 
 #define UPDATE_LOCAL_TESTING 0
 
 static const char* prefsUpdateScheduledTime = "/Update/UpdateScheduledTime";
-
-static BoolSetting
-   prefUpdatesNoticeShown(wxT("/Update/UpdateNoticeShown"), false);
+static BoolSetting prefUpdatesNoticeShown(wxT("/Update/UpdateNoticeShown"), false);
+static StringSetting AudioComUserId { L"/cloud/audiocom/userId", "" };
 
 using Clock = std::chrono::system_clock;
 using TimePoint = Clock::time_point;
@@ -61,16 +68,17 @@ void UpdateManager::Start(bool suppressModal)
 {
     auto& instance = GetInstance();
 
-    // Show the dialog only once. 
     if (!suppressModal && !prefUpdatesNoticeShown.Read())
     {
         // DefaultUpdatesCheckingFlag survives the "Reset Preferences"
         // action, so check, if the updates were previously disabled as well.
-        if (DefaultUpdatesCheckingFlag.Read())
+        if (DefaultUpdatesCheckingFlag->Read())
         {
             UpdateNoticeDialog notice(nullptr);
 
-            notice.ShowModal();
+            int result = notice.ShowModal();
+            SendAnonymousUsageInfo->Write(result != wxNO);
+            GetInstance().UpdatePrefs();
         }
 
         prefUpdatesNoticeShown.Write(true);
@@ -91,11 +99,12 @@ VersionPatch UpdateManager::GetVersionPatch() const
 
 void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotification)
 {
-    const audacity::network_manager::Request request("https://updates.audacityteam.org/feed/latest.xml");
+
+    const audacity::network_manager::Request request(GetUpdatesUrl());
     auto response = audacity::network_manager::NetworkManager::GetInstance().doGet(request);
 
     response->setRequestFinishedCallback([response, ignoreNetworkErrors, configurableNotification, this](audacity::network_manager::IResponse*) {
-        
+
         // We don't' want to duplicate the updates checking if that already launched.
         {
             std::lock_guard<std::mutex> lock(mUpdateMutex);
@@ -120,7 +129,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                  ErrorDialogOptions{ ErrorDialogType::ModalErrorReport });
               });
            }
-           
+
            mOnProgress = false;
            return;
         }
@@ -136,7 +145,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                  ErrorDialogOptions{ ErrorDialogType::ModalErrorReport });
               });
            }
-           
+
            mOnProgress = false;
            return;
         }
@@ -158,10 +167,10 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                     downloadResponse->setRequestFinishedCallback([downloadResponse, ignoreNetworkErrors, this](audacity::network_manager::IResponse*) {
                         // First - close all opened resources.
                         wxTheApp->CallAfter([this]{ mProgressDialog.reset(); });
-                        
+
                         if (mAudacityInstaller.is_open())
                             mAudacityInstaller.close();
-                        
+
                         if (downloadResponse->getError() != audacity::network_manager::NetworkError::NoError)
                         {
                             if (!ignoreNetworkErrors)
@@ -177,7 +186,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                             mOnProgress = false;
                             return;
                         }
-                        
+
                         const wxPlatformInfo& info = wxPlatformInfo::Get();
                         if ((info.GetOperatingSystemId() & wxOS_WINDOWS) ||
                             info.GetOperatingSystemId() & wxOS_MAC)
@@ -188,7 +197,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                                 wxTheApp->CallAfter([cmd] { wxExecute(cmd, wxEXEC_ASYNC); });
                             }
                         }
-                        
+
                         mOnProgress = false;
                         }
                     );
@@ -197,7 +206,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
 
                     mProgressDialog = BasicUI::MakeProgress(XO("Audacity update"), XO("Downloading %s").Format(audacityPatchFilename));
                     wxASSERT(mProgressDialog);
-                    
+
                     wxString installerExtension;
                     const wxPlatformInfo& info = wxPlatformInfo::Get();
                     if (info.GetOperatingSystemId() & wxOS_WINDOWS)
@@ -211,7 +220,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                         .ToStdString();
 
                     mAudacityInstaller.open(mAudacityInstallerPath, std::ios::binary);
-                    
+
                     // Called each time, since downloading for update progress status.
                     downloadResponse->setDownloadProgressCallback(
                         [this](int64_t current, int64_t expected) {
@@ -230,7 +239,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                             std::vector<char> buffer(downloadResponse->getBytesAvailable());
 
                             size_t bytes = downloadResponse->readData(buffer.data(), buffer.size());
-                            
+
                             if (mAudacityInstaller.is_open())
                                 mAudacityInstaller.write(buffer.data(), buffer.size());
                         }
@@ -254,7 +263,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
                     NoUpdatesAvailableDialog(nullptr).ShowModal();
                     });
             }
-            
+
             mOnProgress = false;
         }
 #endif
@@ -263,7 +272,7 @@ void UpdateManager::GetUpdates(bool ignoreNetworkErrors, bool configurableNotifi
 
 void UpdateManager::OnTimer(wxTimerEvent& WXUNUSED(event))
 {
-    bool updatesCheckingEnabled = DefaultUpdatesCheckingFlag.Read();
+    bool updatesCheckingEnabled = DefaultUpdatesCheckingFlag->Read();
 
 #if UPDATE_LOCAL_TESTING == 0
     if (updatesCheckingEnabled && IsTimeForUpdatesChecking())
@@ -294,7 +303,7 @@ bool UpdateManager::IsTimeForUpdatesChecking()
     {
 
         // Round down the nextUpdatesChecking time to a day.
-        // This is required to ensure, that update is 
+        // This is required to ensure, that update is
         // checked daily
         using DayDuration =
           std::chrono::duration<int32_t, std::ratio<60 * 60 * 24>>;
@@ -316,4 +325,76 @@ bool UpdateManager::IsTimeForUpdatesChecking()
     }
 
     return false;
+}
+
+std::string UpdateManager::GetUpdatesUrl() const
+{
+   #if AUDACITY_BUILD_LEVEL == 0
+      std::string url = "https://updates.audacityteam.org/builds/alpha.xml";
+   #elif AUDACITY_BUILD_LEVEL == 1
+      std::string url = "https://updates.audacityteam.org/builds/beta.xml";
+   #else
+      std::string url = "https://updates.audacityteam.org/feed/latest.xml";
+   #endif
+
+   if (SendAnonymousUsageInfo->Read())
+   {
+      url += "?audacity-instance-id=" + InstanceId->Read().ToStdString();
+
+      if (!AudioComUserId.Read().IsEmpty())
+      {
+         url += "&user_id=" + AudioComUserId.Read().ToStdString();
+      }
+   }
+
+   return url;
+}
+
+std::string UpdateManager::GetOptOutUrl() const {
+   const std::string url = "https://api.audio.com/analytics/audacity-uuid/opt-out";
+   return url;
+}
+
+void UpdateManager::SendOptOutRequest() const {
+   using namespace rapidjson;
+   using namespace audacity::network_manager;
+
+   std::string uuid = InstanceId->Read().ToStdString();
+
+   Document document;
+   document.SetObject().AddMember("uuid",
+      Value(uuid.c_str(), document.GetAllocator()),
+      document.GetAllocator());
+
+   StringBuffer buffer;
+   Writer<StringBuffer> writer(buffer);
+   document.Accept(writer);
+
+   Request request(GetOptOutUrl());
+
+   request.setHeader(common_headers::ContentType, common_content_types::ApplicationJson);
+   request.setHeader(common_headers::Accept, common_content_types::ApplicationJson);
+
+   auto response = NetworkManager::GetInstance().doPost(request, buffer.GetString(), buffer.GetSize());
+
+   response->setRequestFinishedCallback([response](auto) {
+      if (response->getHTTPCode() != HttpCode::OK) {
+         wxLogWarning(wxT("Failed to communicate with Audio.com. Error code: %d."), response->getHTTPCode());
+         wxLogWarning(wxT("Server response: %s"), response->readAll<std::string>());
+      }
+   });
+}
+
+void UpdateManager::UpdatePrefs()
+{
+   //! Create the instance id if the user allowed it and it was not created before
+   if (SendAnonymousUsageInfo->Read()) {
+      if(InstanceId->Read().IsEmpty()) {
+         InstanceId->Write(audacity::Uuid::Generate().ToHexString());
+         gPrefs->Flush();
+      }
+   }
+   else {
+      SendOptOutRequest();
+   }
 }

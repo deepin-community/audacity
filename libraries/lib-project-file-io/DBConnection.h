@@ -19,6 +19,7 @@ Paul Licameli -- split from ProjectFileIO.h
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <chrono>
 
 #include "ClientData.h"
 #include "Identifier.h"
@@ -36,7 +37,7 @@ struct DBConnectionErrors
    wxString mLog;
 };
 
-class DBConnection
+class PROJECT_FILE_IO_API DBConnection final
 {
 public:
    using CheckpointFailureCallback = std::function<void()>;

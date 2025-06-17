@@ -21,7 +21,7 @@
 
 #include "CommandContext.h"
 #include "CommandDispatch.h"
-#include "CommandManager.h"
+#include "MenuRegistry.h"
 #include "../CommonCommandFlags.h"
 #include "LoadCommands.h"
 #include "ProjectHistory.h"
@@ -75,7 +75,7 @@ bool SetEnvelopeCommand::ApplyInner(const CommandContext &context, Track &t)
    //   - delete deletes any envelope in selected tracks.
    //   - value is not set for any clip
    t.TypeSwitch([&](WaveTrack &waveTrack) {
-      for (const auto pClip : waveTrack.SortedClipArray()) {
+      for (const auto pClip : waveTrack.SortedIntervalArray()) {
          bool bFound =
             !bHasT || (
                (pClip->GetPlayStartTime() <= mT) &&
@@ -83,12 +83,12 @@ bool SetEnvelopeCommand::ApplyInner(const CommandContext &context, Track &t)
             );
          if (bFound) {
             // Inside this IF is where we actually apply the command
-            Envelope* pEnv = pClip->GetEnvelope();
+            auto &env = pClip->GetEnvelope();
             bool didSomething = false;
             if (bHasDelete && mbDelete)
-               pEnv->Clear(), didSomething = true;
+               env.Clear(), didSomething = true;
             if (bHasT && bHasV)
-               pEnv->InsertOrReplace(mT, pEnv->ClampValue(mV)),
+               env.InsertOrReplace(mT, env.ClampValue(mV)),
                didSomething = true;
 
             if (didSomething)
@@ -106,17 +106,17 @@ bool SetEnvelopeCommand::ApplyInner(const CommandContext &context, Track &t)
 }
 
 namespace {
-using namespace MenuTable;
+using namespace MenuRegistry;
 
 // Register menu items
 
 AttachedItem sAttachment1{
-   wxT("Optional/Extra/Part2/Scriptables1"),
    // Note that the PLUGIN_SYMBOL must have a space between words,
    // whereas the short-form used here must not.
    // (So if you did write "Compare Audio" for the PLUGIN_SYMBOL name, then
    // you would have to use "CompareAudio" here.)
    Command( wxT("SetEnvelope"), XXO("Set Envelope..."),
-      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
+      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() ),
+   wxT("Optional/Extra/Part2/Scriptables1")
 };
 }

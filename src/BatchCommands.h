@@ -41,6 +41,9 @@ public:
    Entries::const_iterator ByFriendlyName( const TranslatableString &friendlyName ) const;
    // linear search
    Entries::const_iterator ByCommandId( const CommandID &commandId ) const;
+   // linear search
+   Entries::const_iterator ByTranslation(const wxString &translation) const;
+
 
    // Lookup by position as sorted by friendly name
    const Entry &operator[] ( size_t index ) const { return mCommands[index]; }
@@ -58,15 +61,22 @@ class MacroCommands final {
  public:
    // constructors and destructors
    MacroCommands( AudacityProject &project );
+   AudacityProject &GetProject() { return mProject; }
  public:
    bool ApplyMacro( const MacroCommandsCatalog &catalog,
       const wxString & filename = {});
+   /*!
+    @pre `!pContext || &pContext->project == &GetProject()`
+    */
    bool ApplyCommand( const TranslatableString &friendlyCommand,
       const CommandID & command, const wxString & params,
-      CommandContext const * pContext=NULL );
+      CommandContext const * pContext = nullptr);
+   /*!
+    @pre `!pContext || &pContext->project == &GetProject()`
+    */
    bool ApplyCommandInBatchMode( const TranslatableString &friendlyCommand,
       const CommandID & command, const wxString &params,
-      CommandContext const * pContext = NULL);
+      CommandContext const * pContext = nullptr);
    bool ApplyEffectCommand(
       const PluginID & ID, const TranslatableString &friendlyCommand,
       const CommandID & command,
@@ -81,7 +91,8 @@ class MacroCommands final {
 
    static wxString GetCurrentParamsFor(const CommandID & command);
    static wxString PromptForParamsFor(
-      const CommandID & command, const wxString & params, wxWindow &parent);
+      const CommandID& command, const wxString& params,
+      AudacityProject& project);
    static wxString PromptForPresetFor(const CommandID & command, const wxString & params, wxWindow *parent);
 
    // These commands do depend on the command list.
@@ -116,7 +127,7 @@ private:
    wxArrayString mParamsMacro;
    bool mAbort;
    wxString mMessage;
-   
+
    wxString mFileName;
 };
 

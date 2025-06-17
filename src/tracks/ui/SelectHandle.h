@@ -13,7 +13,7 @@ Paul Licameli split from TrackPanel.cpp
 
 #include "../../UIHandle.h"
 #include "SelectedRegion.h"
-#include "../../Snap.h"
+#include "Snap.h"
 
 #include <vector>
 
@@ -21,9 +21,11 @@ class SelectionStateChanger;
 class SnapManager;
 class SpectrumAnalyst;
 class Track;
+class Channel;
 class ChannelView;
 class TrackList;
 class ViewInfo;
+class WaveChannel;
 class WaveTrack;
 class wxMouseState;
 
@@ -48,7 +50,9 @@ public:
    
    virtual ~SelectHandle();
 
-   bool IsClicked() const;
+   std::shared_ptr<const Track> FindTrack() const override;
+
+   bool IsDragging() const override;
 
    void SetUseSnap(bool use, AudacityProject *pProject);
    void Enter(bool forward, AudacityProject *pProject) override;
@@ -79,7 +83,9 @@ public:
        const SelectHandle &newState);
 
 private:
-   std::weak_ptr<Track> FindTrack();
+   std::shared_ptr<Channel> FindChannel();
+   static Track *FindTrack(Channel *);
+   Track *FindTrack();
 
    void Connect(AudacityProject *pProject);
 
@@ -88,31 +94,28 @@ private:
       AudacityProject *pProject,
       ViewInfo &viewInfo, int mouseXCoordinate, int trackLeftEdge,
       Track *pTrack);
-   void AssignSelection(ViewInfo &viewInfo, double selend, Track *pTrack);
+   void AssignSelection(ViewInfo &viewInfo, double selend);
 
    void StartFreqSelection(
       ViewInfo &viewInfo, int mouseYCoordinate, int trackTopEdge,
-      int trackHeight, ChannelView *pChannelView);
-   void AdjustFreqSelection(
-      const WaveTrack *wt,
+      int trackHeight, ChannelView &channelView);
+   void AdjustFreqSelection(const WaveChannel &wc,
       ViewInfo &viewInfo, int mouseYCoordinate, int trackTopEdge,
       int trackHeight);
 
    void HandleCenterFrequencyClick(
       const ViewInfo &viewInfo, bool shiftDown,
-      const WaveTrack *pTrack, double value);
-   static void StartSnappingFreqSelection(
-      SpectrumAnalyst &analyst,
-      const ViewInfo &viewInfo, const WaveTrack *pTrack);
+      const std::shared_ptr<const WaveChannel> &pWc, double value);
+   static void StartSnappingFreqSelection(SpectrumAnalyst &analyst,
+      const ViewInfo &viewInfo, const WaveChannel &wc);
    void MoveSnappingFreqSelection(
       AudacityProject *pProject, ViewInfo &viewInfo, int mouseYCoordinate,
       int trackTopEdge,
-      int trackHeight, ChannelView *pChannelView);
+      int trackHeight, ChannelView &channelView, Track *pTrack);
 public:
    // This is needed to implement a command assignable to keystrokes
-   static void SnapCenterOnce(
-      SpectrumAnalyst &analyst,
-      ViewInfo &viewInfo, const WaveTrack *pTrack, bool up);
+   static void SnapCenterOnce(SpectrumAnalyst &analyst,
+      ViewInfo &viewInfo, const WaveChannel &wc, bool up);
 private:
 
    // TrackPanelDrawable implementation
@@ -152,7 +155,7 @@ private:
       FREQ_SEL_TOP_FREE,
       FREQ_SEL_BOTTOM_FREE,
    }  mFreqSelMode{ FREQ_SEL_INVALID };
-   std::weak_ptr<const WaveTrack> mFreqSelTrack;
+   std::weak_ptr<const WaveChannel> mFreqSelTrack;
    // Following holds:
    // the center for FREQ_SEL_PINNED_CENTER,
    // the ratio of top to center (== center to bottom) for FREQ_SEL_DRAG_CENTER,

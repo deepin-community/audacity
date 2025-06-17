@@ -31,8 +31,8 @@ endif()
 # Increment as appropriate after release of a new version, and set back
 # AUDACITY_BUILD_LEVEL to 0
 set( AUDACITY_VERSION 3 )
-set( AUDACITY_RELEASE 4 )
-set( AUDACITY_REVISION 2 )
+set( AUDACITY_RELEASE 7 )
+set( AUDACITY_REVISION 3 )
 set( AUDACITY_MODLEVEL 0 )
 
 string( TIMESTAMP __TDATE__ "%Y%m%d" )
@@ -154,17 +154,24 @@ set( _OPT "audacity_" )
 # Our very own project
 project( Audacity )
 
-# XCode 14 no longer allows building unsigned binaries.
-# So for the XCode 14 `-` is passed as the code sign identity, which stands for
-# local signing. `--deep` is passed, because 3d party libraries are copied unsigned.
-# XCODE_VERSION is defined only after the project() command
-
 if( APPLE )
+   # XCode 14 no longer allows building unsigned binaries.
+   # So for the XCode 14 `-` is passed as the code sign identity, which stands for
+   # local signing. `--deep` is passed, because 3d party libraries are copied unsigned.
+   # XCODE_VERSION is defined only after the project() command
    if (XCODE_VERSION VERSION_LESS 14)
       set( CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "" CACHE INTERNAL "" )
    else()
       set( CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "-" CACHE INTERNAL "" )
       set( CMAKE_XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--deep -o linker-signed --timestamp" CACHE INTERNAL "")
+   endif()
+
+   # Xcode 15 breaks compatibility with macOS vesions older than 12
+   # https://developer.apple.com/documentation/xcode-release-notes/xcode-15-release-notes#Linking
+   if (XCODE_VERSION VERSION_GREATER_EQUAL 15)
+      # link_libraries is guaranteed to set the flag for all
+      # linker invocations
+      link_libraries("-Wl,-ld_classic")
    endif()
 endif()
 
@@ -286,6 +293,12 @@ set_from_env(SENTRY_DSN_KEY)
 set_from_env(SENTRY_HOST)
 set_from_env(SENTRY_PROJECT)
 set_from_env(CRASH_REPORT_URL)
+
+option(
+   ${_OPT}has_whats_new
+   "Show \"What's New\" dialog on startup"
+   On
+)
 
 cmake_dependent_option(
    ${_OPT}has_crashreports
@@ -516,7 +529,7 @@ check_include_files( "float.h;stdarg.h;stdlib.h;string.h" STDC_HEADERS )
 check_include_file( "assert.h" HAVE_ASSERT_H )
 check_include_file( "fenv.h" HAVE_FENV_H )
 check_include_file( "inttypes.h" HAVE_INTTYPES_H )
-if( CMAKE_SYSTEM_NAME MATCHES "FreeBSD" )
+if( CMAKE_SYSTEM_NAME MATCHES "FreeBSD" OR CMAKE_SYSTEM_NAME MATCHES "OpenBSD" )
   check_include_file( "stdlib.h" HAVE_MALLOC_H )
 else()
   check_include_file( "malloc.h" HAVE_MALLOC_H )
@@ -671,7 +684,8 @@ string( JOIN "\n" GRAPH_EDGES ${GRAPH_EDGES} )
 # Choose edge attributes making it easy to hover at either end of edge
 # and see a tooltip describing the edge, in svg image
 file( WRITE "${CMAKE_CURRENT_BINARY_DIR}/modules.dot" "digraph {
-   graph [rankdir=LR] edge [dir=both,arrowtail=inv] \n"
+   graph [rankdir=LR newrank=true] edge [dir=both,arrowtail=inv] \n"
+   "${GRAPH_SUBGRAPHS}\n"
    "${GRAPH_EDGES}"
    "\n}\n"
 )

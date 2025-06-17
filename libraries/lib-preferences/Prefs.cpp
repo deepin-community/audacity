@@ -55,13 +55,17 @@
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 
-#include "Internat.h"
-#include "MemoryX.h"
 #include "BasicUI.h"
+#include "Internat.h"
+#include "IteratorX.h"
 #include "Observer.h"
 
-BoolSetting DefaultUpdatesCheckingFlag{
+StickySetting<BoolSetting> DefaultUpdatesCheckingFlag{
     L"/Update/DefaultUpdatesChecking", true };
+
+StickySetting<BoolSetting> SendAnonymousUsageInfo{ L"SendAnonymousUsageInfo", false };
+
+StickySetting<StringSetting> InstanceId{ L"InstanceId" };
 
 std::unique_ptr<audacity::BasicSettings> ugPrefs {};
 
@@ -82,6 +86,35 @@ struct PrefsListener::Impl
 };
 
 namespace {
+
+class PreferencesResetHandlerRegistry
+{
+   std::vector<std::unique_ptr<PreferencesResetHandler>> mHandlers;
+public:
+   static PreferencesResetHandlerRegistry& Get()
+   {
+      static PreferencesResetHandlerRegistry registry;
+      return registry;
+   }
+
+   void Register(std::unique_ptr<PreferencesResetHandler> handler)
+   {
+      mHandlers.push_back(std::move(handler));
+   }
+
+   void BeginReset()
+   {
+      for(auto& handler : mHandlers)
+         handler->OnSettingResetBegin();
+   }
+
+   void EndReset()
+   {
+      for(auto& handler : mHandlers)
+         handler->OnSettingResetEnd();
+   }
+
+};
 
 struct Hub : Observer::Publisher<int>
 {
@@ -223,21 +256,11 @@ void SetPreferencesVersion(int vMajor, int vMinor, int vMicro)
 
 void ResetPreferences()
 {
-   // Future:  make this a static registry table, so the settings objects
-   // don't need to be defined in this source code file to avoid dependency
-   // cycles
-   std::pair<BoolSetting &, bool> stickyBoolSettings[] {
-      {DefaultUpdatesCheckingFlag, 0},
-      // ... others?
-   };
-   for (auto &pair : stickyBoolSettings)
-      pair.second = pair.first.Read();
+   PreferencesResetHandlerRegistry::Get().BeginReset();
 
-   bool savedValue = DefaultUpdatesCheckingFlag.Read();
    gPrefs->Clear();
 
-   for (auto &pair : stickyBoolSettings)
-      pair.first.Write(pair.second);
+   PreferencesResetHandlerRegistry::Get().EndReset();
 }
 
 void FinishPreferences()
@@ -292,11 +315,11 @@ auto SettingScope::Add( TransactionalSettingBase &setting ) -> AddResult
       {
          if ((*it)->mPending.find(&setting) != (*it)->mPending.end())
             break;
-         
+
          (*it)->mPending.insert(&setting);
       }
    }
-   
+
    return inserted ? Added : PreviouslyAdded;
 }
 
@@ -304,12 +327,12 @@ bool SettingTransaction::Commit()
 {
    if (sScopes.empty() || sScopes.back() != this)
       return false;
-   
+
    if ( !mCommitted ) {
       for ( auto pSetting : mPending )
          if ( !pSetting->Commit() )
             return false;
-      
+
       if (sScopes.size() > 1 || gPrefs->Flush())
       {
          mPending.clear();
@@ -317,7 +340,7 @@ bool SettingTransaction::Commit()
          return true;
       }
    }
-   
+
    return false;
 }
 
@@ -473,6 +496,13 @@ void EnumSettingBase::Migrate( wxString &value )
    }
 }
 
+void PreferencesResetHandler::Register(std::unique_ptr<PreferencesResetHandler> handler)
+{
+   PreferencesResetHandlerRegistry::Get().Register(std::move(handler));
+}
+
+PreferencesResetHandler::~PreferencesResetHandler() = default;
+
 bool EnumSettingBase::WriteInt( int code ) // you flush gPrefs afterward
 {
    auto index = FindInt( code );
@@ -529,8 +559,5 @@ bool SettingBase::Delete()
 bool BoolSetting::Toggle()
 {
    bool value = Read();
-   if ( Write( !value ) )
-      return !value;
-   else
-      return value;
+   return Write( !value );
 }

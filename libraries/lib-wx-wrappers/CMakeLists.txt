@@ -7,8 +7,12 @@ Very much not toolkit-neutral!
 ]]
 
 set( SOURCES
+   AccessibilityUtils.cpp
+   AccessibilityUtils.h
    AudacityTextEntryDialog.cpp
    AudacityTextEntryDialog.h
+   AudacityDontAskAgainMessageDialog.cpp
+   AudacityDontAskAgainMessageDialog.h
    SpinControl.cpp
    SpinControl.h
    FileDialog/FileDialog.cpp
@@ -21,7 +25,7 @@ set( SOURCES
       FileDialog/mac/FileDialogPrivate.mm
       FileDialog/mac/FileDialogPrivate.h
    >
-   $<$<PLATFORM_ID:Linux,FreeBSD,CYGWIN>:
+   $<$<PLATFORM_ID:Linux,FreeBSD,OpenBSD,CYGWIN>:
       FileDialog/gtk/FileDialogPrivate.cpp
       FileDialog/gtk/FileDialogPrivate.h
    >
@@ -29,10 +33,17 @@ set( SOURCES
    WindowAccessible.h
    wxPanelWrapper.cpp
    wxPanelWrapper.h
+   GradientButton.cpp
+   GradientButton.h
+   HyperLink.cpp
+   HyperLink.h
+   RoundedStaticBitmap.cpp
+   RoundedStaticBitmap.h
 )
 
 set( LIBRARIES
    lib-files-interface
+   lib-theme-interface
    wxwidgets::wxwidgets
 )
 
