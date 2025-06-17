@@ -1,5 +1,3 @@
 Fix-rpath-for-private-libraries-on-Linux.patch
 Fix-setting-audacity_use_midi-off.patch
 Drop-UBUNTU_MENUPROXY-0-workaround.patch
-0007-Playback_cursor_workaround.patch
-0009-fix_build_with_portsmf_sys_library.patch

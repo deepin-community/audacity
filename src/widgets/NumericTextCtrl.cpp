@@ -146,12 +146,12 @@ NumericTextCtrl::NumericTextCtrl(
                            const FormatterContext& context,
                            wxWindow *parent, wxWindowID id,
                            NumericConverterType type,
-                           const NumericFormatSymbol &formatName,
+                           const NumericFormatID &formatName,
                            double timeValue,
                            const Options &options,
                            const wxPoint &pos,
                            const wxSize &size):
-   wxControl(parent, id, pos, size, wxSUNKEN_BORDER | wxWANTS_CHARS),
+   wxControl(parent, id, pos, size, wxWANTS_CHARS),
    NumericConverter(context, type, formatName, timeValue),
    mBackgroundBitmap{},
    mDigitFont{},
@@ -171,7 +171,7 @@ NumericTextCtrl::NumericTextCtrl(
 
    mReadOnly = options.readOnly;
    mMenuEnabled = options.menuEnabled;
-   mButtonWidth = mMenuEnabled ? 9 : 0;
+   mButtonWidth = mMenuEnabled ? 16 : 0;
 
    SetLayoutDirection(wxLayout_LeftToRight);
    Layout();
@@ -234,7 +234,7 @@ void NumericTextCtrl::UpdateAutoFocus()
    }
 }
 
-bool NumericTextCtrl::SetTypeAndFormatName(const NumericConverterType& type, const NumericFormatSymbol& formatName)
+bool NumericTextCtrl::SetTypeAndFormatName(const NumericConverterType& type, const NumericFormatID& formatName)
 {
    if (!NumericConverter::SetTypeAndFormatName(type, formatName))
       return false;
@@ -244,7 +244,7 @@ bool NumericTextCtrl::SetTypeAndFormatName(const NumericConverterType& type, con
    return true;
 }
 
-bool NumericTextCtrl::SetFormatName(const NumericFormatSymbol& formatName)
+bool NumericTextCtrl::SetFormatName(const NumericFormatID& formatName)
 {
    if (!NumericConverter::SetFormatName(formatName))
       return false;
@@ -452,7 +452,7 @@ bool NumericTextCtrl::Layout()
 
    // Draw the background bitmap - it contains black boxes where
    // all of the digits go and all of the other text
-
+   wxPen Pen;
    wxBrush Brush;
 
    mBackgroundBitmap = std::make_unique<wxBitmap>(mWidth + mButtonWidth, mHeight,24);
@@ -474,7 +474,7 @@ bool NumericTextCtrl::Layout()
 
    theTheme.SetBrushColour( Brush, clrTimeBack );
    memDC.SetBrush(Brush);
-   //memDC.SetBrush(*wxLIGHT_GREY_BRUSH);
+
    for(i = 0; i < digits.size(); i++)
       memDC.DrawRectangle(GetBox(i));
    memDC.SetBrush( wxNullBrush );
@@ -483,14 +483,14 @@ bool NumericTextCtrl::Layout()
       memDC.DrawText(fields[i].label, mFieldPositions[i].labelX, labelTop);
 
    if (mMenuEnabled) {
-      wxRect r(mWidth, 0, mButtonWidth - 1, mHeight - 1);
-      AColor::Bevel(memDC, true, r);
-      memDC.SetBrush(*wxBLACK_BRUSH);
-      memDC.SetPen(*wxBLACK_PEN);
+      theTheme.SetPenColour( Pen, clrTimeFont );
+      theTheme.SetBrushColour( Brush, clrTimeFont );
+      memDC.SetPen(Pen);
+      memDC.SetBrush(Brush);
       AColor::Arrow(memDC,
-                    mWidth + 1,
+                    mWidth + 5,
                     (mHeight / 2) - 2,
-                    mButtonWidth - 2);
+                    mButtonWidth - 7);
    }
    return true;
 }
@@ -575,17 +575,18 @@ void NumericTextCtrl::OnContext(wxContextMenuEvent &event)
 
    SetFocus();
 
-   std::vector<NumericFormatSymbol> symbols;
+   std::vector<NumericFormatID> symbols;
 
    NumericConverterRegistry::Visit(
       mContext,
       mType,
       [&menu, &symbols, this, i = ID_MENU](auto& item) mutable
       {
-         symbols.push_back(item.symbol);
+         const auto ID = item.symbol.Internal();
+         symbols.push_back(ID);
          menu.AppendRadioItem(i, item.symbol.Translation());
 
-         if (mFormatSymbol == item.symbol)
+         if (mFormatID == ID)
             menu.Check(i, true);
 
          ++i;
@@ -620,13 +621,13 @@ void NumericTextCtrl::OnContext(wxContextMenuEvent &event)
 
    for (const auto& symbol : symbols)
    {
-      if (!menu.IsChecked(menuIndex++) || mFormatSymbol == symbol)
+      if (!menu.IsChecked(menuIndex++) || mFormatID == symbol)
          continue;
          
       SetFormatName(symbol);
 
       wxCommandEvent e(eventType, GetId());
-      e.SetString(symbol.Internal());
+      e.SetString(symbol.GET());
       GetParent()->GetEventHandler()->AddPendingEvent(e);
 
       break;
@@ -1111,7 +1112,7 @@ wxAccStatus NumericTextCtrlAx::GetLocation(wxRect & rect, int elementId)
 }
 
 static void GetFraction( const FormatterContext& context, wxString &label, NumericConverterType type,
-   const NumericFormatSymbol &formatSymbol )
+   const NumericFormatID &formatSymbol )
 {
    auto result = NumericConverterRegistry::Find(context, type, formatSymbol);
 
@@ -1184,7 +1185,7 @@ wxAccStatus NumericTextCtrlAx::GetName(int childId, wxString *name)
 
          if (field > 1 && field == cnt) {
             if (mFields[field - 2].label == decimal) {
-               GetFraction( mCtrl->mContext, label, mCtrl->mType, mCtrl->mFormatSymbol );
+               GetFraction( mCtrl->mContext, label, mCtrl->mType, mCtrl->mFormatID);
             }
          }
          // If the field following this one represents fractions of a

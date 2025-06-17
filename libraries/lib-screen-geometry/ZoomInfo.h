@@ -20,14 +20,14 @@ class AudacityProject;
 enum : int {
    // Constants related to x coordinates in the track panel
    kBorderThickness = 1,
-   kShadowThickness = 1,
+   kShadowThickness = 0,
 
    kLeftInset = 4,
    kRightInset = kLeftInset,
    kLeftMargin = kLeftInset + kBorderThickness,
    kRightMargin = kRightInset + kShadowThickness + kBorderThickness,
 
-   kTrackInfoWidth = 100 - kLeftMargin,
+   kTrackInfoWidth = 155 - kLeftMargin,
 };
 
 // The subset of ViewInfo information (other than selection)
@@ -40,6 +40,9 @@ class SCREEN_GEOMETRY_API ZoomInfo /* not final */
 public:
    using int64 = std::int64_t;
 
+   /*!
+    @param start leftmost visible timeline position, in seconds
+    */
    ZoomInfo(double start, double pixelsPerSecond);
    ~ZoomInfo();
 
@@ -47,12 +50,12 @@ public:
    ZoomInfo(const ZoomInfo&) = delete;
    ZoomInfo& operator= (const ZoomInfo&) = delete;
 
-   int vpos;                    // vertical scroll pos
-
-   double h;                    // h pos in secs
+   //! Leftmost visible timeline position in seconds
+   double hpos;
 
 protected:
-   double zoom;                 // pixels per second
+   //! pixels per second
+   double zoom;
 
 public:
    // do NOT use this once to convert a pixel width to a duration!

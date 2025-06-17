@@ -26,15 +26,15 @@ Signed-off-by: Benjamin Drung <benjamin.drung@canonical.com>
 ---
  CMakeLists.txt                                      |  1 +
  cmake-proxies/cmake-modules/AudacityFunctions.cmake | 18 ++++++++++++++++++
- modules/mod-script-pipe/CMakeLists.txt              |  1 +
+ modules/scripting/mod-script-pipe/CMakeLists.txt    |  1 +
  src/CMakeLists.txt                                  |  5 -----
  4 files changed, 20 insertions(+), 5 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 6600f14..93bc1b7 100644
+index 2e91683..2e838c3 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -418,6 +418,7 @@ set( INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" )
+@@ -431,6 +431,7 @@ set( INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" )
  set( _LIBDIR "${CMAKE_INSTALL_LIBDIR}" )
  set( _DATADIR "${CMAKE_INSTALL_DATADIR}" )
  set( _PKGLIB "${_LIBDIR}/audacity" )
@@ -43,10 +43,10 @@ index 6600f14..93bc1b7 100644
  set( _MANDIR "${CMAKE_INSTALL_MANDIR}" )
  set( _MODDIR "${_PKGLIB}/modules" )
 diff --git a/cmake-proxies/cmake-modules/AudacityFunctions.cmake b/cmake-proxies/cmake-modules/AudacityFunctions.cmake
-index c80d1ba..979636a 100644
+index dee6dcd..6c76c1b 100644
 --- a/cmake-proxies/cmake-modules/AudacityFunctions.cmake
 +++ b/cmake-proxies/cmake-modules/AudacityFunctions.cmake
-@@ -445,6 +445,17 @@ function ( make_interface_alias TARGET REAL_LIBTYTPE )
+@@ -470,6 +470,17 @@ function ( make_interface_alias TARGET REAL_LIBTYTPE )
     endif()
  endfunction()
  
@@ -64,7 +64,7 @@ index c80d1ba..979636a 100644
  function( audacity_module_fn NAME SOURCES IMPORT_TARGETS
     ADDITIONAL_DEFINES ADDITIONAL_LIBRARIES LIBTYPE )
  
-@@ -488,6 +499,7 @@ function( audacity_module_fn NAME SOURCES IMPORT_TARGETS
+@@ -513,6 +524,7 @@ function( audacity_module_fn NAME SOURCES IMPORT_TARGETS
           PROPERTIES
              PREFIX ""
              FOLDER "modules" # for IDE organization
@@ -72,7 +72,7 @@ index c80d1ba..979636a 100644
        )
  
        if( NOT CMAKE_SYSTEM_NAME MATCHES "Windows|Darwin" )
-@@ -570,6 +582,12 @@ function( audacity_module_fn NAME SOURCES IMPORT_TARGETS
+@@ -597,6 +609,12 @@ function( audacity_module_fn NAME SOURCES IMPORT_TARGETS
     collect_edges( ${TARGET} "${IMPORT_TARGETS}" ${LIBTYPE} )
     set( GRAPH_EDGES "${GRAPH_EDGES}" PARENT_SCOPE )
  
@@ -85,20 +85,20 @@ index c80d1ba..979636a 100644
     # collect unit test targets if they are present
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
        add_subdirectory(tests)
-diff --git a/modules/mod-script-pipe/CMakeLists.txt b/modules/mod-script-pipe/CMakeLists.txt
-index 5ee1862..ccfd50f 100644
---- a/modules/mod-script-pipe/CMakeLists.txt
-+++ b/modules/mod-script-pipe/CMakeLists.txt
-@@ -15,3 +15,4 @@ set( DEFINES
+diff --git a/modules/scripting/mod-script-pipe/CMakeLists.txt b/modules/scripting/mod-script-pipe/CMakeLists.txt
+index 64cfdd8..a892d95 100644
+--- a/modules/scripting/mod-script-pipe/CMakeLists.txt
++++ b/modules/scripting/mod-script-pipe/CMakeLists.txt
+@@ -24,3 +24,4 @@ set( LIBRARIES
  )
- audacity_module( mod-script-pipe "${SOURCES}" "Audacity"
+ audacity_module( mod-script-pipe "${SOURCES}" "${LIBRARIES}"
     "${DEFINES}" "" )
 +install_audacity_module( mod-script-pipe )
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index c8a134e..0013308 100644
+index 6df0c3e..cc13e7d 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -1461,11 +1461,6 @@ else()
+@@ -1412,11 +1412,6 @@ else()
                 RUNTIME
                 RESOURCE DESTINATION "${_PKGDATA}" )
  
@@ -109,4 +109,4 @@ index c8a134e..0013308 100644
 -
        install( FILES "${_INTDIR}/audacity.desktop"
                 DESTINATION "${_DATADIR}/applications" )
-       install( FILES "${topdir}/LICENSE.txt" "${topdir}/README.md"
+ 

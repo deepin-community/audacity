@@ -30,10 +30,10 @@ index 6ed6283..898824f 100644
  function help()
  {
 diff --git a/linux/create_appimage.sh b/linux/create_appimage.sh
-index eb53406..99570d5 100755
+index cde5412..0879904 100755
 --- a/linux/create_appimage.sh
 +++ b/linux/create_appimage.sh
-@@ -81,7 +81,6 @@ linuxdeploy --list-plugins
+@@ -120,7 +120,6 @@ linuxdeploy --list-plugins
  # Create symlinks
  #============================================================================
  
@@ -42,15 +42,15 @@ index eb53406..99570d5 100755
  ln -sf share/applications/audacity.desktop "${appdir}/audacity.desktop"
  ln -sf share/icons/hicolor/scalable/apps/audacity.svg "${appdir}/audacity.svg"
 diff --git a/src/audacity.desktop.in b/src/audacity.desktop.in
-index 584d244..34934bd 100644
+index 022249b..2344edd 100644
 --- a/src/audacity.desktop.in
 +++ b/src/audacity.desktop.in
 @@ -61,7 +61,7 @@ Categories=AudioVideo;Audio;AudioVideoEditing;
  
  Keywords=sound;music editing;voice channel;frequency;modulation;audio trim;clipping;noise reduction;multi track audio editor;edit;mixing;WAV;AIFF;FLAC;MP2;MP3;
  
--Exec=env UBUNTU_MENUPROXY=0 @AUDACITY_NAME@ %F
-+Exec=@AUDACITY_NAME@ %F
+-Exec=env GDK_BACKEND=x11 UBUNTU_MENUPROXY=0 @AUDACITY_NAME@ %F
++Exec=env GDK_BACKEND=x11 @AUDACITY_NAME@ %F
  StartupNotify=false
  Terminal=false
  MimeType=@MIMETYPES@;

@@ -11,7 +11,7 @@
 *******************************************************************//*!
 
 \file ModuleManager.cpp
-\brief Based on LoadLadspa, this code loads pluggable Audacity 
+\brief Based on LoadLadspa, this code loads pluggable Audacity
 extension modules.  It also has the code to
 invoke a function returning a replacement window,
 i.e. an alternative to the usual interface, for Audacity.
@@ -26,16 +26,15 @@ i.e. an alternative to the usual interface, for Audacity.
 #include <wx/dynlib.h>
 #include <wx/log.h>
 #include <wx/filename.h>
+#include <wx/tokenzr.h>
 
 #include "FileNames.h"
 #include "MemoryX.h"
 
 #include "PluginInterface.h"
 
-#ifdef EXPERIMENTAL_MODULE_PREFS
 #include "Prefs.h"
 #include "ModuleSettings.h"
-#endif
 
 #define initFnName      "ExtensionModuleInit"
 #define versionFnName   "GetVersionString"
@@ -52,6 +51,14 @@ Module::Module(const FilePath & name)
 
 Module::~Module()
 {
+   // DV: The current Registry code makes unloading of the modules
+   // impossible. The order in which static objects are destroyed
+   // may result in the Registry instance being destroyed after the ModuleManager.
+   // The way Audacity is currently implemented, it is not possible to
+   // guarantee that the ModuleManager instance is initialized before
+   // any of the Registry instances.
+   if (mLib != nullptr && mLib->IsLoaded())
+      mLib->Detach();
 }
 
 static BasicUI::MessageBoxResult DoMessageBox(const TranslatableString &msg)
@@ -59,6 +66,22 @@ static BasicUI::MessageBoxResult DoMessageBox(const TranslatableString &msg)
    using namespace BasicUI;
    return ShowMessageBox(msg,
       MessageBoxOptions{}.Caption(XO("Module Unsuitable")));
+}
+
+// Module's Major.Minor version should match the current Audacity build
+static bool IsVersionCompatible(const wxString &moduleVersion)
+{
+   wxArrayString parts1 = wxStringTokenize(AUDACITY_VERSION_STRING, ".");
+   wxArrayString parts2 = wxStringTokenize(moduleVersion, ".");
+
+   if (parts1.size() < 2 || parts2.size() < 2) {
+      wxLogError("Invalid version format. Audacity version: %s, module version: %s", AUDACITY_VERSION_STRING, moduleVersion);
+      assert(false);
+      return false;
+   }
+
+   // Check only Major and Minor parts
+   return (parts1[0] == parts2[0] && parts1[1] == parts2[1]);
 }
 
 void Module::ShowLoadFailureError(const wxString &Error)
@@ -93,7 +116,7 @@ bool Module::Load(wxString &deferredErrorMessage)
       return false;
    }
 
-   // Check version string matches.  (For now, they must match exactly)
+   // Check if the version matches
    tVersionFn versionFn = (tVersionFn)(mLib->GetSymbol(wxT(versionFnName)));
    if (versionFn == NULL){
       DoMessageBox(
@@ -105,7 +128,7 @@ bool Module::Load(wxString &deferredErrorMessage)
    }
 
    wxString moduleVersion = versionFn();
-   if( moduleVersion != AUDACITY_VERSION_STRING) {
+   if (!IsVersionCompatible(moduleVersion)) {
       DoMessageBox(
          XO("The module \"%s\" is matched with Audacity version \"%s\".\n\nIt will not be loaded.")
             .Format(ShortName, moduleVersion));
@@ -120,7 +143,7 @@ bool Module::Load(wxString &deferredErrorMessage)
       return true;
    }
 
-   // However if we do have it and it does not work, 
+   // However if we do have it and it does not work,
    // then the module is bad.
    bool res = ((mDispatch(ModuleInitialize))!=0);
    if (res) {
@@ -263,7 +286,6 @@ void ModuleManager::TryLoadModules(
       if( decided.Index( ShortName, false ) != wxNOT_FOUND )
          continue;
 
-#ifdef EXPERIMENTAL_MODULE_PREFS
       int iModuleStatus = ModuleSettings::GetModuleStatus( file );
       if( iModuleStatus == kModuleDisabled )
          continue;
@@ -278,7 +300,6 @@ void ModuleManager::TryLoadModules(
       }
 
       if( iModuleStatus == kModuleAsk )
-#endif
       // JKC: I don't like prompting for the plug-ins individually
       // I think it would be better to show the module prefs page,
       // and let the user decide for each one.
@@ -294,23 +315,19 @@ void ModuleManager::TryLoadModules(
             "",
             XO("Try and load this module?"),
             false);
-#ifdef EXPERIMENTAL_MODULE_PREFS
          // If we're not prompting always, accept the answer permanently
          if( iModuleStatus == kModuleNew ){
             iModuleStatus = (action==1)?kModuleDisabled : kModuleEnabled;
             ModuleSettings::SetModuleStatus( file, iModuleStatus );
          }
-#endif
          if(action == 1){   // "No"
             decided.Add( ShortName );
             continue;
          }
       }
-#ifdef EXPERIMENTAL_MODULE_PREFS
       // Before attempting to load, we set the state to bad.
       // That way, if we crash, we won't try again.
       ModuleSettings::SetModuleStatus( file, kModuleFailed );
-#endif
 
       wxString Error;
       auto umodule = std::make_unique<Module>(file);
@@ -332,10 +349,8 @@ void ModuleManager::TryLoadModules(
          {
             Get().mModules.push_back(std::move(umodule));
 
-#ifdef EXPERIMENTAL_MODULE_PREFS
             // Loaded successfully, restore the status.
             ModuleSettings::SetModuleStatus(file, iModuleStatus);
-#endif
          }
       }
       else if (!Error.empty()) {
@@ -426,7 +441,7 @@ wxString ModuleManager::GetPluginTypeString()
    return L"Module";
 }
 
-PluginID ModuleManager::GetID(PluginProvider *provider)
+PluginID ModuleManager::GetID(const PluginProvider *provider)
 {
    return wxString::Format(wxT("%s_%s_%s_%s_%s"),
                            GetPluginTypeString(),
@@ -441,7 +456,7 @@ bool ModuleManager::DiscoverProviders()
    InitializeBuiltins();
 
 // The commented out code loads modules whether or not they are enabled.
-// none of our modules is a 'provider' of effects, so this code commented out. 
+// none of our modules is a 'provider' of effects, so this code commented out.
 #if 0
    FilePaths provList;
    FilePaths pathList;
@@ -478,13 +493,13 @@ void ModuleManager::InitializeBuiltins()
    for (const auto& pluginProviderFactory : builtinProviderList())
    {
       auto pluginProvider = pluginProviderFactory();
-      
+
       if (pluginProvider && pluginProvider->Initialize()) {
          PluginProviderUniqueHandle handle { std::move(pluginProvider) };
-         
+
          auto id = GetID(handle.get());
 
-         // Need to remember it 
+         // Need to remember it
          mProviders[id] = std::move(handle);
       }
    }
@@ -538,7 +553,7 @@ bool ModuleManager::IsProviderValid(const PluginID & WXUNUSED(providerID),
    // Builtin modules do not have a path
    if (path.empty())
    {
-      return true;  
+      return true;
    }
 
    wxFileName lib(path);

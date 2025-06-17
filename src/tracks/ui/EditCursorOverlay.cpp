@@ -17,7 +17,7 @@ Paul Licameli split from TrackPanel.cpp
 #include "Project.h"
 #include "../../ProjectWindows.h"
 #include "Track.h" //
-#include "../../TrackPanelAx.h"
+#include "TrackFocus.h"
 #include "../../TrackPanel.h"
 #include "ViewInfo.h"
 
@@ -92,7 +92,7 @@ void EditCursorOverlay::Draw(OverlayPanel &panel, wxDC &dc)
    const auto &viewInfo = ViewInfo::Get( *mProject );
 
    const bool
-   onScreen = between_incexc(viewInfo.h,
+   onScreen = between_incexc(viewInfo.hpos,
                              mCursorTime,
                              viewInfo.GetScreenEndTime());
 
@@ -110,9 +110,11 @@ void EditCursorOverlay::Draw(OverlayPanel &panel, wxDC &dc)
          const auto pChannelView = dynamic_cast<ChannelView*>(&cell);
          if (!pChannelView)
             return;
-         const auto pTrack = pChannelView->FindTrack();
-         if (pTrack->GetSelected() ||
-             TrackFocus::Get( *mProject ).IsFocused( pTrack.get() ))
+         const auto pChannel = pChannelView->FindChannel();
+         const auto pTrack =
+            dynamic_cast<Track *>(&pChannel->GetChannelGroup());
+         if (pChannel && (pTrack->GetSelected() ||
+             TrackFocus::Get( *mProject ).IsFocused(pTrack)))
          {
             // AColor::Line includes both endpoints so use GetBottom()
             AColor::Line(dc, mLastCursorX, rect.GetTop(), mLastCursorX, rect.GetBottom());

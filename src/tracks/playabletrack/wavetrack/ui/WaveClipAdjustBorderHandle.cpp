@@ -14,8 +14,10 @@
 
 #include <wx/event.h>
 
+#include "ClipParameters.h"
+#include "../../../../TrackArt.h"
 #include "../../../../TrackArtist.h"
-#include "../../../../Snap.h"
+#include "Snap.h"
 #include "../../../../TrackPanelDrawingContext.h"
 #include "../../../../../images/Cursors.h"
 #include "WaveClip.h"
@@ -26,7 +28,7 @@
 #include "ViewInfo.h"
 #include "ProjectHistory.h"
 #include "UndoManager.h"
-#include "WaveClipUtilities.h"
+#include "WaveClipUIUtilities.h"
 
 namespace {
 
@@ -83,16 +85,19 @@ double GetLeftAdjustLimit(const WaveTrack::Interval& interval,
                           bool isStretchMode)
 {
    if (!adjustingLeftBorder)
-      return interval.Start() + 1.0 / track.GetRate();
+      return std::min(
+         interval.GetSequenceEndTime(),
+         interval.Start() + 1.0 / track.GetRate()
+      );
 
    const auto prevInterval = track.GetNextInterval(interval, PlaybackDirection::backward);
    if(isStretchMode)
       return prevInterval ? prevInterval->End() :
                             std::numeric_limits<double>::lowest();
    if(prevInterval)
-      return std::max(interval.GetClip(0)->GetSequenceStartTime(),
+      return std::max(interval.GetSequenceStartTime(),
                 prevInterval->End());
-   return interval.GetClip(0)->GetSequenceStartTime();
+   return interval.GetSequenceStartTime();
 }
 
 double GetRightAdjustLimit(
@@ -100,7 +105,10 @@ double GetRightAdjustLimit(
    bool isStretchMode)
 {
    if (adjustingLeftBorder)
-      return interval.End() - 1.0 / track.GetRate();
+      return std::max(
+         interval.GetSequenceStartTime(),
+         interval.End() - 1.0 / track.GetRate()
+      );
 
    const auto nextInterval = track.GetNextInterval(interval, PlaybackDirection::forward);
    if (isStretchMode)
@@ -108,9 +116,9 @@ double GetRightAdjustLimit(
                             std::numeric_limits<double>::max();
 
    if(nextInterval)
-      return std::min(interval.GetClip(0)->GetSequenceEndTime(),
+      return std::min(interval.GetSequenceEndTime(),
                       nextInterval->Start());
-   return interval.GetClip(0)->GetSequenceEndTime();
+   return interval.GetSequenceEndTime();
 }
 } // namespace
 
@@ -168,8 +176,7 @@ private:
                continue;
             }
 
-            for(const auto& interval : track->Intervals())
-            {
+            for (const auto &interval : track->Intervals()) {
                addSnapPoint(interval->Start(), track);
                if(interval->Start() != interval->End())
                   addSnapPoint(interval->End(), track);
@@ -192,7 +199,7 @@ public:
       , mIsStretchMode { isStretchMode }
       , mInitialBorderPosition { adjustLeftBorder ? mInterval->Start() :
                                              mInterval->End() }
-      , mBorderPosition { mInitialBorderPosition } 
+      , mBorderPosition { mInitialBorderPosition }
       , mRange { GetLeftAdjustLimit( *mInterval, *mTrack, adjustLeftBorder, isStretchMode),
                  GetRightAdjustLimit(*mInterval, *mTrack, adjustLeftBorder, isStretchMode) }
       , mAdjustHandler { std::move(adjustHandler) }
@@ -223,7 +230,7 @@ public:
       const auto dx = eventX - mDragStartX;
 
       const auto& viewInfo = ViewInfo::Get(project);
-      
+
       const auto eventT = viewInfo.PositionToTime(
          viewInfo.TimeToPosition(mInitialBorderPosition, event.rect.x) + dx,
          event.rect.x
@@ -258,7 +265,7 @@ public:
       {
          if (mIsStretchMode)
          {
-            PushClipSpeedChangedUndoState(
+            WaveClipUIUtilities::PushClipSpeedChangedUndoState(
                project, 100.0 / mInterval->GetStretchRatio());
          }
          else if (mAdjustingLeftBorder)
@@ -288,7 +295,7 @@ public:
       if(iPass == TrackArtist::PassSnapping && mSnap.Snapped())
       {
          auto &dc = context.dc;
-         SnapManager::Draw(&dc, rect.x + mSnap.outCoord, -1);
+         TrackArt::DrawSnapLines(&dc, rect.x + mSnap.outCoord, -1);
       }
    }
 
@@ -336,10 +343,13 @@ HitTestPreview WaveClipAdjustBorderHandle::HitPreviewStretch(const AudacityProje
    };
 }
 
-WaveClipAdjustBorderHandle::WaveClipAdjustBorderHandle(std::unique_ptr<AdjustPolicy>& adjustPolicy,
-                                                       bool stretchMode,
-                                                       bool leftBorder)
+WaveClipAdjustBorderHandle::WaveClipAdjustBorderHandle(
+   std::unique_ptr<AdjustPolicy>& adjustPolicy,
+   std::shared_ptr<const WaveTrack> pTrack,
+   bool stretchMode,
+   bool leftBorder)
    : mAdjustPolicy{ std::move(adjustPolicy) }
+   , mpTrack{ move(pTrack) }
    , mIsStretchMode{stretchMode}
    , mIsLeftBorder{leftBorder}
 {
@@ -347,6 +357,11 @@ WaveClipAdjustBorderHandle::WaveClipAdjustBorderHandle(std::unique_ptr<AdjustPol
 }
 
 WaveClipAdjustBorderHandle::~WaveClipAdjustBorderHandle() = default;
+
+std::shared_ptr<const Track> WaveClipAdjustBorderHandle::FindTrack() const
+{
+   return mpTrack;
+}
 
 WaveClipAdjustBorderHandle::WaveClipAdjustBorderHandle(WaveClipAdjustBorderHandle&&) noexcept = default;
 
@@ -365,8 +380,6 @@ UIHandlePtr WaveClipAdjustBorderHandle::HitAnywhere(
    const AudacityProject* pProject,
    const TrackPanelMouseState& state)
 {
-   assert(waveTrack->IsLeader());
-
    const auto rect = state.rect;
 
    const auto px = state.state.m_x;
@@ -379,9 +392,8 @@ UIHandlePtr WaveClipAdjustBorderHandle::HitAnywhere(
    //Test left and right boundaries of each clip
    //to determine which kind of adjustment is
    //more appropriate
-   for(const auto& interval : waveTrack->Intervals())
-   {
-      const auto& clip = *interval->GetClip(0);
+   for (const auto &interval : waveTrack->Intervals()) {
+      const auto& clip = *interval;
       if(!WaveChannelView::ClipDetailsVisible(clip, zoomInfo, rect))
          continue;
 
@@ -397,7 +409,7 @@ UIHandlePtr WaveClipAdjustBorderHandle::HitAnywhere(
    if (leftInterval && rightInterval)
    {
       //between adjacent clips
-      if(ClipParameters::GetClipRect(*leftInterval->GetClip(0), zoomInfo, rect).GetRight() > px)
+      if(ClipParameters::GetClipRect(*leftInterval, zoomInfo, rect).GetRight() > px)
       {
          adjustedInterval = leftInterval;
          adjustLeftBorder = false;
@@ -416,7 +428,7 @@ UIHandlePtr WaveClipAdjustBorderHandle::HitAnywhere(
          //single clip case, determine the border,
          //hit testing area differs from one
          //used for general case
-         const auto clipRect = ClipParameters::GetClipRect(*adjustedInterval->GetClip(0), zoomInfo, rect);
+         const auto clipRect = ClipParameters::GetClipRect(*adjustedInterval, zoomInfo, rect);
          if (std::abs(px - clipRect.GetLeft()) <= BoundaryThreshold)
             adjustLeftBorder = true;
          else if (std::abs(px - clipRect.GetRight()) <= BoundaryThreshold)
@@ -440,7 +452,7 @@ UIHandlePtr WaveClipAdjustBorderHandle::HitAnywhere(
 
       return AssignUIHandlePtr(
          holder,
-         std::make_shared<WaveClipAdjustBorderHandle>(policy,
+         std::make_shared<WaveClipAdjustBorderHandle>(policy, waveTrack,
             isStretchMode,
             adjustLeftBorder));
    }
@@ -451,9 +463,10 @@ UIHandlePtr WaveClipAdjustBorderHandle::HitTest(std::weak_ptr<WaveClipAdjustBord
     WaveChannelView& view, const AudacityProject* pProject,
     const TrackPanelMouseState& state)
 {
-    auto waveTrack = std::dynamic_pointer_cast<WaveTrack>(view.FindTrack());
-    //For multichannel tracks, show adjustment handle only for the leader track
-    if (!waveTrack->IsLeader())
+    auto waveChannel = view.FindWaveChannel();
+    // For multichannel tracks, show adjustment handle only for the topmost
+    // channel
+    if (waveChannel->GetChannelIndex() != 0)
         return {};
 
     std::vector<UIHandlePtr> results;
@@ -465,7 +478,9 @@ UIHandlePtr WaveClipAdjustBorderHandle::HitTest(std::weak_ptr<WaveClipAdjustBord
     if (py >= rect.GetTop() &&
         py <= (rect.GetTop() + static_cast<int>(rect.GetHeight() * 0.3)))
     {
-        return HitAnywhere(holder, waveTrack, pProject, state);
+        return HitAnywhere(holder,
+            waveChannel->GetTrack().SharedPointer<WaveTrack>(),
+            pProject, state);
     }
     return {};
 }

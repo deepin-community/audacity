@@ -58,8 +58,6 @@ wxBrush AColor::labelTextEditBrush;
 wxBrush AColor::labelUnselectedBrush;
 wxBrush AColor::labelSelectedBrush;
 wxBrush AColor::labelSyncLockSelBrush;
-wxPen AColor::labelUnselectedPen;
-wxPen AColor::labelSelectedPen;
 wxPen AColor::labelSyncLockSelPen;
 wxPen AColor::labelSurroundPen;
 wxPen AColor::trackFocusPens[3];
@@ -81,19 +79,23 @@ namespace
    //Simplified variation of nine patch scale drawing
    //https://en.wikipedia.org/wiki/9-slice_scaling
    //Bitmap and rect expected to have at least 3px in both directions
-   void DrawNinePatch(wxDC& dc, wxBitmap& bitmap, const wxRect& r)
+   void DrawNinePatch(wxDC& dc, wxBitmap& bitmap, const wxRect& r, int mid = 1)
    {
+      assert(bitmap.GetWidth() == mid + (bitmap.GetWidth() - mid) / 2 + (bitmap.GetWidth() - mid) / 2);
+      assert(bitmap.GetHeight() == mid + (bitmap.GetHeight() - mid) / 2 + (bitmap.GetHeight() - mid) / 2);
+      assert(r.width >= bitmap.GetWidth() - mid);
+      assert(r.height >= bitmap.GetHeight() - mid);
       wxMemoryDC memDC;
       memDC.SelectObject(bitmap);
 
       // image slices
 
-      const auto uw0 = bitmap.GetWidth() / 2;
-      const auto uw1 = 1;
+      const auto uw0 = (bitmap.GetWidth() - mid) / 2;
+      const auto uw1 = mid;
       const auto uw2 = bitmap.GetWidth() - uw0 - uw1;
 
-      const auto vh0 = bitmap.GetHeight() / 2;
-      const auto vh1 = 1;
+      const auto vh0 = (bitmap.GetHeight() - mid) / 2;
+      const auto vh1 = mid;
       const auto vh2 = bitmap.GetHeight() - vh1 - vh0;
 
       const auto u0 = 0;
@@ -108,11 +110,11 @@ namespace
 
       const auto xw0 = std::min(uw0, r.width / 2);
       const auto xw2 = std::min(uw2, r.width / 2);
-      const auto xw1 = r.width - xw0 - xw2;
+      const auto xw1 = std::max(r.width - xw0 - xw2, 0);
 
       const auto yh0 = std::min(vh0, r.height / 2);
       const auto yh2 = std::min(vh2, r.height / 2);
-      const auto yh1 = r.height - yh0 - yh2;
+      const auto yh1 = std::max(r.height - yh0 - yh2, 0);
 
       const auto x0 = r.x;
       const auto x1 = r.x + xw0;
@@ -122,23 +124,37 @@ namespace
       const auto y1 = r.y + yh0;
       const auto y2 = r.y + yh0 + yh1;
 
+      //Draw corners
       dc.StretchBlit(x0, y0, xw0, yh0, &memDC, u0, v0, uw0, vh0, wxCOPY, true);
-      dc.StretchBlit(x1, y0, xw1, yh0, &memDC, u1, v0, uw1, vh0, wxCOPY, true);
       dc.StretchBlit(x2, y0, xw2, yh0, &memDC, u2, v0, uw2, vh0, wxCOPY, true);
-
-      dc.StretchBlit(x0, y1, xw0, yh1, &memDC, u0, v1, uw0, vh1, wxCOPY, true);
-      dc.StretchBlit(x1, y1, xw1, yh1, &memDC, u1, v1, uw1, vh1, wxCOPY, true);
-      dc.StretchBlit(x2, y1, xw2, yh1, &memDC, u2, v1, uw2, vh1, wxCOPY, true);
-
       dc.StretchBlit(x0, y2, xw0, yh2, &memDC, u0, v2, uw0, vh2, wxCOPY, true);
-      dc.StretchBlit(x1, y2, xw1, yh2, &memDC, u1, v2, uw1, vh2, wxCOPY, true);
       dc.StretchBlit(x2, y2, xw2, yh2, &memDC, u2, v2, uw2, vh2, wxCOPY, true);
+
+      //Draw top/bottom sides mid section
+      if(xw1 > 0)
+      {
+         dc.StretchBlit(x1, y0, xw1, yh0, &memDC, u1, v0, uw1, vh0, wxCOPY, true);
+         dc.StretchBlit(x1, y2, xw1, yh2, &memDC, u1, v2, uw1, vh2, wxCOPY, true);
+      }
+
+      //Draw left/right sides mid section
+      if(yh1 > 0)
+      {
+         dc.StretchBlit(x0, y1, xw0, yh1, &memDC, u0, v1, uw0, vh1, wxCOPY, true);
+         dc.StretchBlit(x2, y1, xw2, yh1, &memDC, u2, v1, uw2, vh1, wxCOPY, true);
+      }
+
+      //Draw center
+      if(xw1 > 0 && yh1 > 0)
+      {
+         dc.StretchBlit(x1, y1, xw1, yh1, &memDC, u1, v1, uw1, vh1, wxCOPY, true);
+      }
    }
 
    int GetButtonImageIndex(bool up, bool selected, bool highlight)
    {
       // There are eight button states in the TCP.
-      // A theme might not differentiate among them all.  That's up to 
+      // A theme might not differentiate among them all.  That's up to
       // the theme designer.
       //   Button highlighted (i.e. hovered over) or not.
       //   Track selected or not
@@ -188,6 +204,11 @@ void AColor::Line(wxDC & dc, wxCoord x1, wxCoord y1, wxCoord x2, wxCoord y2)
 {
    const wxPoint points[] { { x1, y1 }, { x2, y2 } };
    Lines( dc, 2, points );
+}
+
+void AColor::Line(wxDC& dc, const wxPoint& from, const wxPoint& to)
+{
+   Line( dc, from.x, from.y, to.x, to.y);
 }
 
 // Draw lines, INCLUSIVE of all endpoints
@@ -265,18 +286,10 @@ void AColor::DrawFocus(wxDC & dc, wxRect & rect)
 
 void AColor::Bevel(wxDC & dc, bool up, const wxRect & r)
 {
-   if (up)
-      AColor::Light(&dc, false);
-   else
-      AColor::Dark(&dc, false);
+   AColor::Dark(&dc, false);
 
    AColor::Line(dc, r.x, r.y, r.x + r.width, r.y);
    AColor::Line(dc, r.x, r.y, r.x, r.y + r.height);
-
-   if (!up)
-      AColor::Light(&dc, false);
-   else
-      AColor::Dark(&dc, false);
 
    AColor::Line(dc, r.x + r.width, r.y, r.x + r.width, r.y + r.height);
    AColor::Line(dc, r.x, r.y + r.height, r.x + r.width, r.y + r.height);
@@ -287,7 +300,7 @@ void AColor::ButtonStretch(wxDC& dc, bool up, const wxRect& r, bool selected, bo
    DrawNinePatch(
       dc,
       theTheme.Bitmap(GetButtonImageIndex(up, selected, highlight)),
-      r
+      r, 2
    );
 }
 
@@ -301,7 +314,7 @@ void AColor::Bevel2(wxDC & dc, bool up, const wxRect & r, bool bSel, bool bHighl
 
    dc.Blit( r.x,r.y,r.width/2, h, &memDC, 0, 0, wxCOPY, true );
    int r2 = r.width - r.width/2;
-   dc.Blit( r.x+r.width/2,r.y,r2, h, &memDC, 
+   dc.Blit( r.x+r.width/2,r.y,r2, h, &memDC,
       Bmp.GetWidth() - r2, 0, wxCOPY, true );
 }
 
@@ -317,14 +330,14 @@ void AColor::DrawHStretch(wxDC& dc, const wxRect& rect, wxBitmap& bitmap)
    const auto dx1 = rect.x + w0;
    const auto dx2 = rect.x + rect.width - w0;
 
-   dc.StretchBlit(dx0, rect.y, w0, dh, &srcDC, 0, 0, w0, sh);
-   dc.StretchBlit(dx1, rect.y, rect.width - w0 * 2, dh, &srcDC, w0, 0, 1, sh);
-   dc.StretchBlit(dx2, rect.y, w0, dh, &srcDC, bitmap.GetWidth() - w0, 0, w0, sh);
+   dc.StretchBlit(dx0, rect.y, w0, dh, &srcDC, 0, 0, w0, sh, wxCOPY, true);
+   dc.StretchBlit(dx1, rect.y, rect.width - w0 * 2, dh, &srcDC, w0, 0, 1, sh, wxCOPY, true);
+   dc.StretchBlit(dx2, rect.y, w0, dh, &srcDC, bitmap.GetWidth() - w0, 0, w0, sh, wxCOPY, true);
 }
 
-void AColor::DrawFrame(wxDC& dc, const wxRect& r, wxBitmap& bitmap)
+void AColor::DrawFrame(wxDC& dc, const wxRect& r, wxBitmap& bitmap, int mid = 1)
 {
-   DrawNinePatch(dc, bitmap, r);
+   DrawNinePatch(dc, bitmap, r, mid);
 }
 
 
@@ -339,35 +352,13 @@ wxColour AColor::Blend( const wxColour & c1, const wxColour & c2 )
 
 void AColor::BevelTrackInfo(wxDC & dc, bool up, const wxRect & r, bool highlight)
 {
-#ifndef EXPERIMENTAL_THEMING
    Bevel( dc, up, r );
-#else
-   // Note that the actually drawn rectangle extends one pixel right of and
-   // below the given
-
-   wxColour col;
-   col = Blend( theTheme.Colour( clrTrackInfo ), up ? wxColour( 255,255,255):wxColour(0,0,0));
-
-   wxPen pen( highlight ? uglyPen : col );
-   dc.SetPen( pen );
-
-   dc.DrawLine(r.x, r.y, r.x + r.width, r.y);
-   dc.DrawLine(r.x, r.y, r.x, r.y + r.height);
-
-   col = Blend( theTheme.Colour( clrTrackInfo ), up ? wxColour(0,0,0): wxColour(255,255,255));
-
-   pen.SetColour( col );
-   dc.SetPen( highlight ? uglyPen : pen );
-
-   dc.DrawLine(r.x + r.width, r.y, r.x + r.width, r.y + r.height);
-   dc.DrawLine(r.x, r.y + r.height, r.x + r.width, r.y + r.height);
-#endif
 }
 
 // Set colour of and select brush and pen.
 // Use -1 to omit brush or pen.
 // If pen omitted, then the same colour as the brush will be used.
-// alpha for the brush is normally 255, but if set will make a difference 
+// alpha for the brush is normally 255, but if set will make a difference
 // on mac (only) currently.
 void AColor::UseThemeColour( wxDC * dc, int iBrush, int iPen, int alpha )
 {
@@ -432,11 +423,7 @@ void AColor::Medium(wxDC * dc, bool selected)
 
 void AColor::MediumTrackInfo(wxDC * dc, bool selected)
 {
-#ifdef EXPERIMENTAL_THEMING
    UseThemeColour( dc, selected ? clrTrackInfoSelected : clrTrackInfo );
-#else
-   Medium( dc, selected );
-#endif
 }
 
 
@@ -453,11 +440,7 @@ void AColor::Dark(wxDC * dc, bool selected, bool highlight)
 
 void AColor::TrackPanelBackground(wxDC * dc, bool selected)
 {
-#ifdef EXPERIMENTAL_THEMING
    UseThemeColour( dc, selected ? clrMediumSelected : clrTrackBackground );
-#else
-   Dark( dc, selected );
-#endif
 }
 
 void AColor::CursorColor(wxDC * dc)
@@ -559,16 +542,16 @@ void AColor::Init()
    if (inited)
       return;
 
-   wxColour light = theTheme.Colour( clrLight ); 
+   wxColour light = theTheme.Colour( clrLight );
    // wxSystemSettings::GetColour(wxSYS_COLOUR_3DHIGHLIGHT);
-   wxColour med = theTheme.Colour( clrMedium ); 
+   wxColour med = theTheme.Colour( clrMedium );
    // wxSystemSettings::GetColour(wxSYS_COLOUR_3DFACE);
-   wxColour dark = theTheme.Colour( clrDark ); 
+   wxColour dark = theTheme.Colour( clrDark );
    // wxSystemSettings::GetColour(wxSYS_COLOUR_3DSHADOW);
 
-   wxColour lightSelected = theTheme.Colour( clrLightSelected ); 
-   wxColour medSelected = theTheme.Colour( clrMediumSelected ); 
-   wxColour darkSelected = theTheme.Colour( clrDarkSelected ); 
+   wxColour lightSelected = theTheme.Colour( clrLightSelected );
+   wxColour medSelected = theTheme.Colour( clrMediumSelected );
+   wxColour darkSelected = theTheme.Colour( clrDarkSelected );
 
 
    clippingPen.SetColour(0xCC, 0x11, 0x00);
@@ -584,8 +567,6 @@ void AColor::Init()
    theTheme.SetBrushColour( labelUnselectedBrush,  clrLabelUnselectedBrush );
    theTheme.SetBrushColour( labelSelectedBrush,    clrLabelSelectedBrush );
    theTheme.SetBrushColour( labelSyncLockSelBrush, clrSyncLockSel );
-   theTheme.SetPenColour( labelUnselectedPen,   clrLabelUnselectedPen );
-   theTheme.SetPenColour( labelSelectedPen,     clrLabelSelectedPen );
    theTheme.SetPenColour( labelSyncLockSelPen,  clrSyncLockSel );
    theTheme.SetPenColour( labelSurroundPen,     clrLabelSurroundPen );
 
@@ -602,9 +583,6 @@ void AColor::Init()
    theTheme.SetBrushColour( indicatorBrush[1], clrPlaybackBrush);
 
    theTheme.SetBrushColour( playRegionBrush[0],clrRulerRecordingBrush);
-   // theTheme.SetPenColour(   playRegionPen[0],  clrRulerRecordingPen);
-   // theTheme.SetBrushColour( playRegionBrush[1],clrRulerPlaybackBrush);
-   // theTheme.SetPenColour(   playRegionPen[1],  clrRulerPlaybackPen);
 
    //Determine tooltip color
    tooltipPen.SetColour( wxSystemSettingsNative::GetColour(wxSYS_COLOUR_INFOTEXT) );

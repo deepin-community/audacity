@@ -25,10 +25,17 @@
 //#include <wx/defs.h>
 
 #include "Prefs.h"
+#include "Project.h"
 #include "ShuttleGui.h"
+#include "UndoManager.h"
+#include "Viewport.h"
+#include "WaveformSettings.h"
 #include "WaveTrack.h"
 
 int TracksPrefs::iPreferencePinned = -1;
+
+BoolSetting TracksPrefs::TracksFitVerticallyZoomed {
+   "/GUI/TracksFitVerticallyZoomed", false };
 
 namespace {
    const wxChar *PinnedHeadPreferenceKey()
@@ -40,7 +47,7 @@ namespace {
    {
       return false;
    }
-   
+
    const wxChar *PinnedHeadPositionPreferenceKey()
    {
       return wxT("/AudioIO/PinnedHeadPosition");
@@ -51,30 +58,6 @@ namespace {
       return 0.5;
    }
 }
-
-
-namespace {
-   const auto waveformScaleKey = wxT("/GUI/DefaultWaveformScaleChoice");
-   const auto dbLogValueString = wxT("dB");
-   const auto dbLinValueString = wxT("dBLin");
-}
-
-static EnumSetting< WaveformSettings::ScaleTypeValues > waveformScaleSetting{
-   waveformScaleKey,
-   {
-      { wxT("Linear"), XO("Linear (amp)") },
-      { dbLogValueString, XO("Logarithmic (dB)") },
-      { dbLinValueString, XO("Linear (dB)") },
-   },
-
-   0, // linear
-   
-   {
-      WaveformSettings::stLinearAmp,
-      WaveformSettings::stLogarithmicDb,
-      WaveformSettings::stLinearDb,
-   }
-};
 
 //////////
 // There is a complicated migration history here!
@@ -137,7 +120,9 @@ public:
       if ( !gPrefs->Read( key3, &value ) ) {
          if (newValue == obsoleteValue) {
             newValue = waveformSymbol.Internal();
-            gPrefs->Write(waveformScaleKey, dbLogValueString);
+            gPrefs->Write(
+               WaveformSettings::waveformScaleKey,
+               WaveformSettings::dbLogValueString);
          }
 
          Write( value = newValue );
@@ -172,11 +157,6 @@ static TracksViewModeEnumSetting ViewModeSetting()
 WaveChannelViewConstants::Display TracksPrefs::ViewModeChoice()
 {
    return ViewModeSetting().ReadEnum();
-}
-
-WaveformSettings::ScaleTypeValues TracksPrefs::WaveformScaleChoice()
-{
-   return waveformScaleSetting.ReadEnum();
 }
 
 //////////
@@ -324,17 +304,10 @@ void TracksPrefs::PopulateOrExchange(ShuttleGui & S)
 
    S.StartStatic(XO("Display"));
    {
-      S.TieCheckBox(XXO("Auto-&fit track height"),
-                    {wxT("/GUI/TracksFitVerticallyZoomed"),
-                     false});
-      S.TieCheckBox(XXO("Sho&w track name as overlay"),
-                  {wxT("/GUI/ShowTrackNameInWaveform"),
-                   false});
-#ifdef EXPERIMENTAL_HALF_WAVE
+      S.TieCheckBox(XXO("Auto-&fit track height"), TracksFitVerticallyZoomed);
       S.TieCheckBox(XXO("Use &half-wave display when collapsed"),
                   {wxT("/GUI/CollapseToHalfWave"),
                    false});
-#endif
 #ifdef SHOW_PINNED_UNPINNED_IN_PREFS
       S.TieCheckBox(XXO("&Pinned Recording/Playback head"),
          {PinnedHeadPreferenceKey(),
@@ -360,8 +333,9 @@ void TracksPrefs::PopulateOrExchange(ShuttleGui & S)
          S.TieChoice(XXO("Default &view mode:"),
                      viewModeSetting );
 
-         S.TieChoice(XXO("Default Waveform scale:"),
-                     waveformScaleSetting );
+         S.TieChoice(
+            XXO("Default Waveform scale:"),
+            WaveformSettings::waveformScaleSetting);
 
          S.TieChoice(XXO("Display &samples:"),
                      sampleDisplaySetting );
@@ -440,6 +414,7 @@ bool TracksPrefs::Commit()
    }
 
    AudioTrackNameSetting.Invalidate();
+   TracksFitVerticallyZoomed.Invalidate();
    return true;
 }
 
@@ -450,5 +425,27 @@ PrefsPanel::Registration sAttachment{ "Tracks",
       wxASSERT(parent); // to justify safenew
       return safenew TracksPrefs(parent, winid);
    }
+};
+
+//! Observer attached to each project applies the vertical zoom fit preference
+struct Handler : ClientData::Base {
+   explicit Handler(AudacityProject &project) : mProject{ project }
+      , mUndoSubscription{ UndoManager::Get(mProject)
+         .Subscribe([this](const UndoRedoMessage &message){
+            if (message.type == UndoRedoMessage::Pushed &&
+               TracksPrefs::TracksFitVerticallyZoomed.Read()
+            )
+               Viewport::Get(mProject).ZoomFitVertically(); })}
+   {}
+
+   Handler(const Handler &) = delete;
+   Handler &operator=(const Handler &) = delete;
+
+   AudacityProject &mProject;
+   const Observer::Subscription mUndoSubscription;
+}; // struct Handler
+
+static const AudacityProject::AttachedObjects::RegisteredFactory key{
+   Callable::UniqueMaker<Handler, AudacityProject &>()
 };
 }

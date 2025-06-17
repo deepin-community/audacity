@@ -8,6 +8,8 @@ set( IMAGE_LIST
    AudacityLogo48x48.png
    BandWidthCursor.png
    BottomFrequencyCursor.png
+   Cloud.png
+   CloudProgress.png
    Cogwheel.png
    Colors.txt
    Copy.png
@@ -17,6 +19,8 @@ set( IMAGE_LIST
    CutDisabled.png
    CutPreview.png
    CutPreviewDisabled.png
+   Delete.png
+   DeleteDisabled.png
    DisabledCursor.png
    DownButtonExpand.png
    DownButtonExpandSel.png
@@ -27,8 +31,10 @@ set( IMAGE_LIST
    EditEffects.png
    EnvCursor.png
    Envelope.png
+   FacebookLogo.png
    FFwd.png
    FFwdDisabled.png
+   GoogleLogo.png
    GrabberDropLoc.png
    HelpIcon.png
    HiliteButtonExpand.png
@@ -57,14 +63,6 @@ set( IMAGE_LIST
    LabelGlyph9.png
    Loop.png
    LoopDisabled.png
-   MacDownButton.png
-   MacDownButtonSmall.png
-   MacHiliteButton.png
-   MacHiliteButtonSmall.png
-   MacHiliteUpButton.png
-   MacHiliteUpButtonSmall.png
-   MacUpButton.png
-   MacUpButtonSmall.png
    Mic.png
    Multi.png
    Options.png
@@ -73,10 +71,12 @@ set( IMAGE_LIST
    PasteDisabled.png
    Pause.png
    PauseDisabled.png
+   PitchDownIndicator.png
+   PitchUpIndicator.png
    Play.png
    PlayDisabled.png
    PlayPointer.png
-   PlayPointerPinned.png
+   Plug.png
    Record.png
    RecordBelow.png
    RecordBelowDisabled.png
@@ -84,7 +84,6 @@ set( IMAGE_LIST
    RecordBesideDisabled.png
    RecordDisabled.png
    RecordPointer.png
-   RecordPointerPinned.png
    Redo.png
    RedoDisabled.png
    Rewind.png
@@ -103,6 +102,7 @@ set( IMAGE_LIST
    SliderThumbRotatedHilited.png
    Speaker.png
    SpectralBrush.png
+   SpeedIndicator.png
    Stop.png
    StopDisabled.png
    SubViewsCursor.png
@@ -111,6 +111,10 @@ set( IMAGE_LIST
    SyncLockTracksDisabled.png
    SyncLockTracksDown.png
    SyncLockTracksUp.png
+   TCPChevron.png
+   TCPChevronDown.png
+   TCPClose.png
+   TCPEllipses.png
    TimeCursor.png
    TnAutomateSelection.png
    TnAutomateSelectionDisabled.png
@@ -176,18 +180,24 @@ foreach( pair
          ../lib-theme/AllThemeResources.h
       COMMENT "Generating ${filename}.h..."
    )
+
+   add_custom_target(${theme} SOURCES ${THEME_FILES})
+   set_target_properties(${theme}
+      PROPERTIES
+         FOLDER "themes"
+   )
 endforeach()
 
 # Now define a more conventional library, using the output of the image compiler
 set( SOURCES
-   ClassicThemeAsCeeCode.cpp
-   ClassicThemeAsCeeCode.h
    DarkThemeAsCeeCode.cpp
    DarkThemeAsCeeCode.h
    HighContrastThemeAsCeeCode.cpp
    HighContrastThemeAsCeeCode.h
    LightThemeAsCeeCode.cpp
    LightThemeAsCeeCode.h
+   ClassicThemeAsCeeCode.cpp
+   ClassicThemeAsCeeCode.h
    LoadThemeResources.h
    LoadThemeResources.cpp
 )

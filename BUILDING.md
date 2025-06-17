@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-* **python3** >= 3.8
-* **cmake** >= 3.16
+* **python3** >= 3.8 (you can find an official download here: https://www.python.org/downloads/)
+* **cmake** >= 3.16 (you can find an official download here: https://cmake.org/download/)
 * A working C++ 17 compiler
 * Graphviz (optional)
 
@@ -45,7 +45,7 @@ Here are the dependencies you need to install on various distribution families.
 ```
 $ sudo apt-get update
 $ sudo apt-get install -y build-essential cmake git python3-pip
-$ sudo pip3 install conan
+$ sudo pipx install conan
 $ sudo apt-get install libgtk2.0-dev libasound2-dev libjack-jackd2-dev uuid-dev
 ```
 

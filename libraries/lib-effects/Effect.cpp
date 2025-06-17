@@ -184,11 +184,12 @@ const EffectSettingsManager& Effect::GetDefinition() const
    return *this;
 }
 
-NumericFormatSymbol Effect::GetSelectionFormat()
+NumericFormatID Effect::GetSelectionFormat()
 {
    if( !IsBatchProcessing() && FindProject() )
-      return ProjectNumericFormats::Get( *FindProject() ).GetSelectionFormat();
-   return NumericConverterFormats::HoursMinsSecondsFormat();
+      return ProjectNumericFormats::Get( *FindProject() )
+         .GetSelectionFormat();
+   return NumericConverterFormats::HoursMinsSecondsFormat().Internal();
 }
 
 wxString Effect::GetSavedStateGroup()
@@ -362,7 +363,6 @@ bool Effect::TrackGroupProgress(
 void Effect::GetBounds(
    const WaveTrack &track, sampleCount *start, sampleCount *len)
 {
-   assert(track.IsLeader());
    const auto t0 = std::max(mT0, track.GetStartTime());
    const auto t1 = std::min(mT1, track.GetEndTime());
    if (t1 > t0) {

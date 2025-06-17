@@ -1,8 +1,65 @@
-audacity (3.4.2+dfsg-1deepin0) unstable; urgency=medium
+audacity (3.7.3+dfsg-1) unstable; urgency=medium
 
-  * No source change upload against GCC 12.
+  * New upstream version 3.7.3+dfsg
+  * Refresh patchset
+  * Bump Standards-Version to 4.7.2
+  * d/copyright: Remove superfluous-file-pattern
+  * Refresh lintian-overrides
 
- -- Tianyu Chen <sweetyfish@deepin.org>  Thu, 19 Sep 2024 22:42:26 +0800
+ -- Dennis Braun <snd@debian.org>  Mon, 17 Mar 2025 22:54:47 +0100
+
+audacity (3.7.1+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.7.1+dfsg
+
+ -- Dennis Braun <snd@debian.org>  Tue, 31 Dec 2024 14:53:08 +0100
+
+audacity (3.7.0+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.7.0+dfsg
+  * Refresh patchset
+
+ -- Dennis Braun <snd@debian.org>  Sun, 10 Nov 2024 18:43:04 +0100
+
+audacity (3.6.4+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.6.4+dfsg
+
+ -- Dennis Braun <snd@debian.org>  Sun, 22 Sep 2024 17:28:24 +0200
+
+audacity (3.6.3+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.6.3+dfsg
+  * Refresh patchset
+  * Refresh lintian-overrides
+  * Bump Standards-Version to 4.7.0
+
+ -- Dennis Braun <snd@debian.org>  Fri, 13 Sep 2024 20:51:31 +0200
+
+audacity (3.6.1+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.6.1+dfsg
+
+ -- Dennis Braun <snd@debian.org>  Mon, 22 Jul 2024 23:22:34 +0200
+
+audacity (3.6.0+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.6.0+dfsg
+  * Refresh patchset
+  * d/copyright: Drop obsolete entries
+
+ -- Dennis Braun <snd@debian.org>  Sat, 20 Jul 2024 21:22:58 +0200
+
+audacity (3.5.1+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.5.1+dfsg
+  * Refresh patchset
+  * d/copyright:
+    + Drop obsolete entries
+    + Update years
+  * d/rules: Set sse flags for i386 build
+
+ -- Dennis Braun <snd@debian.org>  Sun, 28 Apr 2024 20:57:45 +0200
 
 audacity (3.4.2+dfsg-1) unstable; urgency=medium
 

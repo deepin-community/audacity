@@ -14,11 +14,9 @@
 
 #include "../CommonCommandFlags.h"
 #include "WaveTrack.h"
-#include "Prefs.h"
-#include "Project.h"
 #include "ProjectFileIO.h"
 #include "ProjectRate.h"
-#include "../ProjectWindow.h"
+#include "../ProjectWindowBase.h"
 #include "SelectFile.h"
 #include "ShuttleGui.h"
 #include "FileNames.h"
@@ -26,7 +24,6 @@
 #include "HelpSystem.h"
 #include "../widgets/NumericTextCtrl.h"
 #include "AudacityMessageBox.h"
-#include "../widgets/VetoDialogHook.h"
 
 #include <cmath>
 #include <limits>
@@ -49,99 +46,6 @@
 
 #define DB_MAX_LIMIT 0.0   // Audio is massively distorted.
 #define WCAG2_PASS 20.0    // dB difference required to pass WCAG2 test.
-
-
-bool ContrastDialog::GetDB(float &dB)
-{
-   float rms = float(0.0);
-
-   // For stereo tracks: sqrt((mean(L)+mean(R))/2)
-   double meanSq = 0.0;
-
-   auto p = FindProjectFromWindow( this );
-   auto range =
-      TrackList::Get(*p).Selected<const WaveTrack>();
-   auto numberSelectedTracks = range.size();
-   if (numberSelectedTracks > 1) {
-      AudacityMessageDialog m(
-         nullptr,
-         XO("You can only measure one track at a time."),
-         XO("Error"),
-         wxOK);
-      m.ShowModal();
-      return false;
-   }
-   if(numberSelectedTracks == 0) {
-      AudacityMessageDialog m(
-         nullptr,
-         XO("Please select an audio track."),
-         XO("Error"),
-         wxOK);
-      m.ShowModal();
-      return false;
-   }
-
-   const auto first = *range.begin();
-   const auto channels = first->Channels();
-   assert(mT0 <= mT1);
-   // Ignore whitespace beyond ends of track.
-   mT0 = std::max(mT0, first->GetStartTime());
-   mT1 = std::min(mT1, first->GetEndTime());
-   for (auto t : channels) {
-
-      auto SelT0 = t->TimeToLongSamples(mT0);
-      auto SelT1 = t->TimeToLongSamples(mT1);
-
-      if(SelT0 > SelT1)
-      {
-         AudacityMessageDialog m(
-            nullptr,
-            XO("Invalid audio selection.\nPlease ensure that audio is selected."),
-            XO("Error"),
-            wxOK);
-         m.ShowModal();
-         return false;
-      }
-
-      if(SelT0 == SelT1)
-      {
-         AudacityMessageDialog m(
-            nullptr,
-            XO("Nothing to measure.\nPlease select a section of a track."),
-            XO("Error"),
-            wxOK);
-         m.ShowModal();
-         return false;
-      }
-
-      // Don't throw in this analysis dialog
-      rms = t->GetRMS(mT0, mT1, false);
-      meanSq += rms * rms;
-   }
-   // TODO: This works for stereo, provided the audio clips are in both channels.
-   // We should really count gaps between clips as silence.
-   rms = (meanSq > 0.0)
-      ? sqrt( meanSq/static_cast<double>( channels.size() ) )
-      : 0.0;
-
-   // Gives warning C4056, Overflow in floating-point constant arithmetic
-   // -INFINITY is intentional here.
-   // Looks like we are stuck with this warning, as
-   // #pragma warning( disable : 4056)
-   // even around the whole function does not disable it successfully.
-
-   dB = (rms == 0.0)? -INFINITY : LINEAR_TO_DB(rms);
-   return true;
-}
-
-void ContrastDialog::SetStartAndEndTime()
-{
-   auto p = FindProjectFromWindow( this );
-   auto &selectedRegion = ViewInfo::Get( *p ).selectedRegion;
-   mT0 = selectedRegion.t0();
-   mT1 = selectedRegion.t1();
-}
-
 
 // WDR: class implementations
 
@@ -251,7 +155,7 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
                NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
                          S.GetParent(), ID_FOREGROUNDSTART_T,
                          NumericConverterType_TIME(),
-                         NumericConverterFormats::HundredthsFormat(),
+                         NumericConverterFormats::HundredthsFormat().Internal(),
                          0.0,
                          options);
          }
@@ -264,7 +168,7 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
                NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
                          S.GetParent(), ID_FOREGROUNDEND_T,
                          NumericConverterType_TIME(),
-                         NumericConverterFormats::HundredthsFormat(),
+                         NumericConverterFormats::HundredthsFormat().Internal(),
                          0.0,
                          options);
          }
@@ -285,7 +189,7 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
                NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
                          S.GetParent(), ID_BACKGROUNDSTART_T,
                          NumericConverterType_TIME(),
-                         NumericConverterFormats::HundredthsFormat(),
+                         NumericConverterFormats::HundredthsFormat().Internal(),
                          0.0,
                          options);
          }
@@ -298,7 +202,7 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
                NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
                          S.GetParent(), ID_BACKGROUNDEND_T,
                          NumericConverterType_TIME(),
-                         NumericConverterFormats::HundredthsFormat(),
+                         NumericConverterFormats::HundredthsFormat().Internal(),
                          0.0,
                          options);
          }
@@ -650,9 +554,14 @@ void ContrastDialog::OnReset(wxCommandEvent & /*event*/)
    mDiffText->ChangeValue(wxT(""));
 }
 
+AudacityProject& ContrastDialog::GetProject()
+{
+   return *FindProjectFromWindow(this);
+}
+
 // Remaining code hooks this add-on into the application
-#include "commands/CommandContext.h"
-#include "commands/CommandManager.h"
+#include "CommandContext.h"
+#include "CommandManager.h"
 #include "ProjectWindows.h"
 
 namespace {
@@ -660,7 +569,7 @@ namespace {
 // Contrast window attached to each project is built on demand by:
 AttachedWindows::RegisteredFactory sContrastDialogKey{
    []( AudacityProject &parent ) -> wxWeakRef< wxWindow > {
-      auto &window = ProjectWindow::Get( parent );
+      auto &window = GetProjectFrame(parent);
       return safenew ContrastDialog(
          &window, -1, XO("Contrast Analysis (WCAG 2 compliance)"),
          wxPoint{ 150, 150 }
@@ -673,25 +582,24 @@ namespace {
    void OnContrast(const CommandContext &context)
    {
       auto &project = context.project;
-      CommandManager::Get(project).RegisterLastAnalyzer(context);  //Register Contrast as Last Analyzer
+      CommandManager::Get(project).RegisterLastAnalyzer(context);
       auto contrastDialog = &GetAttachedWindows(project)
          .Get< ContrastDialog >( sContrastDialogKey );
 
       contrastDialog->CentreOnParent();
-      if( VetoDialogHook::Call( contrastDialog ) )
-         return;
       contrastDialog->Show();
    }
 }
 
 // Register that menu item
 
-using namespace MenuTable;
-AttachedItem sAttachment{ wxT("Analyze/Analyzers/Windows"),
+using namespace MenuRegistry;
+AttachedItem sAttachment{
    Command( wxT("ContrastAnalyser"), XXO("Contrast..."),
       OnContrast,
       AudioIONotBusyFlag() | WaveTracksSelectedFlag() | TimeSelectedFlag(),
-      wxT("Ctrl+Shift+T") )
+      wxT("Ctrl+Shift+T") ),
+   wxT("Analyze/Analyzers/Windows")
 };
 
 }

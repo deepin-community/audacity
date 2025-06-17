@@ -144,6 +144,13 @@ enum ProgressDialogOptions : unsigned {
    ProgressConfirmStopOrCancel = (1 << 3),
 };
 
+enum GenericProgressDialogStyle : int {
+   ProgressCanAbort            = (1 << 0),
+   ProgressAppModal            = (1 << 1),
+   ProgressShowElapsedTime     = (1 << 2),
+   ProgressSmooth              = (1 << 3),
+};
+
 enum class ProgressResult : unsigned
 {
    Cancelled = 0, //<! User says that whatever is happening is undesirable and shouldn't have happened at all
@@ -180,7 +187,7 @@ class BASIC_UI_API GenericProgressDialog
 public:
    virtual ~GenericProgressDialog();
    //! Give some visual indication of progress.  Call only on the main thread.
-   virtual void Pulse() = 0;
+   virtual ProgressResult Pulse() = 0;
 };
 
 //! @}
@@ -194,6 +201,7 @@ public:
    virtual ~Services();
    virtual void DoCallAfter(const Action &action) = 0;
    virtual void DoYield() = 0;
+   virtual void DoProcessIdle() = 0;
    virtual void DoShowErrorDialog(const WindowPlacement &placement,
       const TranslatableString &dlogTitle,
       const TranslatableString &message,
@@ -210,7 +218,8 @@ public:
    virtual std::unique_ptr<GenericProgressDialog>
    DoMakeGenericProgress(const WindowPlacement &placement,
       const TranslatableString &title,
-      const TranslatableString &message) = 0;
+      const TranslatableString &message,
+      int style) = 0;
    virtual int DoMultiDialog(const TranslatableString &message,
       const TranslatableString &title,
       const TranslatableStrings &buttons,
@@ -221,6 +230,10 @@ public:
 
    virtual std::unique_ptr<WindowPlacement> DoFindFocus() = 0;
    virtual void DoSetFocus(const WindowPlacement &focus) = 0;
+
+   virtual bool IsUsingRtlLayout() const = 0;
+
+   virtual bool IsUiThread() const = 0;
 };
 
 //! Fetch the global instance, or nullptr if none is yet installed
@@ -250,6 +263,9 @@ BASIC_UI_API void CallAfter(Action action);
  dispatching.
  */
 BASIC_UI_API void Yield();
+
+//! Dispatch waiting events only (no pending mouse, keyboard, or timer events)
+BASIC_UI_API void ProcessIdle();
 
 //! Open an URL in default browser
 /*! This function may be called in other threads than the main.
@@ -307,10 +323,10 @@ inline std::unique_ptr<ProgressDialog> MakeProgress(
  */
 inline std::unique_ptr<GenericProgressDialog> MakeGenericProgress(
    const WindowPlacement &placement,
-   const TranslatableString &title, const TranslatableString &message)
+   const TranslatableString &title, const TranslatableString &message, int style = (ProgressAppModal | ProgressShowElapsedTime | ProgressSmooth))
 {
    if (auto p = Get())
-      return p->DoMakeGenericProgress(placement, title, message);
+      return p->DoMakeGenericProgress(placement, title, message, style);
    else
       return nullptr;
 }
@@ -382,6 +398,27 @@ inline void SetFocus(const WindowPlacement &focus)
    if (auto p = Get())
       p->DoSetFocus(focus);
 }
+
+//! Whether using a right-to-left language layout
+inline bool IsUsingRtlLayout()
+{
+   if (auto p = Get())
+      return p->IsUsingRtlLayout();
+   return false;
+}
+
+//! Whether the current thread is the UI thread
+inline bool IsUiThread ()
+{
+   if (auto p = Get())
+      return p->IsUiThread();
+   return true;
+}
+
+#define ASSERT_MAIN_THREAD() \
+   assert(                     \
+      BasicUI::IsUiThread() && \
+      "This function should only be called on the main thread")
 
 //! @}
 }

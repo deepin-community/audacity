@@ -7,7 +7,7 @@ Uploaders: Free Ekanayaka <freee@debian.org>,
            David Henningsson <diwic@ubuntu.com>,
            Jaromír Mikeš <mira.mikes@seznam.cz>,
            Dennis Braun <snd@debian.org>
-Standards-Version: 4.6.2
+Standards-Version: 4.7.2
 Build-Depends: cmake (>= 3.15),
                debhelper-compat (= 13),
                gettext,

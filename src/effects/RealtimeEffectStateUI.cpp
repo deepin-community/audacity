@@ -22,7 +22,6 @@
 #include "UndoManager.h"
 #include "ProjectHistory.h"
 #include "ProjectWindow.h"
-#include "Track.h"
 
 namespace
 {
@@ -115,7 +114,10 @@ void RealtimeEffectStateUI::Show(AudacityProject& project)
       });
 
    mParameterChangedSubscription = mEffectUIHost->GetEditor()->Subscribe(
-      [this](auto) { UndoManager::Get(*mpProject).MarkUnsaved(); });
+      [this](auto) { if (mpProject) {  // This can be null if closing an effect without making changes.
+                        UndoManager::Get(*mpProject).MarkUnsaved();
+                     }
+                   });
 }
 
 void RealtimeEffectStateUI::Hide(AudacityProject* project)
@@ -137,10 +139,9 @@ void RealtimeEffectStateUI::Toggle(AudacityProject& project)
       Show(project);
 }
 
-void RealtimeEffectStateUI::UpdateTrackData(const Track& track)
+void RealtimeEffectStateUI::SetTargetName(const wxString& targetName)
 {
-   mTrackName = track.GetName();
-
+   mTargetName = targetName;
    UpdateTitle();
 }
 
@@ -170,10 +171,10 @@ void RealtimeEffectStateUI::UpdateTitle()
    }
 
    const auto title =
-      mTrackName.empty() ?
+      mTargetName.empty() ?
          mEffectName :
          /* i18n-hint: First %s is an effect name, second is a track name */
-         XO("%s - %s").Format(mEffectName, mTrackName);
+         XO("%s - %s").Format(mEffectName, mTargetName);
 
    mEffectUIHost->SetTitle(title);
    mEffectUIHost->SetName(title);
@@ -181,6 +182,16 @@ void RealtimeEffectStateUI::UpdateTitle()
 
 void RealtimeEffectStateUI::AutoSave(AudacityProject &project)
 {
+   ProjectHistory::Get(project).PushState(
+      /*! i18n-hint: undo history record
+      first parameter - realtime effect name
+      */
+      XO("Change settings for realtime effect %s on %s").Format(mEffectName, mTargetName),
+      /*! i18n-hint: undo history record
+      first parameter - realtime effect name
+      */
+      XO("Change realtime effect %s on %s").Format(mEffectName, mTargetName),
+      UndoPush::CONSOLIDATE);
    ProjectHistory::AutoSave::Call(project);
 }
 

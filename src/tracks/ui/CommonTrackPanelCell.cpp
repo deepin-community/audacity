@@ -16,10 +16,9 @@ Paul Licameli split from TrackPanel.cpp
 
 #include "../../widgets/BasicMenu.h"
 #include "BasicUI.h"
-#include "../../commands/CommandContext.h"
-#include "../../commands/CommandManager.h"
+#include "CommandContext.h"
+#include "CommandManager.h"
 #include "../../HitTestResult.h"
-#include "../../Menus.h"
 #include "../../RefreshCode.h"
 #include "../../TrackPanelMouseEvent.h"
 #include "Track.h"
@@ -45,14 +44,14 @@ auto CommonTrackPanelCell::GetMenuItems(
 }
 
 unsigned CommonTrackPanelCell::DoContextMenu( const wxRect &rect,
-   wxWindow *pParent, const wxPoint *pPoint, AudacityProject *pProject)
+   wxWindow *pParent, const wxPoint *pPoint, AudacityProject *const pProject)
 {
    const auto items = GetMenuItems( rect, pPoint, pProject );
    if (items.empty())
       return RefreshCode::RefreshNone;
 
-   auto& menuManager = MenuManager::Get(*pProject);
-   menuManager.UpdateMenus();
+   auto &commandManager = CommandManager::Get(*pProject);
+   commandManager.UpdateMenus();
 
    // Set up command context with extras
    CommandContext context{ *pProject };
@@ -64,8 +63,7 @@ unsigned CommonTrackPanelCell::DoContextMenu( const wxRect &rect,
    }
    context.temporarySelection.pTrack = FindTrack().get();
 
-   auto &commandManager = CommandManager::Get(*pProject);
-   auto flags = menuManager.GetUpdateFlags();
+   auto flags = commandManager.GetUpdateFlags();
 
    // Common dispatcher for the menu items
    auto dispatcher = [&]( wxCommandEvent &evt ){
@@ -117,23 +115,14 @@ unsigned CommonTrackPanelCell::HandleWheelRotation
    return hook ? hook( evt, pProject ) : RefreshCode::Cancelled;
 }
 
-CommonTrackCell::CommonTrackCell(
-   const std::shared_ptr<Track> &parent, size_t iChannel
-)  : mwTrack{ parent }
-   , miChannel{ iChannel }
-{
-   // TODO wide wave tracks -- remove assertion
-   assert(iChannel == 0);
-}
-
-CommonTrackCell::CommonTrackCell(ChannelGroup &group, size_t iChannel)
-   : CommonTrackCell{ static_cast<Track&>(group).shared_from_this(), iChannel }
+CommonTrackCell::CommonTrackCell(const std::shared_ptr<Track> &parent)
+   : mwTrack{ parent }
 {
 }
 
 CommonTrackCell::~CommonTrackCell() = default;
 
-void CommonTrackCell::Reparent( const std::shared_ptr<Track> &parent )
+void CommonTrackCell::Reparent(const std::shared_ptr<Track> &parent)
 {
    mwTrack = parent;
 }
@@ -143,14 +132,33 @@ std::shared_ptr<Track> CommonTrackCell::DoFindTrack()
    return mwTrack.lock();
 }
 
-std::shared_ptr<Channel> CommonTrackCell::FindChannel()
+CommonChannelCell::CommonChannelCell(const std::shared_ptr<Channel> &parent)
+   : mwChannel{ parent }
 {
-   if (const auto pTrack = FindTrack())
-      return pTrack->GetChannel(miChannel);
-   return {};
 }
 
-std::shared_ptr<const Channel> CommonTrackCell::FindChannel() const
+CommonChannelCell::~CommonChannelCell() = default;
+
+void CommonChannelCell::Reparent(
+   const std::shared_ptr<Track> &parent, size_t iChannel)
 {
-   return const_cast<CommonTrackCell*>(this)->FindChannel();
+   mwChannel = parent->NthChannel(iChannel);
+}
+
+std::shared_ptr<Track> CommonChannelCell::DoFindTrack()
+{
+   Track *pTrack{};
+   if (const auto pChannel = mwChannel.lock())
+      pTrack = dynamic_cast<Track *>(&pChannel->GetChannelGroup());
+   return pTrack ? pTrack->SharedPointer() : nullptr;
+}
+
+std::shared_ptr<Channel> CommonChannelCell::DoFindChannel()
+{
+   return mwChannel.lock();
+}
+
+std::shared_ptr<const Channel> CommonChannelCell::DoFindChannel() const
+{
+   return const_cast<CommonChannelCell*>(this)->FindChannel();
 }

@@ -4,7 +4,7 @@
  */
 
 #include "../../../ui/TimeShiftHandle.h"
-#include "../../../../NoteTrack.h"
+#include "NoteTrack.h"
 #include "ViewInfo.h"
 
 class NoteTrackShifter final : public TrackShifter {
@@ -15,7 +15,6 @@ public:
       InitIntervals();
    }
    ~NoteTrackShifter() override {}
-   //! Note track is always leader; satisfying the post
    Track &GetTrack() const override { return *mpTrack; }
    
    HitTestResult HitTest(
@@ -30,7 +29,7 @@ public:
          return HitTestResult::Intervals;
    }
 
-   void SelectInterval(const ChannelGroupInterval &interval) override
+   void SelectInterval(TimeInterval interval) override
    {
       CommonSelectInterval(interval);
    }

@@ -48,9 +48,6 @@ class LWSlider;
 
 class TrackPanelAx;
 
-// Declared elsewhere, to reduce compilation dependencies
-class TrackPanelListener;
-
 struct TrackPanelDrawingContext;
 
 enum class UndoPush : unsigned char;
@@ -90,7 +87,6 @@ class AUDACITY_DLL_API TrackPanel final
 
    void OnTrackListResizing(const TrackListEvent &event);
    void OnTrackListDeletion();
-   void OnEnsureVisible(const TrackListEvent & event);
    void UpdateViewIfNoTracks(); // Call this to update mViewInfo, etc, after track(s) removal, before Refresh().
 
    double GetMostRecentXPos();
@@ -115,16 +111,11 @@ class AUDACITY_DLL_API TrackPanel final
 
    void OnTrackMenu(Track *t = NULL);
 
-   void VerticalScroll( float fracPosition);
-
-   TrackPanelCell *GetFocusedCell() override;
+   std::shared_ptr<TrackPanelCell> GetFocusedCell() override;
    void SetFocusedCell() override;
 
    void UpdateVRulers();
    void UpdateVRuler(Track *t);
-   /*!
-    @pre `t.IsLeader()`
-    */
    void UpdateTrackVRuler(Track &t);
    void UpdateVRulerSize();
 
@@ -172,7 +163,6 @@ public:
    const TrackList * GetTracks() const { return mTracks.get(); }
    TrackList * GetTracks() { return mTracks.get(); }
    ViewInfo * GetViewInfo(){ return mViewInfo;}
-   TrackPanelListener * GetListener(){ return mListener;}
    AdornedRulerPanel * GetRuler(){ return mRuler;}
 
 protected:
@@ -195,9 +185,8 @@ protected:
       , mRealtimeEffectManagerSubscription
       , mSyncLockSubscription
       , mProjectRulerInvalidatedSubscription
+      , mSelectionSubscription
    ;
-
-   TrackPanelListener *mListener;
 
    std::shared_ptr<TrackList> mTracks;
 

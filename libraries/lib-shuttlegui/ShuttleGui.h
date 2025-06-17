@@ -72,6 +72,8 @@ class wxListBox;
 class wxGrid;
 class ShuttlePrefs;
 class ReadOnlyText;
+class SpinControl;
+class GradientButton;
 
 class WrappedType;
 
@@ -260,6 +262,9 @@ public:
    wxSlider * AddVSlider(const TranslatableString &Prompt, int pos, int Max);
    wxSpinCtrl * AddSpinCtrl(const TranslatableString &Prompt,
       int Value, int Max, int Min);
+   SpinControl* AddSpinControl(
+      const wxSize& size, const TranslatableString& Prompt, double Value,
+      double Max, double Min);
    wxTreeCtrl * AddTree();
 
    // Pass the same initValue to the sequence of calls to AddRadioButton and
@@ -282,6 +287,7 @@ public:
    wxBitmapButton * AddBitmapButton(
       const wxBitmap &Bitmap, int PositionFlags = wxALIGN_CENTRE,
       bool setDefault = false );
+   GradientButton * AddGradientButton(const TranslatableString & Text, int PositionFlags = wxALIGN_CENTRE, bool setDefault = false, bool setPadding = false );
    // When PositionFlags is 0, applies wxALL (which affects borders),
    // and either wxALIGN_CENTER (if bCenter) or else wxEXPAND
    wxStaticText * AddVariableText(
@@ -435,6 +441,9 @@ public:
 
    wxSpinCtrl * TieSpinCtrl( const TranslatableString &Prompt,
       int &Value, const int max, const int min = 0 );
+   SpinControl* TieSpinControl(
+      const wxSize& size, const TranslatableString& Prompt, double& Value,
+      const double max, const double min = 0);
 
 
 //-- Variants of the standard Tie functions which do two step exchange in one go
@@ -569,6 +578,9 @@ private:
       WrappedType & WrappedRef, const int max, const int min = 0 );
    wxSpinCtrl * DoTieSpinCtrl( const TranslatableString &Prompt,
       WrappedType & WrappedRef, const int max, const int min = 0 );
+   SpinControl* DoTieSpinControl(
+      const wxSize& size, const TranslatableString& Prompt,
+      WrappedType& WrappedRef, const double max, const double min = 0);
 
    std::vector<EnumValueSymbol> mRadioSymbols;
    wxString mRadioSettingName; /// The setting controlled by a group.

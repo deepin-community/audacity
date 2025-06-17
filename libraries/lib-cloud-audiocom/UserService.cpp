@@ -28,11 +28,12 @@
 
 #include "IResponse.h"
 #include "NetworkManager.h"
+#include "NetworkUtils.h"
 #include "Request.h"
 
 #include "CodeConversions.h"
 
-namespace cloud::audiocom
+namespace audacity::cloud::audiocom
 {
 namespace
 {
@@ -41,7 +42,8 @@ wxString MakeAvatarPath()
    const wxFileName avatarFileName(FileNames::ConfigDir(), "avatar");
    return avatarFileName.GetFullPath();
 }
-   
+
+StringSetting userId { L"/cloud/audiocom/userId", "" };
 StringSetting userName { L"/cloud/audiocom/userName", "" };
 StringSetting displayName { L"/cloud/audiocom/displayName", "" };
 StringSetting avatarEtag { L"/cloud/audiocom/avatarEtag", "" };
@@ -76,13 +78,15 @@ void UserService::UpdateUserData()
    request.setHeader(
       common_headers::Accept, common_content_types::ApplicationJson);
 
+   SetOptionalHeaders(request);
+
    auto response = NetworkManager::GetInstance().doGet(request);
 
    response->setRequestFinishedCallback(
       [response, this](auto)
       {
          const auto httpCode = response->getHTTPCode();
-         
+
          if (httpCode != 200)
             return;
 
@@ -96,18 +100,22 @@ void UserService::UpdateUserData()
          if (!document.IsObject())
             return;
 
+         const auto id = document["id"].GetString();
          const auto username = document["username"].GetString();
          const auto avatar = document["avatar"].GetString();
          const auto profileName = document["profile"]["name"].GetString();
 
          BasicUI::CallAfter(
-            [this, username = std::string(username),
+            [this,
+             id = std::string(id),
+             username = std::string(username),
              profileName = std::string(profileName),
              avatar = std::string(avatar)]()
             {
+               userId.Write(audacity::ToWXString(id));
                userName.Write(audacity::ToWXString(username));
                displayName.Write(audacity::ToWXString(profileName));
-               
+
                gPrefs->Flush();
 
                DownloadAvatar(avatar);
@@ -126,6 +134,7 @@ void UserService::ClearUserData()
          if (GetUserSlug().empty())
             return;
 
+         userId.Write({});
          userName.Write({});
          displayName.Write({});
          avatarEtag.Write({});
@@ -154,12 +163,12 @@ void UserService::DownloadAvatar(std::string_view url)
 
       return;
    }
-   
+
    std::shared_ptr<wxFile> avatarFile = std::make_shared<wxFile>();
 
    if (!avatarFile->Create(avatarTempPath, true))
       return;
-   
+
    using namespace audacity::network_manager;
 
    auto request = Request(std::string(url));
@@ -171,7 +180,7 @@ void UserService::DownloadAvatar(std::string_view url)
       request.setHeader(common_headers::IfNoneMatch, etag);
 
    auto response = NetworkManager::GetInstance().doGet(request);
-   
+
    response->setOnDataReceivedCallback(
       [response, avatarFile](auto)
       {
@@ -198,7 +207,7 @@ void UserService::DownloadAvatar(std::string_view url)
 
          const auto etag = response->getHeader("ETag");
          const auto oldPath = avatarPath + ".old";
-         
+
          if (wxFileExists(avatarPath))
             if (!wxRenameFile(avatarPath, oldPath))
                return;
@@ -212,16 +221,21 @@ void UserService::DownloadAvatar(std::string_view url)
 
          if (wxFileExists(oldPath))
             wxRemoveFile(oldPath);
-         
+
          BasicUI::CallAfter(
             [this, etag]()
             {
                avatarEtag.Write(etag);
                gPrefs->Flush();
-               
+
                Publish({});
             });
       });
+}
+
+wxString UserService::GetUserId() const
+{
+   return userId.Read();
 }
 
 wxString UserService::GetDisplayName() const
@@ -244,4 +258,4 @@ wxString UserService::GetAvatarPath() const
    return path;
 }
 
-} // namespace cloud::audiocom
+} // namespace audacity::cloud::audiocom

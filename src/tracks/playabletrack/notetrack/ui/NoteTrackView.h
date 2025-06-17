@@ -20,7 +20,7 @@ class NoteTrackView final : public CommonChannelView
 
 public:
    explicit
-   NoteTrackView( const std::shared_ptr<Track> &pTrack );
+   NoteTrackView(const std::shared_ptr<Channel> &pChannel);
    ~NoteTrackView() override;
 
 private:
@@ -38,5 +38,9 @@ private:
       const wxRect &rect, unsigned iPass ) override;
 
    std::shared_ptr<CommonTrackCell> mpAffordanceCellControl;
+
+#ifdef EXPERIMENTAL_MIDI_STRETCHING
+   std::weak_ptr<class StretchHandle> mStretchHandle;
+#endif
 };
 #endif
