@@ -1116,9 +1116,11 @@ bool WaveClip::Paste(double t0, const WaveClip& o)
 
    if (GetSequenceSamplesCount() == 0)
    {
-      // Empty clip: we're flexible and adopt the other's stretching.
-      mRawAudioTempo = other.mRawAudioTempo;
+      // Empty clip: we're flexible and adopt the other's pitch and stretch.
+      mPitchAndSpeedPreset = other.mPitchAndSpeedPreset;
+      mCentShift = other.mCentShift;
       mClipStretchRatio = other.mClipStretchRatio;
+      mRawAudioTempo = other.mRawAudioTempo;
       mProjectTempo = other.mProjectTempo;
    }
    else if (!HasEqualPitchAndSpeed(other))
@@ -2001,7 +2003,7 @@ bool WaveClip::CheckInvariants() const
       end = mSequences.end();
    // There must be at least one pointer
    if (iter != end) {
-      // All pointers mut be non-null
+      // All pointers must be non-null
       auto &pFirst = *iter++;
       if (pFirst) {
          // All sequences must have the same sample formats, and sample block

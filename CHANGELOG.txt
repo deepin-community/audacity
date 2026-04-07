@@ -1,5 +1,47 @@
 List of significant changes and bug fixes going back to version 1.1.0
 
+Changes in version 3.7.7
+
+Hotfix: fixes broken waveform scrolling and selection for some users introduced in 3.7.6.
+
+Changes in version 3.7.6
+
+This is a patch release. It contains the following changes:
+
+   * #9742 Added FFmpeg 8 support
+   * #9709 Added Spectrogram Wavelet analysis (Thanks, Klaus Gram-Hansen (@kgramhans))
+   * #9565 Added middle-mouse drag panning over track panel (Thanks, Anders Jenbo (@AJenbo))
+   * #9863 Added "Import from audio.com" dialog to import audio files from audio.com
+   * #9838 Fixed unstable cloud audio uploads
+   * #9576 Allowed export as OGG/Opus when exporting with FFmpeg
+   * #9929 Fixed 16-bit FLAC import
+   * #9897 Library updates: libcurl to 8.17.0, wavpack to 5.7.0
+
+Changes in version 3.7.5
+
+This is a patch release. It contains the following changes:
+
+   * #8942 Windows on ARM support (Thanks, Vasanth K (@vask2108) and Linaro!)
+   * #9121 FLAC importer now supports 32-bit PCM (Thanks, Dr. K. D. Murray (@kdm9)!)
+   * #8851 Fixed crash when rendering spectrum view (Thanks, Hailey Somerville (@haileys)!)
+   * #9097 Fixed lost focus when registration window was closed
+   * #8932 Fixed crash on wav import (when audio file is up to 7 ms long)
+   * #4444 Fixed crash when using Macro Wizard
+   * #9100, #8890 Updated libopus to 1.5.2, updated libcurl to 8.12.1, updated libpng to 1.6.50
+
+Changes in version 3.7.4
+
+This is a patch release. It contains the following changes:
+
+   * #6890 Fixed a crash when closing a large unsaved project
+   * #8709 Fixed a crash when using real-time effects that activate delay compensation
+   * #8494 Fixed issue where Studio Fade Out creates a new clip when applied at the end of a clip
+   * #8442 Fixed incorrect waveform rendering on clipped audio
+   * #8559 Fixed unintended deletion of a clip when joining two clips with pitch adjustment
+   * #3003 Effect preview now works when the track is muted
+   * #8666 Fixed possible incorrect calculations in the Hamming window derivative (Thanks, witwald!)
+   * #8577 Fixed compilation issues on legacy macOS (Thanks, barracuda156!)
+
 Changes in version 3.7.3
 
 This is a hotfix release. It fixes the following bugs:

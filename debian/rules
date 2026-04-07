@@ -13,7 +13,9 @@ CMAKE_FLAGS = \
 	-Daudacity_has_vst3=Off \
 	-Daudacity_lib_preference=system \
 	-Daudacity_use_ffmpeg=loaded \
+	-Daudacity_use_vst3sdk=system \
 	-DwxBUILD_TOOLKIT=gtk3 \
+	-DCMAKE_DEB_HOST_MULTIARCH=$(DEB_HOST_MULTIARCH) \
 	$(NULL)
 
 ifeq (,$(findstring ~,$(DEB_VERSION_UPSTREAM)))
@@ -22,7 +24,7 @@ CMAKE_FLAGS += -DAUDACITY_BUILD_LEVEL=2
 endif
 
 ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
-CROSS_CMAKE_FLAGS = -DIMAGE_COMPILER_EXECUTABLE=$(CURDIR)/obj-$(DEB_BUILD_GNU_TYPE)/utils/image-compiler
+CROSS_CMAKE_FLAGS = -DIMAGE_COMPILER_EXECUTABLE=$(CURDIR)/obj-$(DEB_BUILD_GNU_TYPE)/RelWithDebInfo/bin/image-compiler
 endif
 
 ifeq ($(DEB_HOST_ARCH),i386)
@@ -39,7 +41,6 @@ DISABLE_LIBRARIES = \
 	-Daudacity_use_libopus=off \
 	-Daudacity_use_libvorbis=off \
 	-Daudacity_use_lv2=off \
-	-Daudacity_use_midi=off \
 	-Daudacity_use_portsmf=off \
 	-Daudacity_use_sbsms=off \
 	-Daudacity_use_soundtouch=off \
@@ -60,7 +61,9 @@ endif
 
 override_dh_auto_configure:
 ifneq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
-	cmake -B obj-$(DEB_BUILD_GNU_TYPE) -DCMAKE_VERBOSE_MAKEFILE=ON $(CMAKE_FLAGS) $(DISABLE_LIBRARIES)
+	dpkg-architecture -a$(DEB_BUILD_ARCH) -f -c \
+		dh_auto_configure --reload-all-buildenv-variables --builddirectory=obj-$(DEB_BUILD_GNU_TYPE) -- \
+		$(CMAKE_FLAGS) $(DISABLE_LIBRARIES)
 	cmake --build obj-$(DEB_BUILD_GNU_TYPE) --target image-compiler
 endif
 	WX_CONFIG=/usr/lib/$(DEB_HOST_GNU_TYPE)/wx/config/gtk3-unicode-3.2 dh_auto_configure -- $(CMAKE_FLAGS) $(CROSS_CMAKE_FLAGS)

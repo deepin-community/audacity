@@ -7,7 +7,7 @@ Uploaders: Free Ekanayaka <freee@debian.org>,
            David Henningsson <diwic@ubuntu.com>,
            Jaromír Mikeš <mira.mikes@seznam.cz>,
            Dennis Braun <snd@debian.org>
-Standards-Version: 4.7.2
+Standards-Version: 4.7.3
 Build-Depends: cmake (>= 3.15),
                debhelper-compat (= 13),
                gettext,
@@ -28,7 +28,8 @@ Build-Depends: cmake (>= 3.15),
                libmpg123-dev,
                libogg-dev,
 	       libopusfile-dev,
-               libportmidi-dev,
+	       libportmidi-dev,
+               libportmidi-dev:native,
                libportsmf-dev,
                libsbsms-dev (>= 2.2.0~),
                libsndfile1-dev,
@@ -42,6 +43,7 @@ Build-Depends: cmake (>= 3.15),
                libsuil-dev,
                libtwolame-dev,
                libvorbis-dev,
+               libvst3sdk-dev,
                libwavpack-dev (>= 5.2.0),
                libwxgtk3.2-dev,
                libwxgtk3.2-dev:native,
@@ -57,7 +59,6 @@ Build-Depends: cmake (>= 3.15),
 Homepage: https://www.audacityteam.org/
 Vcs-Browser: https://salsa.debian.org/multimedia-team/audacity
 Vcs-Git: https://salsa.debian.org/multimedia-team/audacity.git
-Rules-Requires-Root: no
 
 Package: audacity
 Architecture: any

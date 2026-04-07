@@ -395,8 +395,6 @@ void PopulatePreferences()
          gPrefs->DeleteGroup(wxT("/GUI/ToolBars"));
       if(gPrefs->Exists(wxT("Window")))
          gPrefs->DeleteGroup(wxT("Window"));
-      if(gPrefs->Exists("/GUI/ShowSplashScreen"))
-         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
       if(gPrefs->Exists("/GUI/Help"))
          gPrefs->DeleteEntry("/GUI/Help");
    }
@@ -413,34 +411,16 @@ void PopulatePreferences()
    {
       if (gPrefs->Exists(wxT("/GUI/ToolBars")))
          gPrefs->DeleteGroup(wxT("/GUI/ToolBars"));
-      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
-         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
-   }
-
-   if (std::pair { vMajor, vMinor } < std::pair { 3, 5 })
-   {
-      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
-         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
    }
 
    if (std::pair { vMajor, vMinor } < std::pair { 3, 6 })
    {
-      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
-         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
       if (gPrefs->Exists(wxT("/GUI/ToolBars")))
          gPrefs->DeleteGroup(wxT("/GUI/ToolBars"));
    }
 
-   if (std::pair { vMajor, vMinor } < std::pair { 3, 7 })
-   {
-      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
-         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
-   }
-
    if (std::tuple { vMajor, vMinor, vMicro } < std::tuple{ 3, 7, 2 })
    {
-      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
-         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
       // Reset Share Audio width
       if(gPrefs->Exists("/GUI/ToolBars/Share Audio/W"))
          gPrefs->DeleteEntry("/GUI/ToolBars/Share Audio/W");
@@ -452,6 +432,13 @@ void PopulatePreferences()
       // To set the new default to Best Quality
       if (gPrefs->Exists("/Quality/LibsoxrSampleRateConverterChoice"))
          gPrefs->DeleteEntry("/Quality/LibsoxrSampleRateConverterChoice");
+   }
+
+   // Reset the splash screen for every new version
+   if (std::tuple { vMajor, vMinor, vMicro } < std::tuple{ AUDACITY_VERSION, AUDACITY_RELEASE, AUDACITY_REVISION })
+   {
+      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
+         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
    }
 
    // write out the version numbers to the prefs file for future checking
@@ -1302,8 +1289,11 @@ void AudacityApp::ShowSplashScreen() {
    // BG: Create a temporary window to set as the top window
    wxImage logoimage((const char**)Audacity_splash_xpm);
    logoimage.Scale(logoimage.GetWidth() * (2.0 / 3.0), logoimage.GetHeight() * (2.0 / 3.0), wxIMAGE_QUALITY_HIGH);
+#ifdef __WXMSW__
+   // We need to mirror the image for right-to-left languages on Windows only
    if (GetLayoutDirection() == wxLayout_RightToLeft)
       logoimage = logoimage.Mirror();
+#endif
    wxBitmap logo(logoimage);
 
    mSplashScreen = std::make_unique<wxSplashScreen>(
@@ -1695,6 +1685,14 @@ bool AudacityApp::InitPart2()
       project = ProjectManager::New();
    }
 
+   // Update Manager may spawn a modal dialog, we need to hide the splash screen before that
+   bool splashFadeOut = !playingJournal;
+   HideSplashScreen(splashFadeOut);
+
+#if defined(HAVE_UPDATES_CHECK)
+   UpdateManager::Start(playingJournal);
+#endif
+
    if (!playingJournal && ProjectSettings::Get(*project).GetShowSplashScreen())
    {
       // This may do a check-for-updates at every start up.
@@ -1705,14 +1703,6 @@ bool AudacityApp::InitPart2()
       WhatsNewDialog::Show(*project);
 #endif
    }
-
-   // Update Manager may spawn a modal dialog, we need to hide the splash screen before that
-   bool splashFadeOut = !playingJournal;
-   HideSplashScreen(splashFadeOut);
-
-#if defined(HAVE_UPDATES_CHECK)
-   UpdateManager::Start(playingJournal);
-#endif
 
    Importer::Get().Initialize();
    ExportPluginRegistry::Get().Initialize();

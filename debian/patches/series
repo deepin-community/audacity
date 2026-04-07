@@ -1,3 +1,4 @@
 Fix-rpath-for-private-libraries-on-Linux.patch
 Fix-setting-audacity_use_midi-off.patch
 Drop-UBUNTU_MENUPROXY-0-workaround.patch
+adjust-vst3sdk-paths.patch

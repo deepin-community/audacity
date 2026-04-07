@@ -5,14 +5,14 @@
 #
 # Translators:
 # Link Winterberg, 2024
-# Grzegorz Pruchniakowski <grzegorz.pruchniakowski@gmail.com>, 2013-2025
+# Grzegorz Pruchniakowski <grzegorz.pruchniakowski@gmail.com>, 2025
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: audacity 3.7.3\n"
+"Project-Id-Version: audacity 3.7.6\n"
 "Report-Msgid-Bugs-To: audacity-translation@lists.sourceforge.net\n"
-"POT-Creation-Date: 2025-03-13 10:52+0300\n"
+"POT-Creation-Date: 2025-11-25 18:02+0300\n"
 "PO-Revision-Date: 2024-09-20 19:15+0000\n"
 "Last-Translator: Grzegorz Pruchniakowski <grzegorz.pruchniakowski@gmail.com>, 2025\n"
 "Language-Team: Polish (https://app.transifex.com/audacity/teams/164520/pl/)\n"
@@ -1079,7 +1079,7 @@ msgid ""
 "\n"
 "Zoom in and select a tiny fraction of a second to repair."
 msgstr ""
-"Efekt naprawy jest przeznaczony do użytku na bardzo krótkich odcinkach uszkodzonego dźwięku (do 128 próbek).\n"
+"Efekt naprawy jest przeznaczony do użycia na bardzo krótkich odcinkach uszkodzonego dźwięku (do 128 próbek).\n"
 "\n"
 "Powiększ i zaznacz ułamek sekundy do naprawy."
 
@@ -1114,7 +1114,7 @@ msgstr "Akustyczny"
 #. i18n-hint: This is the name of an effect preset
 #: libraries/lib-builtin-effects/ReverbBase.cpp
 msgid "Ambience"
-msgstr "Atmosfera"
+msgstr "Otoczenie"
 
 #. i18n-hint: This is the name of an effect preset
 #: libraries/lib-builtin-effects/ReverbBase.cpp
@@ -1131,7 +1131,7 @@ msgstr "Czysty"
 #: libraries/lib-builtin-effects/ReverbBase.cpp
 #: libraries/lib-dynamic-range-processor/DynamicRangeProcessorUtils.h
 msgid "Modern"
-msgstr "Modern"
+msgstr "Nowoczesny"
 
 #. i18n-hint: This is the name of an effect preset
 #: libraries/lib-builtin-effects/ReverbBase.cpp
@@ -1351,6 +1351,16 @@ msgstr "Wah-wah"
 #: libraries/lib-builtin-effects/WahWahBase.cpp
 msgid "Rapid tone quality variations, like that guitar sound so popular in the 1970's"
 msgstr "Gwałtowne zmiany jakości dźwięku, jak dźwięk gitary bardzo popularny w latach 70."
+
+#: libraries/lib-cloud-audiocom/CloudSyncService.cpp
+msgctxt "cloud sync"
+msgid "Error importing cloud audio"
+msgstr "Błąd importowania nagrania w chmurze"
+
+#: libraries/lib-cloud-audiocom/CloudSyncService.cpp
+msgctxt "update dialog"
+msgid "Can't download cloud audio"
+msgstr "Nie można pobrać nagrania w chmurze"
 
 #: libraries/lib-cloud-audiocom/UploadService.cpp
 msgid "Cannot proceed to upload."
@@ -1874,8 +1884,8 @@ msgid ""
 msgstr ""
 "„%s” jest ścieżką Audio CD.\n"
 "Audacity nie może otworzyć bezpośrednio ścieżek Audio CD. \n"
-"Wypakuj ścieżki do formatu, który \n"
-"Audacity może importować, takich jak WAV lub AIFF."
+"Wypakuj (zgraj) ścieżki do formatu, który Audacity \n"
+"może importować, takiego jak WAV lub AIFF."
 
 #. i18n-hint: %s will be the filename
 #: libraries/lib-import-export/Import.cpp
@@ -1885,7 +1895,7 @@ msgid ""
 "Audacity cannot open this file because it only contains links to other files. \n"
 "You may be able to open it in a text editor and download the actual audio files."
 msgstr ""
-"„%s” jest plikiem playlisty.\n"
+"„%s” jest plikiem listy odtwarzania.\n"
 "Audacity nie może otworzyć tego pliku, ponieważ zawiera on tylko linki do innych plików. \n"
 "Możesz otworzyć go w edytorze tekstowym i pobrać aktualne pliki dźwiękowe."
 
@@ -1968,7 +1978,8 @@ msgstr ""
 "„%s” jest plikiem dźwiękowym Musepack.\n"
 "Audacity nie może otworzyć tego typu pliku. \n"
 "Jeśli myślisz, że może to być plik mp3, to zmień jego nazwę na zakończoną „.mp3” \n"
-"i spróbuj ponownie go importować. W przeciwnym razie musisz przekonwertować plik do obsługiwanego formatu, takiego jak WAV lub AIFF."
+"i spróbuj ponownie go importować. W przeciwnym razie musisz przekonwertować plik \n"
+"do obsługiwanego formatu, takiego jak WAV lub AIFF."
 
 #. i18n-hint: %s will be the filename
 #: libraries/lib-import-export/Import.cpp
@@ -2065,6 +2076,10 @@ msgstr "Plik tekstowy SubRip"
 #: libraries/lib-label-track/LabelTrack.cpp
 msgid "WebVTT file"
 msgstr "Plik WebVTT"
+
+#: libraries/lib-label-track/LabelTrack.cpp
+msgid "Supported label file"
+msgstr "Obsługiwany plik etykiety"
 
 #: libraries/lib-label-track/LabelTrack.cpp
 msgid "S&tandard"
@@ -3103,7 +3118,7 @@ msgstr "Ścieżka odtwarzana"
 
 #: libraries/lib-playable-track/PlayableTrack.cpp
 msgid "Multi-track"
-msgstr "Multiścieżka"
+msgstr "Wielościeżkowy"
 
 #: libraries/lib-playable-track/PlayableTrack.cpp
 msgid "Simple"
@@ -4230,6 +4245,10 @@ msgid "Pitch (EAC)"
 msgstr "Wysokość (EAC)"
 
 #: libraries/lib-wave-track-settings/SpectrogramSettings.cpp
+msgid "Wavelet (1/6 Octave Hann)"
+msgstr "Mała fala (1/6 oktawy Hann)"
+
+#: libraries/lib-wave-track-settings/SpectrogramSettings.cpp
 msgid "Maximum frequency must be 100 Hz or above"
 msgstr "Maksymalna częstotliwość musi wynosić 100 Hz lub więcej"
 
@@ -4505,7 +4524,7 @@ msgstr "Brak pomocy lokalnej"
 
 #: libraries/lib-wx-init/HelpText.cpp
 msgid "Audacity can import unprotected files in many other formats (such as M4A and WMA, compressed WAV files from portable recorders and audio from video files) if you download and install the optional [[https://support.audacityteam.org/basics/installing-ffmpeg| FFmpeg library]] to your computer."
-msgstr "Audacity może importować niechronione pliki w wielu formatach (takich jak M4A i WMA, skompresowane pliki WAV z podręcznych dyktafonów i dźwięki z filmów), jeśli tylko na swoim komputerze, pobierzesz i zainstalujesz opcjonalną [[https://support.audacityteam.org/basics/installing-ffmpeg|bibliotekę FFmpeg]]."
+msgstr "Audacity może importować niechronione pliki w wielu formatach (takich jak M4A i WMA, skompresowane pliki WAV z podręcznych dyktafonów i dźwięki z filmów), jeśli tylko na swoim komputerze pobierzesz i zainstalujesz opcjonalną [[https://support.audacityteam.org/basics/installing-ffmpeg|bibliotekę FFmpeg]]."
 
 #: libraries/lib-wx-init/HelpText.cpp
 msgid "You can also read our help on importing [[https://manual.audacityteam.org/man/playing_and_recording.html#midi|MIDI files]] and tracks from [[https://manual.audacityteam.org/man/faq_opening_and_saving_files.html#fromcd| audio CDs]]."
@@ -4632,6 +4651,24 @@ msgstr "Wybierz istniejący plik."
 #: libraries/lib-wx-wrappers/FileDialog/mac/FileDialogPrivate.mm
 msgid "File type:"
 msgstr "Typ pliku:"
+
+#: libraries/lib-wx-wrappers/ImageCarousel.cpp
+msgid "Previous slide"
+msgstr "Poprzedni slajd"
+
+#: libraries/lib-wx-wrappers/ImageCarousel.cpp
+msgid "Next slide"
+msgstr "Następny slajd"
+
+#: libraries/lib-wx-wrappers/ImageCarousel.cpp
+#, c-format
+msgid "Slide %d of %d, %s. %s"
+msgstr "Slajd %d z %d, %s. %s"
+
+#: libraries/lib-wx-wrappers/ImageCarousel.cpp
+#, c-format
+msgid "Slide %d of %d, %s, %s. %s"
+msgstr "Slajd %d z %d, %s, %s. %s"
 
 #: libraries/lib-wx-wrappers/wxPanelWrapper.cpp
 #: libraries/lib-wx-wrappers/wxPanelWrapper.h
@@ -5148,7 +5185,7 @@ msgstr "FFmpeg : BŁĄD - Nie można przydzielić bajtów dla bufora próbek."
 
 #: modules/import-export/mod-ffmpeg/ExportFFmpeg.cpp
 msgid "FFmpeg : ERROR - Could not setup audio frame"
-msgstr "FFmpeg : BŁĄD - Nie można skonfigurować ramki dźwięku."
+msgstr "FFmpeg : BŁĄD - Nie można ustawić ramki dźwięku."
 
 #: modules/import-export/mod-ffmpeg/ExportFFmpeg.cpp
 msgid "FFmpeg : ERROR - encoding frame failed"
@@ -6005,7 +6042,7 @@ msgstr "Nie można eksportować MP2 z tą częstotliwością próbkowania i bitr
 #: modules/import-export/mod-opus/ExportOpus.cpp
 #: modules/import-export/mod-wavpack/ExportWavPack.cpp
 msgid "Unable to open target file for writing"
-msgstr "Nie można otworzyć pliku do zapisu"
+msgstr "Nie można otworzyć pliku docelowego do zapisu"
 
 #: modules/import-export/mod-mp2/ExportMP2.cpp
 #, c-format
@@ -6783,7 +6820,7 @@ msgstr "Pliki WavPack"
 
 #: modules/import-export/mod-wavpack/ExportWavPack.cpp
 msgid "Unable to create target file for writing"
-msgstr "Nie można utworzyć pliku do zapisu"
+msgstr "Nie można utworzyć pliku docelowego do zapisu"
 
 #: modules/import-export/mod-wavpack/ExportWavPack.cpp
 msgid "Exporting selected audio as WavPack"
@@ -6985,6 +7022,7 @@ msgid "New script"
 msgstr "Nowy skrypt"
 
 #: modules/nyquist/mod-nyq-bench/NyqBench.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
 msgid "Open"
 msgstr "Otwórz"
@@ -7119,6 +7157,7 @@ msgid "Go to previous S-expr"
 msgstr "Idź do poprzedniego S-wyrażenia"
 
 #: modules/nyquist/mod-nyq-bench/NyqBench.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
 msgid "Next"
 msgstr "Następne"
@@ -7150,6 +7189,29 @@ msgstr "Oczekiwanie na Audio.com"
 msgid "An action on audio.com is required before you can continue. You can cancel this operation."
 msgstr "Aby móc kontynuować, wymagane jest wykonanie działania na Audio.com. Możesz anulować tę operację."
 
+#: modules/sharing/mod-cloud-audiocom/CloudAudioOpenUtils.cpp
+#: modules/sharing/mod-cloud-audiocom/CloudProjectOpenUtils.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioComDialogBase.cpp
+msgid "Open from audio.com"
+msgstr "Otwórz z Audio.com"
+
+#: modules/sharing/mod-cloud-audiocom/CloudAudioOpenUtils.cpp
+msgid "Downloading audio"
+msgstr "Pobieranie nagrania"
+
+#: modules/sharing/mod-cloud-audiocom/CloudAudioOpenUtils.cpp
+#, c-format
+msgid ""
+"Failed to download audio from cloud.\n"
+"%s"
+msgstr ""
+"Nie udało się pobrać nagrania z chmury.\n"
+"%s"
+
+#: modules/sharing/mod-cloud-audiocom/CloudAudioOpenUtils.cpp
+msgid "Downloaded audio file does not exist."
+msgstr "Pobrany plik nagrania nie istnieje."
+
 #: modules/sharing/mod-cloud-audiocom/CloudProjectMixdownUtils.cpp
 #: modules/sharing/mod-cloud-audiocom/ui/ProjectCloudUIExtension.cpp
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioComDialogBase.cpp
@@ -7162,11 +7224,6 @@ msgid "Generating audio preview..."
 msgstr "Generowanie podglądu nagrania..."
 
 #: modules/sharing/mod-cloud-audiocom/CloudProjectOpenUtils.cpp
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioComDialogBase.cpp
-msgid "Open from audio.com"
-msgstr "Otwórz z Audio.com"
-
-#: modules/sharing/mod-cloud-audiocom/CloudProjectOpenUtils.cpp
 msgid "Synchronizing project"
 msgstr "Synchronizowanie projektu"
 
@@ -7175,16 +7232,24 @@ msgid "Previews can be updated only for Cloud projects"
 msgstr "Podglądy można aktualizować tylko dla projektów w chmurze"
 
 #: modules/sharing/mod-cloud-audiocom/menus/AudioComMenus.cpp
+msgid "Open &From Cloud"
+msgstr "Otwórz z &chmury"
+
+#: modules/sharing/mod-cloud-audiocom/menus/AudioComMenus.cpp
+msgid "Open Cloud &Project..."
+msgstr "Otwórz &projekt w chmurze..."
+
+#: modules/sharing/mod-cloud-audiocom/menus/AudioComMenus.cpp
+msgid "Open Cloud &Audio File..."
+msgstr "Otwórz plik n&agrania w chmurze..."
+
+#: modules/sharing/mod-cloud-audiocom/menus/AudioComMenus.cpp
 msgid "Save &To Cloud..."
 msgstr "Zapi&sz w chmurze..."
 
 #: modules/sharing/mod-cloud-audiocom/menus/AudioComMenus.cpp
 msgid "&Update Cloud Audio Preview"
 msgstr "Zakt&ualizuj podgląd nagrania w chmurze"
-
-#: modules/sharing/mod-cloud-audiocom/menus/AudioComMenus.cpp
-msgid "Open Fro&m Cloud..."
-msgstr "Otwórz z ch&mury..."
 
 #: modules/sharing/mod-cloud-audiocom/menus/AudioComMenus.cpp
 msgid "S&hare Audio..."
@@ -7317,6 +7382,84 @@ msgstr "Wyloguj &się"
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioComDialogBase.cpp
 msgid "Don't show this again"
 msgstr "Nie pokazuj ponownie"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+msgid "Open cloud audio file"
+msgstr "Otwórz plik nagrania w chmurze"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
+msgid "less than 1 minute"
+msgstr "mniej niż 1 minuta"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#, c-format
+msgid "one minute ago"
+msgid_plural "%d minutes ago"
+msgstr[0] "minutę temu"
+msgstr[1] "%d minuty temu"
+msgstr[2] "%d minut temu"
+msgstr[3] "%d minuty temu"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
+#, c-format
+msgid "one hour ago"
+msgid_plural "%d hours ago"
+msgstr[0] "godzinę temu"
+msgstr[1] "%d godziny temu"
+msgstr[2] "%d godzin temu"
+msgstr[3] "%d godziny temu"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+msgid "Title"
+msgstr "Tytuł"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+msgid "Author"
+msgstr "Autor"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+msgid "Tags"
+msgstr "Znaczniki"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+msgid "Created"
+msgstr "Utworzony"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
+msgid "Failed to authorize account"
+msgstr "Nie udało się autoryzować konta"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+msgid "Loading audio list..."
+msgstr "Ładowanie listy nagrań..."
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+msgid "Failed to get audio list"
+msgstr "Nie udało się uzyskać listy nagrań"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
+msgid "Search:"
+msgstr "Szukaj:"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
+msgid "Prev"
+msgstr "Poprzednie"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
+msgid "View in audio.com"
+msgstr "Wyświetl w Audio.com"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/AudioListDialog.cpp
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
+#, c-format
+msgid "Page %d of %d"
+msgstr "Strona %d z %d"
 
 #. i18n-hint: A title that is shown on the first project save that allows the
 #. user to select Cloud or local save.
@@ -7453,6 +7596,10 @@ msgid "Enter token to link your account"
 msgstr "Wprowadź token, aby połączyć swoje konto"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/LinkWithTokenDialog.cpp
+msgid "Sign-in and get the token"
+msgstr "Zaloguj się i uzyskaj token"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/LinkWithTokenDialog.cpp
 msgid "Token"
 msgstr "Token"
 
@@ -7491,8 +7638,8 @@ msgstr ""
 "Sprawdź ponownie swoje dane uwierzytelniające i spróbuj ponownie!"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/LoginDialog.cpp
-msgid "Create an account to save to the cloud"
-msgstr "Utwórz konto, aby zapisać w chmurze"
+msgid "Create a free cloud storage account to access your projects and audio from any device"
+msgstr "Utwórz darmowe konto w chmurze, aby uzyskać dostęp do swoich projektów i nagrań z dowolnego urządzenia"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/LoginDialog.cpp
 msgid "Sign in to save to the cloud"
@@ -7505,6 +7652,10 @@ msgstr "Kontynuuj z Google"
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/LoginDialog.cpp
 msgid "Continue with Facebook"
 msgstr "Kontynuuj z Facebookiem"
+
+#: modules/sharing/mod-cloud-audiocom/ui/dialogs/LoginDialog.cpp
+msgid "Or use email and password"
+msgstr "Lub użyj e-maila i hasła"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/LoginDialog.cpp
 msgid "Email"
@@ -7532,7 +7683,7 @@ msgstr "Potrzebujesz konta? "
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/LoginDialog.cpp
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/SyncInBackroundDialog.cpp
-#: src/AudioPasteDialog.cpp
+#: src/AudioPasteDialog.cpp src/WhatsNewDialog.cpp
 msgid "Continue"
 msgstr "Kontynuuj"
 
@@ -7619,10 +7770,6 @@ msgid "Open from Cloud"
 msgstr "Otwórz z chmury"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
-msgid "less than 1 minute"
-msgstr "mniej niż 1 minuta"
-
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
 #, c-format
 msgid "one minutes ago"
 msgid_plural "%d minutes ago"
@@ -7632,21 +7779,8 @@ msgstr[2] "%d minut temu"
 msgstr[3] "%d minuty temu"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
-#, c-format
-msgid "one hour ago"
-msgid_plural "%d hours ago"
-msgstr[0] "godzinę temu"
-msgstr[1] "%d godziny temu"
-msgstr[2] "%d godzin temu"
-msgstr[3] "%d godziny temu"
-
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
 msgid "Modified"
 msgstr "Zmodyfikowany"
-
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
-msgid "Failed to authorize account"
-msgstr "Nie udało się autoryzować konta"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
 msgid "Loading projects list..."
@@ -7659,23 +7793,6 @@ msgstr "Nie udało się uzyskać listy projektów"
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
 msgid "Cloud saved projects"
 msgstr "Projekty zapisane w chmurze"
-
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
-msgid "Search:"
-msgstr "Szukaj:"
-
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
-msgid "Prev"
-msgstr "Poprzednie"
-
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
-msgid "View in audio.com"
-msgstr "Wyświetl w Audio.com"
-
-#: modules/sharing/mod-cloud-audiocom/ui/dialogs/ProjectsListDialog.cpp
-#, c-format
-msgid "Page %d of %d"
-msgstr "Strona %d z %d"
 
 #: modules/sharing/mod-cloud-audiocom/ui/dialogs/ShareAudioDialog.cpp
 msgid "Anyone will be able to listen to this audio."
@@ -7843,7 +7960,7 @@ msgstr "Audacity nie może połączyć się z MuseHub.com. Sprawdź swoje połą
 msgid "Try again"
 msgstr "Spróbuj ponownie"
 
-#: modules/sharing/mod-musehub-ui/GetEffectsDialog.cpp
+#: modules/sharing/mod-musehub-ui/GetEffectsDialog.cpp src/WhatsNewDialog.cpp
 msgid "Get it on MuseHub"
 msgstr "Uzyskaj na MuseHubie"
 
@@ -8067,7 +8184,7 @@ msgstr "O %s"
 #. *  For example:  "English translation by Dominic Mazzoni."
 #: src/AboutDialog.cpp
 msgid "translator_credits"
-msgstr "Polskie tłumaczenie Audacity: Grzegorz „Gootector” Pruchniakowski."
+msgstr "Polskie tłumaczenie Audacity: Grzegorz Pruchniakowski."
 
 #: src/AboutDialog.cpp
 msgid "<h3>"
@@ -8685,9 +8802,9 @@ msgid ""
 "Associate them, so they open on double-click?"
 msgstr ""
 "Pliki projektów Audacity (.aup3) nie są \n"
-"obecnie przypisane do programu Audacity. \n"
+"obecnie przypisane do Audacity. \n"
 "\n"
-"Przypisać je, aby móc otworzyć je programem przez dwukrotne kliknięcie przyciskiem myszki?"
+"Przypisać je, aby móc otworzyć je przez dwukrotne kliknięcie przyciskiem myszki?"
 
 #: src/AudacityApp.cpp
 msgid "Audacity Project Files"
@@ -9554,8 +9671,7 @@ msgstr ""
 "\n"
 "Inne aplikacje konkurują z Audacity o czas procesora\n"
 "\n"
-"Zapisujesz bezpośrednio na wolnym zewnętrznym urządzeniu\n"
-"pamięci masowej\n"
+"Zapisujesz bezpośrednio na wolnym zewnętrznym urządzeniu pamięci masowej\n"
 
 #: src/DropoutDetector.cpp
 msgid "Turn off dropout detection"
@@ -9901,7 +10017,7 @@ msgstr "Wprowadź nazwę ścieżki"
 #. * time Audacity has been run.
 #: src/LangChoice.cpp
 msgid "Audacity First Run"
-msgstr "Pierwsze uruchomienie programu Audacity"
+msgstr "Pierwsze uruchomienie Audacity"
 
 #: src/LangChoice.cpp
 msgid "Choose Language for Audacity to use:"
@@ -10525,7 +10641,7 @@ msgstr "Ten projekt zawierał ścieżki stereo z różnymi częstotliwościami p
 #. i18n-hint: explains why opened project was auto-modified
 #: src/ProjectFileManager.cpp
 msgid "This project contained stereo tracks with different sample formats in channels."
-msgstr "Ten projekt zawierał ścieżki stereo z różnymi formatami próbek w kanałach."
+msgstr "Ten projekt zawierał ścieżki stereo z różnymi formatami próbkowania w kanałach."
 
 #. i18n-hint: explains why opened project was auto-modified
 #: src/ProjectFileManager.cpp
@@ -10820,7 +10936,7 @@ msgstr "Efekty w czasie rzeczywistym dla %s"
 msgid "Realtime Effects"
 msgstr "Efekty w czasie rzeczywistym"
 
-#: src/RealtimeEffectPanel.cpp
+#: src/RealtimeEffectPanel.cpp src/WhatsNewDialog.cpp
 msgid "Watch video"
 msgstr "Obejrzyj wideo"
 
@@ -11460,7 +11576,7 @@ msgstr "Przesunięto „%s” na samą górę"
 
 #: src/TrackUtilities.cpp
 msgid "Move Track to Top"
-msgstr "Przesuń ścieżkę dźwiękową na samą górę"
+msgstr "Przesuń ścieżkę na samą górę"
 
 #. i18n-hint: Past tense of 'to move', as in 'moved audio track up'.
 #: src/TrackUtilities.cpp
@@ -11470,7 +11586,7 @@ msgstr "Przesunięto „%s” na sam dół"
 
 #: src/TrackUtilities.cpp
 msgid "Move Track to Bottom"
-msgstr "Przesuń ścieżkę dźwiękową na sam dół"
+msgstr "Przesuń ścieżkę na sam dół"
 
 #. i18n-hint: Past tense of 'to move', as in 'moved audio track up'.
 #: src/TrackUtilities.cpp
@@ -11486,11 +11602,11 @@ msgstr "Przesunięto „%s” niżej"
 #. i18n-hint: Past tense of 'to move', as in 'moved audio track up'.
 #: src/TrackUtilities.cpp
 msgid "Move Track Up"
-msgstr "Przesuń ścieżkę dźwiękową wyżej"
+msgstr "Przesuń ścieżkę wyżej"
 
 #: src/TrackUtilities.cpp
 msgid "Move Track Down"
-msgstr "Przesuń ścieżkę dźwiękową niżej"
+msgstr "Przesuń ścieżkę niżej"
 
 #. i18n-hint: These are strings for the status bar, and indicate whether Audacity
 #. is playing or recording or stopped, and whether it is paused;
@@ -11541,109 +11657,40 @@ msgid "Calibration Complete"
 msgstr "Kalibracja zakończona"
 
 #: src/WhatsNewDialog.cpp
-msgid "<font color=\"#000000\">"
-msgstr "<font color=\"#000000\">"
-
-#: src/WhatsNewDialog.cpp
-msgid "Sign up to Audacity's cloud saving platform"
-msgstr "Zarejestruj się na platformie Audacity do zapisywania danych w chmurze"
-
-#: src/WhatsNewDialog.cpp
-msgid "and access your projects from anywhere!"
-msgstr "i uzyskaj dostęp do swoich projektów z dowolnego miejsca!"
-
-#: src/WhatsNewDialog.cpp
-msgid "</font>"
-msgstr "</font>"
-
-#: src/WhatsNewDialog.cpp
-#, c-format
-msgid "What's new in Audacity %s"
-msgstr "Co nowego w Audacity %s"
-
-#: src/WhatsNewDialog.cpp
-#, c-format
-msgid "Watch the [[%s|release video]] or read the [[%s|changelog]] to learn more about what we have included in the latest release!</p>"
-msgstr "Obejrzyj [[%s|wideo o wydaniu]] lub przeczytaj [[%s|dziennik zmian]], aby dowiedzieć się więcej o tym, co zawarliśmy w najnowszej wersji!</p>"
-
-#: src/WhatsNewDialog.cpp
-#, c-format
-msgid "You can also read the [[%s|changelog]]</p>"
-msgstr "Możesz również przeczytać [[%s|dziennik zmian]]</p>"
-
-#: src/WhatsNewDialog.cpp
-msgid "Get free plugins & sounds"
-msgstr "Uzyskaj darmowe wtyczki i dźwięki"
-
-#: src/WhatsNewDialog.cpp
-#, c-format
-msgid "<p>Check out our [[%s|Muse Hub app]] for a wide range of audio plugins for Audacity users</p>"
-msgstr "<p>Sprawdź naszą [[%s|aplikację MuseHub]], w której znajdziesz szeroką gamę wtyczek dźwiękowych dla użytkowników Audacity</p>"
-
-#: src/WhatsNewDialog.cpp
-msgid "A vocal processing effect that enhances vocal clarity and depth."
-msgstr "Efekt przetwarzania wokalu, który poprawia jego klarowność i głębię."
-
-#: src/WhatsNewDialog.cpp
-msgid "A multipurpose reverb plugin for spacious, natural-sounding effects."
-msgstr "Wielofunkcyjna wtyczka pogłosu umożliwiająca uzyskanie przestrzennych, naturalnie brzmiących efektów."
-
-#: src/WhatsNewDialog.cpp
-msgid "A guitar amp and effects modelling plugin for realistic tones and customizable sounds."
-msgstr "Wtyczka do modelowania wzmacniacza gitarowego i efektów, pozwalająca uzyskać realistyczne brzmienia i możliwość ich dostosowania."
-
-#: src/WhatsNewDialog.cpp
-msgid "A responsive reverb plugin that adapts to track dynamics for immersive soundscapes."
-msgstr "Wtyczka pogłosu, która dostosowuje się do dynamiki ścieżki, zapewniając wciągające pejzaże dźwiękowe."
-
-#: src/WhatsNewDialog.cpp
-msgid "A vocal multi-effect plugin that enhances vocal tracks for professional results."
-msgstr "Wtyczka wokalna z wieloma efektami, która wzbogaca ścieżki wokalne, zapewniając profesjonalne rezultaty."
-
-#: src/WhatsNewDialog.cpp
-msgid "A bass effect plugin designed to deliver punchy, clear low-end sound."
-msgstr "Wtyczka z efektem basowym zaprojektowana w celu uzyskania mocnego, czystego dźwięku o niskich częstotliwościach."
-
-#: src/WhatsNewDialog.cpp
-msgid "A plugin for acoustic sound perfection, enhancing warmth and clarity."
-msgstr "Wtyczka umożliwiająca uzyskanie doskonałego brzmienia akustycznego, zwiększająca ciepło i klarowność."
-
-#: src/WhatsNewDialog.cpp
-msgid "An amazing voice enhancement plugin for crystal-clear, professional vocal effects."
-msgstr "Niesamowita wtyczka do poprawy głosu, zapewniająca krystalicznie czyste, profesjonalne efekty wokalne."
-
-#: src/WhatsNewDialog.cpp
-msgid "A real-time stem separation tool to isolate vocals, drums, and instruments."
-msgstr "Narzędzie do separacji ścieżek w czasie rzeczywistym, umożliwiające izolację wokali, perkusji i instrumentów."
-
-#: src/WhatsNewDialog.cpp
-#, c-format
-msgid "Check out a variety of plugins by well known developers available on [[%s|MuseHub]]."
-msgstr "Sprawdź różnorodne wtyczki od znanych deweloperów dostępne na [[%s|MuseHubie]]."
-
-#: src/WhatsNewDialog.cpp
-msgid "A multiband compressor offering precise control over frequencies."
-msgstr "Kompresor wielopasmowy zapewniający precyzyjną kontrolę częstotliwości."
-
-#: src/WhatsNewDialog.cpp
-msgid "Ace Studio - The World's No.1 AI Singing Voice Generator."
-msgstr "Ace Studio - wiodący na świecie generator głosu wokalnego oparty na sztucznej inteligencji."
-
-#: src/WhatsNewDialog.cpp
-msgid "Continue for Cloud Storage"
-msgstr "Kontynuuj dla pamięci masowej w chmurze"
-
-#: src/WhatsNewDialog.cpp
 msgid "Welcome to Audacity!"
 msgstr "Witaj w Audacity!"
 
 #: src/WhatsNewDialog.cpp
-msgid "Watch the release video"
-msgstr "Obejrzyj wideo o wydaniu"
+msgid "Video: how we're redesigning Audacity for the future"
+msgstr "Wideo: jak przeprojektowujemy Audacity z myślą o przyszłości"
 
 #: src/WhatsNewDialog.cpp
-msgid "Available on MuseHub"
-msgstr "Dostępne na MuseHubie"
+msgid "Complete your Audacity cloud setup with audio.com"
+msgstr "Wypełnij ustawienia chmury Audacity za pomocą Audio.com"
+
+#: src/WhatsNewDialog.cpp
+msgid "Get our free OpenVino AI tools"
+msgstr "Uzyskaj nasze darmowe narzędzia OpenVino AI"
+
+#: src/WhatsNewDialog.cpp
+msgid "Explore free plugins for sculpting your audio"
+msgstr "Poznaj darmowe wtyczki do obróbki dźwięku"
+
+#: src/WhatsNewDialog.cpp
+msgid "View free plugins"
+msgstr "Wyświetl darmowe wtyczki"
+
+#: src/WhatsNewDialog.cpp
+msgid "25th Anniversary Merchandise!"
+msgstr "25-lecie marki!"
+
+#: src/WhatsNewDialog.cpp
+msgid "Visit now"
+msgstr "Odwiedź teraz"
+
+#: src/WhatsNewDialog.cpp
+msgid "Visit our new Audacity merch store"
+msgstr "Odwiedź nasz nowy sklep Audacity"
 
 #: src/WhatsNewDialog.cpp
 msgid "View tutorials"
@@ -11653,9 +11700,9 @@ msgstr "Wyświetl samouczki"
 msgid "Visit our forum"
 msgstr "Odwiedź nasze forum"
 
-#: src/WhatsNewDialog.cpp src/update/UpdatePopupDialog.cpp
-msgid "Don't show this again at start up"
-msgstr "Nie pokazuj ponownie tego przy starcie"
+#: src/WhatsNewDialog.cpp
+msgid "&Don't show this again at start up"
+msgstr "Ni&e pokazuj ponownie tego przy starcie"
 
 #. i18n-hint: An item name followed by a value, with appropriate separating punctuation
 #: src/commands/AudacityCommand.cpp src/effects/EffectUIServices.cpp
@@ -13110,21 +13157,21 @@ msgstr "W&yjście"
 
 #: src/effects/DynamicRangeProcessorEditor.cpp
 msgid "A&ctual compression"
-msgstr "Rze&czywista kompresja"
+msgstr "Kompresja rze&czywista"
 
 #. i18n-hint: show actual compression on a graph
 #: src/effects/DynamicRangeProcessorEditor.cpp
 msgid "Show actual compression"
-msgstr "Pokaż rzeczywistą kompresję"
+msgstr "Pokaż kompresję rzeczywistą"
 
 #: src/effects/DynamicRangeProcessorEditor.cpp
 msgid "Tar&get compression"
-msgstr "Kompr&esja celu"
+msgstr "Kompr&esja docelowa"
 
 #. i18n-hint: show target compression on a graph
 #: src/effects/DynamicRangeProcessorEditor.cpp
 msgid "Show target compression"
-msgstr "Pokaż kompresję celu"
+msgstr "Pokaż kompresję docelową"
 
 #: src/effects/DynamicRangeProcessorEditor.cpp
 msgid "Compression curve"
@@ -13144,7 +13191,7 @@ msgstr "Upiększanie wz&mocnienia (dB)"
 
 #: src/effects/DynamicRangeProcessorEditor.h
 msgid "&Make-up target (dB)"
-msgstr "Upiększa&nie celu (dB)"
+msgstr "Upiększa&nie docelowe (dB)"
 
 #: src/effects/DynamicRangeProcessorEditor.h
 msgid "Knee &width (dB)"
@@ -13172,11 +13219,11 @@ msgstr "Wejście"
 
 #: src/effects/DynamicRangeProcessorHistoryPanel.cpp
 msgid "Actual Compression"
-msgstr "Rzeczywista kompresja"
+msgstr "Kompresja rzeczywista"
 
 #: src/effects/DynamicRangeProcessorHistoryPanel.cpp
 msgid "Target Compression"
-msgstr "Kompresja celu"
+msgstr "Kompresja docelowa"
 
 #: src/effects/DynamicRangeProcessorHistoryPanel.cpp
 msgid "awaiting playback"
@@ -13192,7 +13239,7 @@ msgstr "Współ&czynnik opadania:"
 
 #: src/effects/EffectPresetDialog.cpp
 msgid "Select Preset"
-msgstr "Zaznacz preset"
+msgstr "Wybierz preset"
 
 #: src/effects/EffectPresetDialog.cpp
 msgid "&Preset:"
@@ -13801,8 +13848,8 @@ msgid ""
 "Select all of the audio you want filtered, choose how much noise you want\n"
 "filtered out, and then click 'OK' to reduce noise.\n"
 msgstr ""
-"Zaznacz cały dźwięk, który chcesz przefiltrować, wybierz ilość szumów do\n"
-"przefiltrowania i kliknij na przycisk „OK”, aby zredukować szumy.\n"
+"Zaznacz cały dźwięk, który chcesz przefiltrować, wybierz, ile szumu chcesz\n"
+"przefiltrować i kliknij na przycisk „OK”, aby zredukować szum.\n"
 
 #: src/effects/NoiseReduction.cpp
 msgid "Noise:"
@@ -14651,7 +14698,7 @@ msgstr "Numerowanie po przedrostku nazwy pliku"
 
 #: src/export/ExportAudioDialog.cpp
 msgid "Export Range:"
-msgstr "Eksportuj zakres:"
+msgstr "Zakres eksportu:"
 
 #: src/export/ExportAudioDialog.cpp
 msgid "Export entire project"
@@ -15566,7 +15613,7 @@ msgstr "Dodaj etykietę w miej&scu zaznaczenia"
 
 #: src/menus/LabelMenus.cpp
 msgid "Add Label at &Playback Position"
-msgstr "Dodaj etykietę w &pozycji odtwarzania"
+msgstr "Dodaj etykietę w miejscu odtwa&rzania"
 
 #: src/menus/LabelMenus.cpp
 msgid "Paste Te&xt to New Label"
@@ -15708,13 +15755,13 @@ msgstr "Przełącz się mię&dzy skupionymi ścieżkami"
 #. the user's interactions with the application
 #: src/menus/PluginMenus.cpp
 msgid "A journal will be recorded after Audacity restarts."
-msgstr "Dziennik zostanie nagrany po ponownym uruchomieniu Audacity."
+msgstr "Dziennik zostanie nagrany po zrestartowaniu Audacity."
 
 #. i18n-hint a "journal" is a text file that records
 #. the user's interactions with the application
 #: src/menus/PluginMenus.cpp
 msgid "No journal will be recorded after Audacity restarts."
-msgstr "Żaden dziennik nie zostanie nagrany po ponownym uruchomieniu Audacity."
+msgstr "Żaden dziennik nie zostanie nagrany po zrestartowaniu Audacity."
 
 #: src/menus/PluginMenus.cpp
 msgid "Plugin Manager"
@@ -15731,10 +15778,6 @@ msgstr "Efe&kt"
 #: src/menus/PluginMenus.cpp
 msgid "Add Realtime Effects"
 msgstr "Dodaj efekty w czasie rzeczywistym"
-
-#: src/menus/PluginMenus.cpp
-msgid "Get AI effects..."
-msgstr "Uzyskaj efekty SI..."
 
 #: src/menus/PluginMenus.cpp
 msgid "Repeat Last Effect"
@@ -16842,7 +16885,7 @@ msgstr "D&omyślna częstotliwość próbkowania:"
 
 #: src/prefs/DevicePrefs.cpp
 msgid "Default Sample &Format:"
-msgstr "Domyślny &format próbek:"
+msgstr "Domyślny &format próbkowania:"
 
 #: src/prefs/DevicePrefs.cpp
 msgid "Latency"
@@ -16992,7 +17035,7 @@ msgstr "Katalog %s nie jest przeznaczony do zapisu"
 
 #: src/prefs/DirectoriesPrefs.cpp
 msgid "Changes to temporary directory will not take effect until Audacity is restarted"
-msgstr "Zmiana katalogu tymczasowego będzie nieaktywna aż do ponownego uruchomienia Audacity"
+msgstr "Zmiana katalogu tymczasowego będzie nieaktywna aż do zrestartowania Audacity"
 
 #: src/prefs/DirectoriesPrefs.cpp
 msgid "Temp Directory Update"
@@ -17374,7 +17417,7 @@ msgstr ""
 
 #: src/prefs/KeyConfigPrefs.cpp
 msgid "Select an XML file containing Audacity keyboard shortcuts..."
-msgstr "Wybierz plik XML zawierający skróty klawiaturowe programu Audacity..."
+msgstr "Wybierz plik XML zawierający skróty klawiaturowe Audacity..."
 
 #: src/prefs/KeyConfigPrefs.cpp
 msgid "Error Importing Keyboard Shortcuts"
@@ -17519,7 +17562,7 @@ msgstr ""
 
 #: src/prefs/ModulePrefs.cpp
 msgid "Changes to these settings only take effect when restarting Audacity.\n"
-msgstr "Zmiany w tych ustawieniach zaczną obowiązywać dopiero po ponownym uruchomieniu Audacity.\n"
+msgstr "Zmiany w tych ustawieniach zaczną obowiązywać dopiero po zrestartowaniu Audacity.\n"
 
 #: src/prefs/ModulePrefs.cpp
 msgid "Always ask"
@@ -17856,7 +17899,7 @@ msgstr "&Kwantyzacja nut"
 
 #: src/prefs/SpectrumPrefs.cpp
 msgid "Global settings"
-msgstr "Ustawienia ogólne"
+msgstr "Ustawienia główne"
 
 #: src/prefs/SpectrumPrefs.cpp
 msgid "Ena&ble spectral selection"
@@ -19159,7 +19202,7 @@ msgstr "&Format"
 
 #: src/tracks/playabletrack/wavetrack/ui/WaveTrackControls.cpp
 msgid "Changing sample format"
-msgstr "Zmienianie formatu próbki"
+msgstr "Zmienianie formatu próbkowania"
 
 #: src/tracks/playabletrack/wavetrack/ui/WaveTrackControls.cpp
 #, c-format
@@ -19513,19 +19556,19 @@ msgstr "Zmień &nazwę ścieżki..."
 
 #: src/tracks/ui/CommonTrackControls.cpp
 msgid "Move Track &Up"
-msgstr "Przes&uń ścieżkę dźwiękową wyżej"
+msgstr "Przes&uń ścieżkę wyżej"
 
 #: src/tracks/ui/CommonTrackControls.cpp
 msgid "Move Track &Down"
-msgstr "Przesuń ścieżkę &dźwiękową niżej"
+msgstr "Prz&esuń ścieżkę niżej"
 
 #: src/tracks/ui/CommonTrackControls.cpp
 msgid "Move Track to &Top"
-msgstr "Pr&zesuń ścieżkę dźwiękową na samą górę"
+msgstr "Pr&zesuń ścieżkę na samą górę"
 
 #: src/tracks/ui/CommonTrackControls.cpp
 msgid "Move Track to &Bottom"
-msgstr "Przesuń ścieżkę &dźwiękową na sam dół"
+msgstr "Przesuń ś&cieżkę na sam dół"
 
 #: src/tracks/ui/CommonTrackControls.cpp
 msgid "Set Track Name"
@@ -19740,6 +19783,34 @@ msgstr "Przeciągnij, aby powiększyć obszar; kliknij prawym przyciskiem myszki
 msgid "Left=Zoom In, Right=Zoom Out, Middle=Normal"
 msgstr "Lewy=Powiększ, Prawy=Pomniejsz, Środkowy=Normalny"
 
+#: src/update/Audacity40PromoDialog.cpp
+msgid "Install Audacity 4"
+msgstr "Zainstaluj Audacity 4"
+
+#: src/update/Audacity40PromoDialog.cpp
+msgid ""
+"Audacity 4 is here! Packed with hundreds of upgrades that make it faster and\n"
+"easier to use than ever."
+msgstr ""
+"Audacity 4 już jest! Wyposażony w setki ulepszeń, dzięki którym jest szybszy\n"
+"i łatwiejszy w użyciu niż kiedykolwiek."
+
+#: src/update/Audacity40PromoDialog.cpp
+msgid "Installation does not affect Audacity 3, so your existing setup remains untouched."
+msgstr "Instalacja nie ma wpływu na Audacity 3, więc istniejące ustawienia pozostają niezmienione."
+
+#: src/update/Audacity40PromoDialog.cpp
+msgid "Discover what's new in our full feature breakdown."
+msgstr "Odkryj nowości w naszym pełnym zestawie funkcji."
+
+#: src/update/Audacity40PromoDialog.cpp
+msgid "No thanks"
+msgstr "Nie, dziękuję"
+
+#: src/update/Audacity40PromoDialog.cpp
+msgid "Remind me later"
+msgstr "Przypomnij mi później"
+
 #. i18n-hint: Title of the dialog no updates available.
 #: src/update/NoUpdatesAvailableDialog.cpp
 msgid "No Updates Available"
@@ -19839,10 +19910,22 @@ msgstr "Wyłącz UUID"
 msgid "Accept && continue"
 msgstr "Zaakceptuj &i kontynuuj"
 
+#: src/update/UpdateNotificationDialog.cpp
+msgid "&Remind me later"
+msgstr "P&rzypomnij mi później"
+
+#: src/update/UpdateNotificationDialog.cpp
+msgid "&Dismiss"
+msgstr "O&drzuć"
+
 #: src/update/UpdatePopupDialog.cpp
 msgctxt "update dialog"
 msgid "Update Audacity"
 msgstr "Zaktualizuj Audacity"
+
+#: src/update/UpdatePopupDialog.cpp
+msgid "Don't show this again at start up"
+msgstr "Nie pokazuj ponownie tego przy starcie"
 
 #: src/update/UpdatePopupDialog.cpp
 msgctxt "update dialog"

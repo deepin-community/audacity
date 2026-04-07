@@ -30,10 +30,10 @@ index 6ed6283..898824f 100644
  function help()
  {
 diff --git a/linux/create_appimage.sh b/linux/create_appimage.sh
-index cde5412..0879904 100755
+index 743805e..7c65a05 100755
 --- a/linux/create_appimage.sh
 +++ b/linux/create_appimage.sh
-@@ -120,7 +120,6 @@ linuxdeploy --list-plugins
+@@ -117,7 +117,6 @@ linuxdeploy --list-plugins
  # Create symlinks
  #============================================================================
  

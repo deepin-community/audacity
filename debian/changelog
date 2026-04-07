@@ -1,3 +1,53 @@
+audacity (3.7.7+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.7.7+dfsg
+  * Bump Standards-Version to 4.7.3
+
+ -- Dennis Braun <snd@debian.org>  Fri, 26 Dec 2025 14:49:07 +0100
+
+audacity (3.7.6+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.7.6+dfsg
+  * Update d/watch to version 5
+  * Refresh patchset
+
+ -- Dennis Braun <snd@debian.org>  Wed, 10 Dec 2025 16:12:58 +0100
+
+audacity (3.7.5+dfsg-4) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Fix FTCBFS: (Closes: #1121523)
+    + Add back the host's libportmidi-dev to Build-Depends.
+    + Recompute compiler flags for the native build pass for arm64.
+
+ -- Dennis Braun <snd@debian.org>  Mon, 01 Dec 2025 23:14:17 +0100
+
+audacity (3.7.5+dfsg-3) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Fix FTCBFS: (Closes: #1121309)
+    + Enable portmidi in native build pass.
+    + Update location of native image-compiler.
+
+  [ Dennis Braun ]
+  * Remove redudant rules-requires-root-no field
+
+ -- Dennis Braun <snd@debian.org>  Tue, 25 Nov 2025 17:55:07 +0100
+
+audacity (3.7.5+dfsg-2) unstable; urgency=medium
+
+  * Build with vst3sdk support. Thanks to Andrius Merkys (Closes: #1094467)
+
+ -- Dennis Braun <snd@debian.org>  Sun, 28 Sep 2025 19:59:03 +0200
+
+audacity (3.7.5+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 3.7.5+dfsg
+    Closes: #1096342
+  * Refresh patchset
+
+ -- Dennis Braun <snd@debian.org>  Sat, 16 Aug 2025 14:55:47 +0200
+
 audacity (3.7.3+dfsg-1) unstable; urgency=medium
 
   * New upstream version 3.7.3+dfsg

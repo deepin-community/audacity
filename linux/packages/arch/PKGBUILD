@@ -8,38 +8,50 @@ license=(GPL)
 
 arch=(x86_64)
 
-depends=(zlib
-   alsa-lib
-   gtk2
-   expat
-   libid3tag
-   libogg
-   libvorbis
-   flac
-   lame
-   twolame
-   libsndfile
-   jack
-   lilv
-   lv2
-   portaudio
-   portsmf
-   portmidi
-   suil
-   vamp-plugin-sdk
-   libsoxr
-   soundtouch
-   libpng
-   libjpeg-turbo
-   libsm
-   harfbuzz
-   freetype2
-   fontconfig
-   mesa
-   mpg123
-   wavpack
-   wxwidgets-gtk3
-   vst3sdk
+depends=(
+  alsa-lib
+  expat
+  ffmpeg
+  flac
+  gcc-libs
+  gdk-pixbuf2
+  glib2
+  glibc
+  gtk3
+  gtkmm3
+  jack
+  lame
+  libid3tag
+  libmad
+  libogg
+  libsbsms
+  libsndfile
+  libsoxr
+  libvorbis
+  libxkbcommon-x11
+  lilv
+  lv2
+  mpg123
+  opusfile
+  portaudio
+  portmidi
+  portsmf
+  rapidjson
+  soundtouch
+  serd
+  sord
+  sratom
+  sqlite
+  suil
+  twolame
+  vamp-plugin-sdk
+  vst3sdk
+  wavpack
+  wxwidgets-gtk3
+  xcb-util
+  xcb-util-cursor
+  xcb-util-keysyms
+  zlib
 )
 
 makedepends=(
@@ -62,6 +74,10 @@ md5sums=(
 )
 
 build() {
+    # temporary force C++17, to avoid build errors with GCC 15.1
+    export CFLAGS+=" -std=gnu17"
+    export CXXFLAGS+=" -std=gnu++17"
+
     cmake_args=(
         -D CMAKE_BUILD_TYPE=Release
         -D CMAKE_INSTALL_PREFIX=/usr
@@ -69,6 +85,8 @@ build() {
         -D audacity_use_pch=no
         -D audacity_use_sbsms=local # sbsms is only available in AUR
         -D audacity_has_vst3=no
+        -D CMAKE_C_FLAGS="${CFLAGS}"
+        -D CMAKE_CXX_FLAGS="${CXXFLAGS}"
         #-D audacity_use_vst3sdk=system
     )
 

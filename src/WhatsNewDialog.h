@@ -12,6 +12,7 @@
 #pragma once
 
 #include "wxPanelWrapper.h"
+#include <wx/image.h>
 
 class wxCheckBox;
 class ShuttleGui;
@@ -32,6 +33,9 @@ private:
    void OnWatchReleaseVideo(wxCommandEvent&);
    void OnGoToMuseHub(wxCommandEvent&);
    void OnGoToAudioCom(wxCommandEvent&);
+
+   wxImage Rescale(const wxImage& image, int width, int height);
+   wxImage LoadEmbeddedImage(const unsigned char* data, size_t len);
 
    DECLARE_EVENT_TABLE()
 };

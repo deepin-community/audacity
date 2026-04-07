@@ -91,7 +91,7 @@ class wxWidgetsAudacityDependency:
     override: bool = False
 
     def reference(self, conanfile):
-        return f"{self.name}/3.1.3.7-audacity@audacity/stable"
+        return f"{self.name}/3.1.3.9-audacity@audacity/stable"
 
     def apply_options(self, conanfile, package):
         opts = [
@@ -158,15 +158,13 @@ class PortAudioDependency(AudacityDependency):
 @dataclass
 class CurlDependency(AudacityDependency):
     def __init__(self, package_options: dict = None):
-        super().__init__("libcurl", "7.82.0", package_options=package_options)
+        super().__init__("libcurl", "8.17.0", package_options=package_options)
 
     def apply_options(self, conanfile, package):
         super().apply_options(conanfile, package)
 
         if conanfile.settings.os == "Windows":
             package.with_ssl = "schannel"
-        elif conanfile.settings.os == "Macos":
-            package.with_ssl = "darwinssl"
         else:
             package.with_ssl = "openssl"
 
@@ -180,8 +178,8 @@ class AudacityConan(ConanFile):
 
     # List of Audacity dependencies
     _dependencies = [
-        AudacityDependency("zlib", "1.2.13"),
-        AudacityDependency("libpng", "1.6.39"),
+        AudacityDependency("zlib", "1.3.1"),
+        AudacityDependency("libpng", "1.6.50"),
         AudacityDependency("expat", "2.5.0"),
         AudacityDependency("libjpeg-turbo", "2.1.5"),
         wxWidgetsAudacityDependency(),
@@ -189,10 +187,10 @@ class AudacityConan(ConanFile):
         AudacityDependency("libmp3lame", "3.100"),
         AudacityDependency("mpg123", "1.31.2", package_options={ "network": False }),
         AudacityDependency("libid3tag", "0.15.2b", package_options={ "shared": False }),
-        AudacityDependency("wavpack", "5.6.0"),
+        AudacityDependency("wavpack", "5.7.0"),
         AudacityDependency("ogg", "1.3.5"),
         AudacityDependency("flac", "1.4.2"),
-        AudacityDependency("opus", "1.4.0", override=True),
+        AudacityDependency("opus", "1.5.2", override=True),
         AudacityDependency("opusfile", "0.12", package_options={ "shared": False, "http": False }),
         AudacityDependency("vorbis", "1.3.7"),
         AudacityDependency("libsndfile", "1.0.31", package_options={ "programs": False }),

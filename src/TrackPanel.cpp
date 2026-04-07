@@ -266,7 +266,9 @@ TrackPanel::TrackPanel(wxWindow * parent, wxWindowID id,
      mTracks(tracks),
      mRuler(ruler),
      mTrackArtist(nullptr),
-     mRefreshBacking(false)
+     mRefreshBacking(false),
+     mIsPanning(false),
+     mLastPanX(0)
 #ifndef __WXGTK__   //Get rid if this pragma for gtk
 #pragma warning( default: 4355 )
 #endif
@@ -741,6 +743,21 @@ void TrackPanel::OnMouseEvent(wxMouseEvent & event)
       mTimer.Start(std::chrono::milliseconds{kTimerInterval}.count(), FALSE);
    }
 
+   if (event.MiddleDown()) {
+      mIsPanning = true;
+      mLastPanX = event.GetX();
+      CaptureMouse();
+   }
+   else if (event.MiddleUp()) {
+      mIsPanning = false;
+      ReleaseMouse();
+   }
+   else if (event.Dragging() && mIsPanning) {
+      int dx = event.GetX() - mLastPanX;
+      mLastPanX = event.GetX();
+
+      Viewport::Get(*GetProject()).ScrollHorizontalByPixels(-dx);
+   }
 
    if (event.ButtonUp()) {
       //ShowTrack should be called after processing the up-click.

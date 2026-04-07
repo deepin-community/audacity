@@ -31,10 +31,10 @@ Signed-off-by: Benjamin Drung <benjamin.drung@canonical.com>
  4 files changed, 20 insertions(+), 5 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 2e91683..2e838c3 100644
+index 040bf48..9ecdeb4 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -431,6 +431,7 @@ set( INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" )
+@@ -438,6 +438,7 @@ set( INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" )
  set( _LIBDIR "${CMAKE_INSTALL_LIBDIR}" )
  set( _DATADIR "${CMAKE_INSTALL_DATADIR}" )
  set( _PKGLIB "${_LIBDIR}/audacity" )
@@ -95,10 +95,10 @@ index 64cfdd8..a892d95 100644
     "${DEFINES}" "" )
 +install_audacity_module( mod-script-pipe )
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 6df0c3e..cc13e7d 100644
+index c63e5cc..b1b6759 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -1412,11 +1412,6 @@ else()
+@@ -1424,11 +1424,6 @@ else()
                 RUNTIME
                 RESOURCE DESTINATION "${_PKGDATA}" )
  

@@ -561,6 +561,8 @@ set( SOURCES
       menus/EditMenus.cpp
       menus/ExtraMenus.cpp
       menus/FileMenus.cpp
+      menus/GetEffectsHelper.cpp
+      menus/CloudLoginHelper.cpp
       menus/HelpMenus.cpp
       menus/LabelMenus.cpp
       menus/MenuHelper.cpp
@@ -896,10 +898,20 @@ set( SOURCES
           update/VersionPatch.h
           update/UpdateDataParser.h
           update/UpdateDataParser.cpp
+          update/UpdateDataStructures.h
+          update/ReleaseInfo.h
+          update/UpdateFeedMigrationParser.h
+          update/UpdateFeedMigrationParser.cpp
           update/UpdateManager.h
           update/UpdateManager.cpp
           update/UpdateNoticeDialog.h
           update/UpdateNoticeDialog.cpp
+          update/UpdateNotificationDialog.h
+          update/UpdateNotificationDialog.cpp
+          update/CustomNotificationRegistry.h
+          update/CustomNotificationRegistry.cpp
+          update/Audacity40PromoDialog.h
+          update/Audacity40PromoDialog.cpp
           update/UpdatePopupDialog.h
           update/UpdatePopupDialog.cpp
           prefs/ApplicationPrefs.h
